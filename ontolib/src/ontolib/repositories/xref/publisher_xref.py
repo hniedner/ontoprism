@@ -16,7 +16,11 @@ from ontolib.repositories.xref.models import (
     UberonPublisherGenerationMetadata,
 )
 from ontolib.repositories.xref.publication import fail_run_on_error, publish_generation
-from ontolib.repositories.xref.vocab import CLOSE_MATCH, DATABASE_CROSS_REFERENCE
+from ontolib.repositories.xref.vocab import (
+    CLOSE_MATCH,
+    DATABASE_CROSS_REFERENCE,
+    UBERON_CL_CURIE_PREFIXES,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
@@ -90,7 +94,7 @@ def _parse_assertions(rows: list[dict[str, str]]) -> list[tuple[str, str]]:
         upstream = row["upstream"]
         xref = row["xref"]
         curie = _iri_to_curie(upstream)
-        if curie is None or not curie.startswith(("UBERON:", "CL:")):
+        if curie is None or not curie.startswith(UBERON_CL_CURIE_PREFIXES):
             raise PublisherXrefSourceError(f"unsupported publisher concept: {upstream}")
         code = xref.removeprefix("NCIT:")
         if not _NCIT_CODE.fullmatch(code):

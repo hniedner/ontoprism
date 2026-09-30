@@ -25,7 +25,7 @@
 	function navigate(update: (params: URLSearchParams) => void): void { navigateRepositoryGrid(resolve('/repositories/clinicaltrials'), page.url, update, goto); }
 	function search(term = queryValue): void { goto(repositorySearchHref('clinicaltrials', page.url, term)); }
 	const filters = $derived<Record<string, DataTableFilterState>>(Object.fromEntries(Object.entries(data.filters).map(([key, selected]) => [key, { kind: 'categorical', selected }])));
-	function intent(value: DataTableIntent): void { void navigate((params) => { params.delete('cursor'); if (value.kind === 'filter') { params.delete(value.columnId); for (const selected of value.filter.selected) params.append(value.columnId, selected); } else if (value.kind === 'clear-filter') params.delete(value.columnId); else if (value.kind === 'clear-filters' || value.kind === 'reset') { clearGridFilters(params, Object.keys(data.filters)); if (value.kind === 'reset') params.delete('size'); } }); }
+	function intent(value: DataTableIntent): void { void navigate((params) => { params.delete('cursor'); if (value.kind === 'filter') { params.delete(value.columnId); if (value.filter.kind === 'categorical') for (const selected of value.filter.selected) params.append(value.columnId, selected); } else if (value.kind === 'clear-filter') params.delete(value.columnId); else if (value.kind === 'clear-filters' || value.kind === 'reset') { clearGridFilters(params, Object.keys(data.filters)); if (value.kind === 'reset') params.delete('size'); } }); }
 	const operations = $derived<DataTableOperations>({ kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'ClinicalTrials.gov relevance', filters, busy: loading, onintent: intent });
 </script>
 

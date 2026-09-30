@@ -35,7 +35,7 @@
 		loading = true;
 		error = null;
 		try {
-			const result = await getCdeNeighborhood(publicId, 1, undefined, controller.signal);
+			const result = await getCdeNeighborhood(publicId, undefined, controller.signal);
 			if (current === generation) graph = result;
 		} catch (reason) {
 			if (current === generation) error = reason instanceof Error ? reason.message : String(reason);

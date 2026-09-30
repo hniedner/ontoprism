@@ -113,6 +113,33 @@ describe('RepoBrowsePage', () => {
 		expect(goto).toHaveBeenLastCalledWith('/repositories/ncit?representation_status=legacy-precoordinated');
 	});
 
+	it('preserves combined text and category intents and clears both from the URL', async () => {
+		render(RepoBrowsePageIntentFixture, {
+			filterKeys: { status: 'representation_status' }, textKeys: { status: 'representation_status', name: 'label' },
+			initialFilters: { representation_status: ['legacy-precoordinated'] }, initialTextFilters: { label: 'neo' },
+			intent: { kind: 'filter', columnId: 'status', filter: { kind: 'categorical', selected: ['legacy-precoordinated'], text: 'Legacy' } }
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Send table intent' }));
+		expect(goto).toHaveBeenLastCalledWith('/repositories/ncit?representation_status=legacy-precoordinated&text_representation_status=Legacy');
+	});
+
+	it('maps text-only column filtering to the URL and clears it without changing the search', async () => {
+		const rendered = render(RepoBrowsePageIntentFixture, {
+			filterKeys: {}, textKeys: { name: 'label' }, initialFilters: {},
+			intent: { kind: 'filter', columnId: 'name', filter: { kind: 'text', text: 'melanoma' } }
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Send table intent' }));
+		expect(goto).toHaveBeenLastCalledWith('/repositories/ncit?text_label=melanoma');
+		rendered.unmount();
+		goto.mockClear();
+		render(RepoBrowsePageIntentFixture, {
+			filterKeys: {}, textKeys: { name: 'label' }, initialFilters: {}, initialTextFilters: { label: 'melanoma' },
+			intent: { kind: 'clear-filter', columnId: 'name' }
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Send table intent' }));
+		expect(goto).toHaveBeenLastCalledWith('/repositories/ncit');
+	});
+
 	it('fails visibly instead of navigating for an unmapped table filter intent', async () => {
 		render(RepoBrowsePageIntentFixture, {
 			filterKeys: { status: 'representation_status' },

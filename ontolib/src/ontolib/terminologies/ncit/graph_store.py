@@ -9,7 +9,9 @@ direct triples.
 
 from __future__ import annotations
 
+import asyncio
 import json
+from itertools import chain
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -17,6 +19,7 @@ if TYPE_CHECKING:
 
     from ontolib.repositories.embeddings.generate import NcitEmbeddingRecord
 
+from ontolib.common.grid import text_predicate
 from ontolib.decomposition import vocab as decomp_vocab
 from ontolib.decomposition.label_validation import ConceptLabelError
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
@@ -45,6 +48,8 @@ _DEFAULT_EDGE_LIMIT = 200
 # Upper bound on nodes returned by a multi-hop neighborhood expansion, so a deep
 # request cannot pull an unbounded closure out of the store.
 _MAX_NEIGHBORHOOD_NODES = 400
+# Centres per grouped read; each centre retains its own node and edge caps.
+MAX_NEIGHBORHOOD_CENTERS = 12
 
 
 def _representation_status_pattern(
@@ -280,8 +285,13 @@ class NcitGraphStore:
 
     async def _named_neighbors(self, uri: str, *, incoming: bool) -> list[ConceptRef]:
         """Named stated parents or children, including definition-genus edges."""
+        rows = await self._client.select(self._neighbors_query(uri, incoming=incoming))
+        refs = (_ref(r.get("node"), r.get("label")) for r in rows)
+        return [ref for ref in refs if ref is not None]
+
+    def _neighbors_query(self, uri: str, *, incoming: bool) -> str:
         direct, genus = _hierarchy_patterns(uri, incoming=incoming)
-        query = f"""{_PREFIXES}
+        return f"""{_PREFIXES}
         SELECT DISTINCT ?node ?label WHERE {{
             GRAPH <{STATED_GRAPH_IRI}> {{
                 {{ {direct} }} UNION {{ {genus} }}
@@ -290,12 +300,12 @@ class NcitGraphStore:
             }}
         }} ORDER BY STR(?node) STR(?label) LIMIT {_DEFAULT_EDGE_LIMIT}
         """
-        rows = await self._client.select(query)
-        refs = (_ref(r.get("node"), r.get("label")) for r in rows)
-        return [ref for ref in refs if ref is not None]
 
     async def _roles(self, uri: str) -> list[Relationship]:
-        query = f"""{_PREFIXES}
+        return self._as_relationships(await self._client.select(self._roles_query(uri)))
+
+    def _roles_query(self, uri: str) -> str:
+        return f"""{_PREFIXES}
         SELECT ?rel ?rellabel ?target ?tlabel WHERE {{
             <{uri}> rdfs:subClassOf ?r .
             ?r a owl:Restriction ;
@@ -307,10 +317,14 @@ class NcitGraphStore:
         }} ORDER BY STR(?rel) STR(?target) STR(?rellabel) STR(?tlabel)
         LIMIT {_DEFAULT_EDGE_LIMIT}
         """
-        return self._as_relationships(await self._client.select(query))
 
     async def _associations(self, uri: str) -> list[Relationship]:
-        query = f"""{_PREFIXES}
+        return self._as_relationships(
+            await self._client.select(self._associations_query(uri))
+        )
+
+    def _associations_query(self, uri: str) -> str:
+        return f"""{_PREFIXES}
         SELECT ?rel ?rellabel ?target ?tlabel WHERE {{
             <{uri}> ?rel ?target .
             FILTER(isIRI(?target) && STRSTARTS(STR(?target), "{self._ns}"))
@@ -320,7 +334,6 @@ class NcitGraphStore:
         }} ORDER BY STR(?rel) STR(?target) STR(?rellabel) STR(?tlabel)
         LIMIT {_DEFAULT_EDGE_LIMIT}
         """
-        return self._as_relationships(await self._client.select(query))
 
     async def _incoming_roles(self, uri: str) -> list[Relationship]:
         query = f"""{_PREFIXES}
@@ -390,11 +403,12 @@ class NcitGraphStore:
         offset: int = 0,
         representation_status: RepresentationStatus | None = None,
         sort: RepositoryBrowseSort = "source",
+        column_text: dict[str, str] | None = None,
     ) -> BrowsePage:
-        """List all named concepts in the requested deterministic browse order.
+        """List matching named concepts in the requested deterministic browse order.
 
-        The total class count is expensive to compute over the full store, so it is
-        memoized after the first call (the concept universe is static between reloads).
+        Counts without text predicates are memoized per status between reloads;
+        text-filtered totals are counted on each request.
         """
         order = {
             "source": "?concept",
@@ -406,6 +420,22 @@ class NcitGraphStore:
         page_status = _representation_status_pattern(
             "?concept", representation_status, include_unfiltered=True
         )
+        filters = "\n".join(
+            text_predicate(
+                column,
+                value,
+                dialect="sparql",
+                expressions={
+                    "code": "STRAFTER(STR(?concept), '#')",
+                    "label": "STR(?label)",
+                    "representation_status": (
+                        "IF(BOUND(?representationStatusValue), "
+                        '"Legacy pre-coordinated", "")'
+                    ),
+                },
+            )
+            for column, value in (column_text or {}).items()
+        )
         rows = await self._client.select(
             f"""{_PREFIXES}
             SELECT ?concept ?label (SAMPLE(?semtypeValue) AS ?semtype)
@@ -415,28 +445,13 @@ class NcitGraphStore:
                 OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtypeValue }}
                 FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
                 {page_status}
+                {filters}
             }}
             GROUP BY ?concept ?label
             ORDER BY {order} LIMIT {limit} OFFSET {offset}
             """
         )
-        if representation_status not in self._total_concepts:
-            count_status = _representation_status_pattern(
-                "?concept", representation_status
-            )
-            count_rows = await self._client.select(
-                f"""{_PREFIXES}
-                SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{
-                    ?concept a owl:Class ; rdfs:label ?label .
-                    FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
-                    {count_status}
-                }}
-                """
-            )
-            count_val = count_rows[0].get("count") if count_rows else None
-            self._total_concepts[representation_status] = (
-                int(count_val) if count_val is not None else 0
-            )
+        total = await self._browse_count(representation_status, column_text, filters)
         hits = [
             SearchHit(
                 code=_code_of(concept),
@@ -450,13 +465,43 @@ class NcitGraphStore:
         ]
         return BrowsePage(
             query="",
-            total=self._total_concepts[representation_status],
+            total=total,
             limit=limit,
             offset=offset,
             sort=sort,
             representation_status=representation_status,
+            column_text=column_text or {},
             hits=hits,
         )
+
+    async def _browse_count(
+        self,
+        representation_status: RepresentationStatus | None,
+        column_text: dict[str, str] | None,
+        filters: str,
+    ) -> int:
+        if not column_text and representation_status in self._total_concepts:
+            return self._total_concepts[representation_status]
+        count_status = _representation_status_pattern(
+            "?concept",
+            representation_status,
+            include_unfiltered="representation_status" in (column_text or {}),
+        )
+        rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{
+                ?concept a owl:Class ; rdfs:label ?label .
+                FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
+                {count_status}
+                {filters}
+            }}
+            """
+        )
+        value = rows[0].get("count") if rows else None
+        total = int(value) if value is not None else 0
+        if not column_text:
+            self._total_concepts[representation_status] = total
+        return total
 
     async def search_records(
         self, *, limit: int, offset: int
@@ -559,6 +604,83 @@ class NcitGraphStore:
         value = rows[0].get("count") if rows else None
         return int(value) if value is not None else 0
 
+    async def get_neighborhoods(self, codes: list[str]) -> list[Neighborhood]:
+        """Read one-hop neighborhoods within MAX_NEIGHBORHOOD_CENTERS and edge caps."""
+        if len(codes) > MAX_NEIGHBORHOOD_CENTERS:
+            raise ValueError(f"at most {MAX_NEIGHBORHOOD_CENTERS} neighborhood centers")
+        if not codes:
+            return []
+        batches = await asyncio.gather(
+            *(
+                self._client.select(query)
+                for query in self._neighborhoods_queries(codes)
+            )
+        )
+        grouped: dict[tuple[str, str], list[Mapping[str, str | None]]] = {}
+        for row in chain.from_iterable(batches):
+            grouped.setdefault((str(row["center"]), str(row["kind"])), []).append(row)
+        graphs = [await self._grouped_neighborhood(code, grouped) for code in codes]
+        await self._attach_neighborhood_statuses(graphs)
+        return graphs
+
+    async def _attach_neighborhood_statuses(self, graphs: list[Neighborhood]) -> None:
+        statuses = await self._representation_statuses(
+            list({n.code for g in graphs for n in g.nodes})
+        )
+        for graph in graphs:
+            for node in graph.nodes:
+                node.representation_status = statuses.get(node.code)
+
+    def _neighborhoods_queries(self, codes: list[str]) -> list[str]:
+        parts: dict[str, list[str]] = {}
+        for code in dict.fromkeys(codes):
+            uri = safe_iri(code, self._ns)
+            queries = {
+                "meta": self._metadata_query(uri, include_representation_status=False),
+                "parents": self._neighbors_query(uri, incoming=False),
+                "children": self._neighbors_query(uri, incoming=True),
+                "roles": self._roles_query(uri),
+                "associations": self._associations_query(uri),
+            }
+            for kind, query in queries.items():
+                parts.setdefault(kind, []).append(
+                    "{ { " + query.removeprefix(_PREFIXES) + " } "
+                    f'BIND("{code}" AS ?center) BIND("{kind}" AS ?kind) }}'
+                )
+        return [
+            _PREFIXES + "\nSELECT * WHERE { " + " UNION ".join(group) + " }"
+            for group in parts.values()
+        ]
+
+    async def _grouped_neighborhood(
+        self,
+        code: str,
+        grouped: Mapping[tuple[str, str], list[Mapping[str, str | None]]],
+    ) -> Neighborhood:
+        meta = grouped.get((code, "meta"), [])
+        if not meta:
+            return Neighborhood(center=code)
+        refs = {
+            kind: [
+                ref
+                for row in grouped.get((code, kind), [])
+                if (ref := _ref(row.get("node"), row.get("label"))) is not None
+            ]
+            for kind in ("parents", "children")
+        }
+        detail = ConceptDetail(
+            code=code,
+            label=meta[0].get("label"),
+            semantic_types=_split_list(meta[0].get("semtypes")),
+            parents=refs["parents"],
+            children=refs["children"],
+            roles=self._as_relationships(grouped.get((code, "roles"), [])),
+            associations=self._as_relationships(
+                grouped.get((code, "associations"), [])
+            ),
+        )
+        return await self._assemble_neighborhood(detail, depth=1)
+
     async def get_neighborhood(self, code: str, *, depth: int = 1) -> Neighborhood:
         """Return a concept-centered subgraph (subClassOf + roles + associations).
 
@@ -571,7 +693,14 @@ class NcitGraphStore:
         )
         if center_detail is None:
             return Neighborhood(center=code)
+        graph = await self._assemble_neighborhood(center_detail, depth=depth)
+        await self._attach_neighborhood_statuses([graph])
+        return graph
 
+    async def _assemble_neighborhood(
+        self, center_detail: ConceptDetail, *, depth: int
+    ) -> Neighborhood:
+        code = center_detail.code
         nodes: dict[str, GraphNode] = {}
         edges: dict[tuple[str, str, str, str], GraphEdge] = {}
         expanded: set[str] = set()
@@ -596,9 +725,6 @@ class NcitGraphStore:
             label=center_detail.label,
             semantic_type=_first(center_detail.semantic_types),
         )
-        statuses = await self._representation_statuses(list(nodes))
-        for node_code, node in nodes.items():
-            node.representation_status = statuses.get(node_code)  # type: ignore[assignment]
         return Neighborhood(
             center=code,
             nodes=sorted(nodes.values(), key=lambda node: node.code),

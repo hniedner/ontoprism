@@ -13,11 +13,11 @@
 	const activeDirection = $derived(sort?.key === column.id ? sort.direction : null);
 	const ariaSort = $derived(activeDirection === null ? (sortable ? 'none' : undefined) : activeDirection === 'asc' ? 'ascending' : 'descending');
 	const indicator = $derived(activeDirection === 'asc' ? '↑' : activeDirection === 'desc' ? '↓' : column.sortable?.length === 1 ? (column.sortable[0] === 'asc' ? '↑' : '↓') : '↕');
-	const selected = $derived(filterValue?.selected ?? []);
-	const selectedLabels = $derived(column.filter?.options.filter((option) => selected.includes(option.value)).map((option) => option.label) ?? []);
+	const selected = $derived(filterValue?.kind === 'categorical' ? filterValue.selected : []);
+	const selectedLabels = $derived(column.filter?.kind === 'categorical' ? column.filter.options.filter((option) => selected.includes(option.value)).map((option) => option.label) : []);
 	const filterLabel = $derived(selectedLabels.length
 		? `Filter ${column.label}, ${selectedLabels.length} selected: ${selectedLabels.join(', ')}`
-		: `Filter ${column.label}`);
+		: filterValue?.text ? `Filter ${column.label}, text: ${filterValue.text}` : `Filter ${column.label}`);
 	let popoverStyle = $state('');
 	function nextSort(): void {
 		const directions = column.sortable ?? [];
@@ -84,7 +84,7 @@
 				bind:this={trigger}
 				type="button"
 				data-datatable-filter-trigger
-				class={`relative inline-flex min-h-7 min-w-7 items-center justify-center rounded border px-1.5 ${selected.length ? 'border-accent bg-accent/10 text-accent' : 'border-transparent text-muted hover:border-default hover:text-default'}`}
+				class={`relative inline-flex min-h-7 min-w-7 items-center justify-center rounded border px-1.5 ${selected.length || filterValue?.text ? 'border-accent bg-accent/10 text-accent' : 'border-transparent text-muted hover:border-default hover:text-default'}`}
 				aria-label={filterLabel}
 				aria-expanded={filterOpen}
 				aria-haspopup="dialog"

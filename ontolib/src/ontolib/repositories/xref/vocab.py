@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Literal
 
+UBERON_CL_CURIE_PREFIXES = ("UBERON:", "CL:")
+
 # Base IRI for immutable, source-specific generation graphs. Never write mappings to
 # the stated NCIt graph or the decomposed graph.
 NCIT_UPSTREAM_XREF_GRAPH_IRI = (

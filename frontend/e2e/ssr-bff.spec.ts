@@ -128,7 +128,7 @@ test('all ICD-O datasets support search, pagination, detail, and explicit access
 	await expect(activeBehaviour).toBeVisible();
 	const behaviourDialog = page.getByRole('dialog', { name: 'Behaviour filter' });
 	await expect(behaviourDialog).toBeVisible();
-	await behaviourDialog.getByRole('button', { name: 'Clear selections for Behaviour' }).click();
+	await behaviourDialog.getByRole('button', { name: 'Clear filter for Behaviour' }).click();
 	await expect(page).toHaveURL('/repositories/icdo/3.2/morphology');
 
 	await page.goto('/repositories/icdo');

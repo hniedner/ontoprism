@@ -6,7 +6,7 @@ vi.mock('$lib/api', () => ({ listNcit, searchNcit }));
 import { load } from './+page.server';
 
 function page(overrides: Record<string, unknown> = {}) {
-	return { query: '', total: 0, limit: 25, offset: 0, sort: 'source', representation_status: null, hits: [], ...overrides };
+	return { query: '', total: 0, limit: 25, offset: 0, sort: 'source', representation_status: null, column_text: {}, hits: [], ...overrides };
 }
 
 describe('NCIt page server filter echo contract', () => {
@@ -29,5 +29,26 @@ describe('NCIt page server filter echo contract', () => {
 	])('fails closed on %s filtered response echo', async (_label, drift) => {
 		listNcit.mockResolvedValue(page(drift));
 		await expect(load({ url: new URL('https://example.test/repositories/ncit?representation_status=legacy-precoordinated'), fetch: vi.fn() } as never)).rejects.toMatchObject({ status: 502 });
+	});
+
+	it('fails closed when server returns a different applied column-text filter', async () => {
+		listNcit.mockResolvedValue(page({ column_text: {} }));
+		await expect(load({
+			url: new URL('https://example.test/repositories/ncit?text_label=melanoma'), fetch: vi.fn()
+	} as never)).rejects.toMatchObject({ status: 502 });
+	});
+
+	it('passes canonical combined column text and categorical state to the backend and accepts its echo', async () => {
+		const response = page({ representation_status: 'legacy-precoordinated', column_text: { representation_status: 'legacy', label: 'melanoma' } });
+		listNcit.mockResolvedValue(response);
+		const fetch = vi.fn();
+		const result = await load({
+			url: new URL('https://example.test/repositories/ncit?representation_status=legacy-precoordinated&text_label=melanoma&text_representation_status=legacy'), fetch
+		} as never);
+		expect(listNcit).toHaveBeenCalledWith(expect.objectContaining({
+			representationStatus: 'legacy-precoordinated',
+			columnText: { label: 'melanoma', representation_status: 'legacy' }, fetch
+		}));
+		expect(result).toMatchObject({ initial: { result: response } });
 	});
 });

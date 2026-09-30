@@ -27,6 +27,7 @@
 	defaultSort={data.initial.query ? 'relevance' : 'source'}
 	sortKeys={{ code: { asc: 'code:asc', desc: 'code:desc' }, label: { asc: 'label:asc', desc: 'label:desc' } }}
 	filterKeys={{ representation_status: 'representation_status' }}
+	textKeys={{ code: 'code', label: 'label', representation_status: 'representation_status' }}
 	countLabel={(n: number, mode: 'browse' | 'search') =>
 		`${n.toLocaleString()} ${mode === 'search' ? 'matches' : 'concepts'}`}
 >

@@ -11,7 +11,7 @@ matter here:
 
 The downloader fetches the zip through the metadata-aware cache
 (:func:`ontolib.core.download_cache.cached_download`) — a conditional request reuses an
-unchanged remote (304), and an unreachable remote falls back to the cached copy — then
+unchanged remote (304), and an unreachable remote may reuse a same-source cache — then
 streams each variant to a distinct ``.owl`` path. The pair API hashes and same-release
 binds both artifacts into a revalidatable manifest. Full-ontology HTTP loading is
 deliberately unavailable; offline sibling-store construction is a separate workflow.
@@ -539,9 +539,10 @@ async def download_ncit_owl(
 
     Uses the metadata-aware cache (:func:`ontolib.core.download_cache.cached_download`):
     an unchanged remote answers 304 and the cached zip is reused; an unreachable remote
-    falls back to the cached zip. Any failure is returned as ``success=False`` (never
-    raised) so the caller/endpoint can report it cleanly. ``cached`` is True when the
-    result came from the cache (revalidated or offline) rather than a fresh download.
+    reuses the cached zip unless its manifest records another URL (missing/unreadable
+    manifests retain file-only fallback). Any failure is returned as ``success=False``
+    (never raised) so the caller/endpoint can report it cleanly. ``cached`` is True when
+    the result came from cache (revalidated or offline) rather than a fresh download.
     """
     try:
         url = owl_download_url(variant, base_url)

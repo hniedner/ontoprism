@@ -2,6 +2,19 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadRepositoryPage, parseCursorGridUrl, parseOffsetGridUrl } from './repository-load';
 
 describe('loadRepositoryPage canonical offset state', () => {
+	it('threads a canonical text predicate through search and rejects oversized URL values', async () => {
+		const search = vi.fn().mockResolvedValue({ total: 1, limit: 25, offset: 0, sort: 'relevance', hits: [] });
+		const spec = { defaultSort: 'relevance', sorts: ['relevance'], filters: { representation_status: ['legacy-precoordinated'] }, textFilters: ['code', 'label', 'representation_status'] };
+		const result = await loadRepositoryPage(new URL('http://example.test/repositories/ncit?q=neoplasm&representation_status=legacy-precoordinated&text_label=malignant'), search, vi.fn(), spec);
+		expect(search).toHaveBeenCalledWith('neoplasm', { size: 25, offset: 0, sort: 'relevance', filters: { representation_status: ['legacy-precoordinated'] }, textFilters: { label: 'malignant' } });
+		expect(result.initial.textFilters).toEqual({ label: 'malignant' });
+		try {
+			parseOffsetGridUrl(new URL(`http://example.test/repositories/ncit?text_code=${'x'.repeat(101)}`), spec);
+			throw new Error('invalid URL accepted');
+		} catch (reason) {
+			expect(reason).toMatchObject({ status: 307, location: '/repositories/ncit' });
+		}
+	});
 	it('threads typed size, aligned offset, sort, and repeated filters through the server query', async () => {
 		const search = vi.fn().mockResolvedValue({ total: 80, limit: 50, offset: 50, sort: 'name:desc', hits: [] });
 		const result = await loadRepositoryPage(

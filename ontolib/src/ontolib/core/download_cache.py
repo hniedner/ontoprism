@@ -7,7 +7,8 @@ we know *which version* is on disk. On the next fetch:
 - a **conditional** request (``If-None-Match`` / ``If-Modified-Since``) lets an
   unchanged source answer ``304 Not Modified`` and we reuse the cache with no transfer;
 - if the remote is **unreachable**, we fall back to the cached file (with a warning)
-  rather than failing — so a reload can still proceed offline.
+  unless its manifest identifies another URL; absent/unreadable manifests retain
+  the file-only fallback.
 
 This is the piece fairdata's size-only ``download_cache`` lacks; built here (TDD) and
 shared by the NCIt and caDSR downloaders.
@@ -182,6 +183,15 @@ async def _attempt(url: str, dest: Path, headers: dict[str, str]) -> DownloadOut
         _raise_if_terminal(exc, url)  # NoReturn: raises terminal or re-raises retryable
 
 
+def _cache_matches_url(manifest: CacheManifest | None, url: str) -> bool:
+    return manifest is not None and manifest.url == url
+
+
+def _fallback_allowed(dest: Path, url: str) -> bool:
+    manifest = read_manifest(dest)
+    return dest.exists() and (manifest is None or _cache_matches_url(manifest, url))
+
+
 async def cached_download(
     url: str, dest: Path, *, max_retries: int = 2
 ) -> DownloadOutcome:
@@ -190,10 +200,12 @@ async def cached_download(
     Returns a :class:`DownloadOutcome` whose ``status`` is ``downloaded`` (fresh copy),
     ``not_modified`` (remote unchanged, cache reused), or ``offline`` (unreachable,
     cache reused). Raises :class:`StorageError` on a terminal error (bad URL, 4xx),
-    or when the remote is unreachable and there is no cached copy to fall back to.
+    or when the remote is unreachable and no usable cache exists for this URL.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    headers = _conditional_headers(read_manifest(dest))
+    cached_manifest = read_manifest(dest)
+    same_source = _cache_matches_url(cached_manifest, url)
+    headers = _conditional_headers(cached_manifest if same_source else None)
     last_error: Exception | None = None
     for attempt in range(max_retries + 1):
         if attempt:
@@ -206,10 +218,9 @@ async def cached_download(
                 "download attempt %d failed for %s: %s", attempt + 1, url, exc
             )
 
-    if dest.exists():
-        # Offline fallback keys off the file on disk, not the manifest — a corrupt
-        # sidecar must not turn a usable cache into "no cache available". Synthesize a
-        # bare manifest when the sidecar is missing/unreadable.
+    if _fallback_allowed(dest, url):
+        # A recorded foreign URL is refused. Missing/unreadable sidecars retain
+        # file-only fallback, with a synthesized bare manifest.
         manifest = _require_manifest(dest, url)
         logger.warning(
             "Remote unreachable (%s); serving cached %s (offline).", last_error, dest

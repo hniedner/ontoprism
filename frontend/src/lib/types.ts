@@ -48,12 +48,16 @@ export interface SearchHit {
 	representation_status: RepresentationStatus | null;
 }
 
+export type NcitTextColumn = 'code' | 'label' | 'representation_status';
+export type NcitColumnText = Partial<Record<NcitTextColumn, string>>;
+
 interface NcitPageBase {
 	query: string;
 	total: number;
 	limit: number;
 	offset: number;
 	representation_status: RepresentationStatus | null;
+	column_text: NcitColumnText;
 	hits: SearchHit[];
 }
 

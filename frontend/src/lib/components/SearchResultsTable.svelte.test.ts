@@ -47,7 +47,7 @@ describe('SearchResultsTable', () => {
 			hits: [],
 			operations: {
 				kind: 'server', sort: null, defaultSort: null, activeSortLabel: 'Source order',
-				filters: { representation_status: { kind: 'categorical', selected: ['legacy-precoordinated'] } },
+				filters: { code: { kind: 'text', text: '' }, label: { kind: 'text', text: '' }, representation_status: { kind: 'categorical', selected: ['legacy-precoordinated'] } },
 				busy: false, onintent: vi.fn()
 			}
 		});

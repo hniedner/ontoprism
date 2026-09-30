@@ -358,12 +358,12 @@ describe('caDSR endpoints', () => {
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/concepts/C3262/cdes?limit=50');
 	});
 
-	it('getCdeNeighborhood passes the depth param', async () => {
+	it('getCdeNeighborhood requests the fixed one-hop graph', async () => {
 		const fetchImpl = vi
 			.fn()
 			.mockResolvedValue(jsonResponse({ center: 'cde:100:2.0', nodes: [], edges: [] }));
-		await getCdeNeighborhood('100', 1, fetchImpl);
-		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/cdes/100/neighborhood?depth=1');
+		await getCdeNeighborhood('100', fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/cdes/100/neighborhood');
 	});
 
 	it('similarCdes requests the similar endpoint with a limit', async () => {
