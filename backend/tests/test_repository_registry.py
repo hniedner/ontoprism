@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import get_args
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
+from backend.api.v1.grid import GridService
 from backend.repository_metadata import RepositoryName
 from backend.repository_registry import load_repository_registry
 
@@ -35,3 +37,64 @@ def test_manifest_rejects_identity_fields_on_remote_descriptors(tmp_path: Path) 
 
     with pytest.raises(ValidationError, match="release"):
         load_repository_registry(invalid)
+
+
+@pytest.mark.parametrize(
+    "change", ["columns", "empty-sort", "text-domain", "remote-metadata"]
+)
+def test_rejects_invalid_grid_capabilities(tmp_path: Path, change: str) -> None:
+    payload = json.loads(_MANIFEST.read_text())
+    capabilities = {
+        "sorts": {"list": ["source"], "search": ["relevance"]},
+        "filters": {
+            "code": {"kind": "text", "text_parameter": "code_text", "values": {}}
+        },
+        "pagination": "offset",
+        "query_before_results": False,
+        "metadata": "certified",
+        "graph": "ontology",
+        "links": "mapping",
+    }
+    if change == "columns":
+        capabilities["columns"] = []
+    elif change == "empty-sort":
+        capabilities["sorts"]["list"] = []
+    elif change == "text-domain":
+        capabilities["filters"]["code"]["values"] = {"C1": "Concept"}
+    else:
+        capabilities["metadata"] = "remote"
+    payload[0]["capabilities"] = capabilities
+    invalid = tmp_path / "repositories.json"
+    invalid.write_text(json.dumps(payload))
+    with pytest.raises(ValidationError):
+        load_repository_registry(invalid)
+
+
+def test_declared_ncit_controls_available_to_grid_consumers() -> None:
+    ncit = load_repository_registry(_MANIFEST)[0]
+    assert ncit.capabilities.sorts["list"][0] == "source"
+    assert ncit.capabilities.filters["representation_status"].values == {
+        "legacy-precoordinated": "Legacy pre-coordinated"
+    }
+
+
+@pytest.mark.parametrize(
+    ("sort", "text", "selected"),
+    [
+        ("unknown", {}, {}),
+        ("source", {"unknown": "x"}, {}),
+        ("source", {}, {"code": "C1"}),
+        ("source", {}, {"unknown": "x"}),
+        ("source", {}, {"representation_status": "unknown"}),
+    ],
+)
+def test_grid_refuses_controls_outside_declaration(sort, text, selected) -> None:
+    async def ready():
+        return "ready"
+
+    grid = GridService(
+        "NCIt", load_repository_registry(_MANIFEST)[0].capabilities, ready
+    )
+    with pytest.raises(HTTPException) as error:
+        grid.validate("list", sort, text, selected)
+    assert error.value.status_code == 422

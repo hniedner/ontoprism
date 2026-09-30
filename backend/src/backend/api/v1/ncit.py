@@ -3,14 +3,14 @@ mappings."""
 
 import asyncio
 from collections.abc import Mapping
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import Field, computed_field, model_validator
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.v1.alignment import mapping_relative_to
-from backend.api.v1.grid import PageSize
+from backend.api.v1.grid import GridService, PageSize
 from backend.config import get_settings
 from backend.dependencies import (
     DecompositionReads,
@@ -22,6 +22,10 @@ from backend.dependencies import (
 )
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import NcitRepositoryReady, RepositoryUnhealthy
+from backend.repository_registry import (
+    REPOSITORY_MANIFEST_PATH,
+    load_repository_registry,
+)
 from backend.security import has_icdo_entitlement
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.common.grid import ColumnText
@@ -213,10 +217,24 @@ def _column_text(
 NcitColumnText = Annotated[dict[str, str], Depends(_column_text)]
 
 
+def _grid(metadata: RepositoryMetadataReads) -> GridService[NcitRepositoryReady]:
+    descriptor = next(
+        entry
+        for entry in load_repository_registry(REPOSITORY_MANIFEST_PATH)
+        if entry.id == "ncit"
+    )
+    if descriptor.capabilities is None:
+        raise RuntimeError("NCIt grid capabilities are missing")
+    return GridService(descriptor.label, descriptor.capabilities, metadata.ncit)
+
+
+NcitGrid = Annotated[GridService[NcitRepositoryReady], Depends(_grid)]
+
+
 @router.get("/search", response_model=SearchPage)
 async def search(
     index: NcitSearch,
-    metadata: RepositoryMetadataReads,
+    grid: NcitGrid,
     q: Annotated[str, Query(min_length=1, description="Search term")],
     column_text: NcitColumnText,
     limit: PageSize = 25,
@@ -228,37 +246,26 @@ async def search(
     sort: RepositorySearchSort = "relevance",
 ) -> SearchPage:
     """Search NCIt through the source-bound certified FTS publication."""
-    repository = await metadata.ncit()
-    if isinstance(repository, RepositoryUnhealthy):
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            repository.model_dump(mode="json"),
-        )
-    try:
-        if not await index.is_populated(repository.source_identity):
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-                "NCIt certified search index is unavailable.",
-            )
-        return await index.search(
+    grid.validate(
+        "search", sort, column_text, {"representation_status": representation_status}
+    )
+    return await grid.read(
+        lambda _: index.search(
             q,
             limit=limit,
             offset=offset,
             representation_status=representation_status,
             sort=sort,
             column_text=column_text,
-        )
-    except SQLAlchemyError as exc:
-        logger.warning("NCIt FTS cache unavailable: %s", exc)
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "NCIt certified search index is unavailable.",
-        ) from exc
+        ),
+        available=lambda repository: index.is_populated(repository.source_identity),
+    )
 
 
 @router.get("/list", response_model=BrowsePage)
 async def list_concepts(
     store: NcitStore,
+    grid: NcitGrid,
     column_text: NcitColumnText,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -269,25 +276,25 @@ async def list_concepts(
     sort: RepositoryBrowseSort = "source",
 ) -> BrowsePage:
     """List concepts in the requested deterministic browse order."""
-    return await store.list_concepts(
-        limit=limit,
-        offset=offset,
-        representation_status=representation_status,
-        sort=sort,
-        column_text=column_text,
+    grid.validate(
+        "list", sort, column_text, {"representation_status": representation_status}
+    )
+    return await grid.read(
+        lambda _: store.list_concepts(
+            limit=limit,
+            offset=offset,
+            representation_status=representation_status,
+            sort=sort,
+            column_text=column_text,
+        )
     )
 
 
 @router.get("/concepts/{code}", response_model=ConceptDetail)
-async def concept_detail(store: NcitStore, code: str) -> ConceptDetail:
+async def concept_detail(store: NcitStore, grid: NcitGrid, code: str) -> ConceptDetail:
     """Return full concept detail — parents, roles, associations, incoming roles."""
-    try:
-        detail = await store.get_concept_detail(code)
-    except ValueError as exc:  # malformed code rejected by the IRI guard
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
-    if detail is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Concept not found: {code}")
-    return detail
+    detail = await grid.read(lambda _: store.get_concept_detail(code), detail=code)
+    return cast("ConceptDetail", detail)  # grid rejects missing details
 
 
 @router.get("/concepts/{code}/similar", response_model=list[SimilarConcept])

@@ -4,10 +4,13 @@ import { critical } from '$lib/server/critical-load';
 import { loadRepositoryPage, type OffsetGridSpec } from '$lib/server/repository-load';
 import type { NcitBrowseSort, NcitRepositoryPage, NcitRepositorySort, RepresentationStatus } from '$lib/types';
 import type { PageServerLoad } from './$types';
+import { gridCapabilities, gridControls } from '$lib/repository-registry';
 
 export const load: PageServerLoad = async ({ fetch, url }) => {
 	const searching = Boolean(url.searchParams.get('q')?.trim());
-	const spec = { defaultSort: searching ? 'relevance' : 'source', sorts: searching ? ['relevance', 'code:asc', 'code:desc', 'label:asc', 'label:desc'] : ['source', 'code:asc', 'code:desc', 'label:asc', 'label:desc'], filters: { representation_status: ['legacy-precoordinated'] }, textFilters: ['code', 'label', 'representation_status'] } satisfies OffsetGridSpec<NcitRepositorySort>;
+	const sorts = gridCapabilities('ncit').sorts[searching ? 'search' : 'list'] as NcitRepositorySort[];
+	const { filters, textFilters } = gridControls('ncit');
+	const spec = { defaultSort: sorts[0], sorts, filters, textFilters } satisfies OffsetGridSpec<NcitRepositorySort>;
 	const browseSort = (sort: NcitRepositorySort): NcitBrowseSort => {
 		if (sort === 'relevance') error(500, 'NCIt browse state contained a search-only sort.');
 		return sort;

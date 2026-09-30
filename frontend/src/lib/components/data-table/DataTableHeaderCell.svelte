@@ -72,7 +72,7 @@
 		};
 	});
 </script>
-<th scope="col" class={className} {style} aria-sort={ariaSort}>
+<th scope="col" data-column-id={column.id} class={className} {style} aria-sort={ariaSort}>
 	<div class="flex items-center gap-1">
 		{#if sortable}
 			<button type="button" class="inline-flex items-center gap-1 hover:text-default" aria-label={`Sort by ${column.label}`} onclick={nextSort}>{column.label} <span aria-hidden="true" class="text-subtle">{indicator}</span></button>

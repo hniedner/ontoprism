@@ -1,6 +1,7 @@
 // Typed same-origin client for the SvelteKit `/api` BFF. The BFF is the only frontend
 // transport to FastAPI in development and in the built adapter-node server.
 
+import { gridCapabilities } from './repository-registry';
 import type {
 	CdeDetail,
 	CdeRepositorySort,
@@ -133,8 +134,9 @@ export async function postJsonBody<T>(
 
 function appendNcitColumnText(params: Record<string, string | number>, values: NcitColumnText = {}): void {
 	for (const [column, value] of Object.entries(values)) {
-		if (!['code', 'label', 'representation_status'].includes(column)) throw new Error(`Unknown NCIt text column: ${column}`);
-		params[`${column === 'representation_status' ? 'status' : column}_text`] = value;
+		const filter = gridCapabilities('ncit').filters[column];
+		if (!filter) throw new Error(`Unknown NCIt text column: ${column}`);
+		params[filter.text_parameter] = value;
 	}
 }
 
@@ -149,18 +151,16 @@ export function searchNcit(
 		fetch?: typeof fetch;
 	} = {}
 ): Promise<NcitSearchPage> {
-	const params: Record<string, string | number> = {
-		q,
-		limit: opts.limit ?? 25,
-		offset: opts.offset ?? 0
-	};
-	if (opts.representationStatus) {
-		params.representation_status = opts.representationStatus;
-	}
+	const url = apiUrl('/api/v1/ncit/search', { q, ...ncitGridParams(opts) });
+	return getJson<NcitSearchPage>(url, opts.fetch);
+}
+
+function ncitGridParams(opts: { limit?: number; offset?: number; representationStatus?: RepresentationStatus; sort?: string; columnText?: NcitColumnText }): Record<string, string | number> {
+	const params: Record<string, string | number> = { limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
+	if (opts.representationStatus) params.representation_status = opts.representationStatus;
 	if (opts.sort) params.sort = opts.sort;
 	appendNcitColumnText(params, opts.columnText);
-	const url = apiUrl('/api/v1/ncit/search', params);
-	return getJson<NcitSearchPage>(url, opts.fetch);
+	return params;
 }
 
 /** List NCIt concepts in the requested deterministic browse order. */
@@ -174,16 +174,7 @@ export function listNcit(
 		fetch?: typeof fetch;
 	} = {}
 ): Promise<NcitBrowsePage> {
-	const params: Record<string, string | number> = {
-		limit: opts.limit ?? 25,
-		offset: opts.offset ?? 0
-	};
-	if (opts.representationStatus) {
-		params.representation_status = opts.representationStatus;
-	}
-	if (opts.sort) params.sort = opts.sort;
-	appendNcitColumnText(params, opts.columnText);
-	const url = apiUrl('/api/v1/ncit/list', params);
+	const url = apiUrl('/api/v1/ncit/list', ncitGridParams(opts));
 	return getJson<NcitBrowsePage>(url, opts.fetch);
 }
 
