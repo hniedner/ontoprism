@@ -529,7 +529,8 @@ async def test_download_rejects_cache_manifest_from_another_source(
     tmp_path: Path,
 ) -> None:
     archive = tmp_path / "Thesaurus.OWL.zip"
-    archive.write_bytes(_make_zip())
+    original = _make_zip()
+    archive.write_bytes(original)
     archive.with_name(archive.name + ".meta.json").write_text(
         json.dumps(
             {
@@ -548,7 +549,9 @@ async def test_download_rejects_cache_manifest_from_another_source(
     )
 
     assert result.success is False
-    assert "source URL" in (result.error or "")
+    assert "no cache available" in (result.error or "")
+    assert result.file_path is None
+    assert archive.read_bytes() == original
 
 
 @pytest.mark.unit
