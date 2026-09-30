@@ -4,7 +4,59 @@ import json
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
+
+
+class CapabilityModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class GridFilter(CapabilityModel):
+    kind: Literal["text", "categorical"]
+    text_parameter: str = Field(pattern=r"^[a-z_]+$")
+    values: dict[str, str]
+
+    @model_validator(mode="after")
+    def valid_domain(self):
+        if (self.kind == "categorical") != bool(self.values):
+            raise ValueError("only categorical filters require a value domain")
+        if any(not key or not label for key, label in self.values.items()):
+            raise ValueError("filter values and labels must be nonempty")
+        return self
+
+
+class GridCapabilities(CapabilityModel):
+    sorts: dict[Literal["list", "search"], list[str]]
+    filters: dict[str, GridFilter]
+    pagination: Literal["offset", "cursor"]
+    query_before_results: bool
+    metadata: Literal["certified", "remote"]
+    graph: Literal["ontology", "source-anchors", "none"]
+    links: Literal["mapping", "source-anchors", "references", "none"]
+
+    @field_validator("sorts")
+    @classmethod
+    def valid_sorts(cls, sorts):
+        if set(sorts) != {"list", "search"}:
+            raise ValueError("list/search sorts required")
+        for values in sorts.values():
+            if not values or "" in values or len(values) != len(set(values)):
+                raise ValueError("sorts must be nonempty and unique")
+        return sorts
+
+    @model_validator(mode="after")
+    def valid_controls(self):
+        parameters = [f.text_parameter for f in self.filters.values()]
+        if len(set(parameters)) != len(parameters) or any(not k for k in self.filters):
+            raise ValueError("filter names and text parameters must be distinct")
+        return self
 
 
 class _RepositoryDescriptor(BaseModel):
@@ -12,6 +64,16 @@ class _RepositoryDescriptor(BaseModel):
 
     label: str
     path: str
+    capabilities: GridCapabilities | None = None
+
+    @model_validator(mode="after")
+    def consistent_metadata(self):
+        if self.capabilities and (
+            (self.capabilities.metadata == "certified")
+            != isinstance(self, LocalRepositoryDescriptor)
+        ):
+            raise ValueError("metadata capability contradicts repository kind")
+        return self
 
 
 class LocalRepositoryDescriptor(_RepositoryDescriptor):

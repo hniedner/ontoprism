@@ -5,10 +5,42 @@ from http import HTTPStatus
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.dependencies import get_repository_metadata
+from backend.repository_metadata import RepositoryUnhealthy
+
 pytestmark = [
     pytest.mark.mutating_integration,
     pytest.mark.usefixtures("isolated_postgres_settings", "isolated_qlever_settings"),
 ]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("path", ["list", "search?q=neoplasm", "concepts/C3262"])
+def test_ncit_grid_refuses_uncertified_source(
+    isolated_api_client: TestClient, path: str
+) -> None:
+    built = isolated_api_client.post("/api/v1/refresh/ncit/search-index")
+    assert built.status_code == HTTPStatus.OK, built.text
+    url = f"/api/v1/ncit/{path}"
+    assert isolated_api_client.get(url).status_code == HTTPStatus.OK
+
+    class Uncertified:
+        async def ncit(self):
+            return RepositoryUnhealthy(
+                repository="ncit",
+                reason="activation-incomplete",
+                message="Not certified",
+            )
+
+    overrides = isolated_api_client.app.dependency_overrides
+    original = overrides[get_repository_metadata]
+    overrides[get_repository_metadata] = Uncertified
+    try:
+        response = isolated_api_client.get(url)
+        assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE, response.text
+        assert response.json()["detail"]["reason"] == "activation-incomplete"
+    finally:
+        overrides[get_repository_metadata] = original
 
 
 @pytest.mark.integration

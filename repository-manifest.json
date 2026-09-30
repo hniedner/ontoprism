@@ -3,7 +3,17 @@
 		"id": "ncit",
 		"label": "NCIt",
 		"path": "/repositories/ncit",
-		"kind": "local-certified-proxy"
+		"kind": "local-certified-proxy",
+		"capabilities": {
+			"sorts": { "list": ["source", "code:asc", "code:desc", "label:asc", "label:desc"], "search": ["relevance", "source", "code:asc", "code:desc", "label:asc", "label:desc"] },
+			"filters": {
+				"code": { "kind": "text", "text_parameter": "code_text", "values": {} },
+				"label": { "kind": "text", "text_parameter": "label_text", "values": {} },
+				"representation_status": { "kind": "categorical", "text_parameter": "status_text", "values": { "legacy-precoordinated": "Legacy pre-coordinated" } }
+			},
+			"pagination": "offset", "query_before_results": false,
+			"metadata": "certified", "graph": "ontology", "links": "mapping"
+		}
 	},
 	{
 		"id": "cadsr",

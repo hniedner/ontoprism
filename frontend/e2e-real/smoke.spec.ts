@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { gridCapabilities } from '../src/lib/repository-registry';
 
 const region = (page: Page, name: string) => page.getByRole('region', { name, exact: true });
 
@@ -40,7 +41,7 @@ async function detail(page: Page, name: string, identifier: string): Promise<voi
 	await expect(page.locator('main').getByText(identifier, { exact: false }).first()).toBeVisible();
 }
 
-async function sort(page: Page, regionName: string, name: string, value: string, kind: 'text' | 'numeric' | 'date' = 'text'): Promise<void> {
+async function sort(page: Page, regionName: string, name: string, value: string, kind: 'text' | 'numeric' | 'date' | 'label' = 'text'): Promise<void> {
 	const table = region(page, regionName);
 	const header = table.locator('th').filter({ has: page.getByRole('button', { name: `Sort by ${name}` }) });
 	const column = await header.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element));
@@ -58,6 +59,7 @@ async function sort(page: Page, regionName: string, name: string, value: string,
 	} else {
 		const comparator = kind === 'numeric'
 			? (a: string, b: string) => Number.parseInt(a, 10) - Number.parseInt(b, 10)
+			: kind === 'label' ? (a: string, b: string) => a.localeCompare(b, 'en', { ignorePunctuation: true })
 			: (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 		expect(values).toEqual([...values].sort(comparator));
 	}
@@ -92,9 +94,35 @@ test('read-only configured repository smoke', async ({ page }) => {
 	await open('/repositories/ncit');
 	await rows(page, 'NCIt repository results');
 	await search(page, 'melanoma', 'NCIt repository results');
-	await sort(page, 'NCIt repository results', 'Code', 'code:asc');
-	await filter(page, 'NCIt repository results', 'Status', 'Legacy pre-coordinated', 'representation_status', 'legacy-precoordinated', 'Legacy pre-coordinated');
-	await detail(page, 'NCIt repository results', 'C111021');
+	const ncit = gridCapabilities('ncit');
+	const table = region(page, 'NCIt repository results');
+	for (const sortValue of ncit.sorts.search.filter((value) => value.endsWith(':asc'))) {
+		const column = sortValue.split(':')[0];
+		const header = table.locator(`th[data-column-id="${column}"]`);
+		const name = (await header.getByRole('button', { name: /^Sort by / }).getAttribute('aria-label'))!.replace(/^Sort by /, '');
+		await sort(page, 'NCIt repository results', name, sortValue, column === 'label' ? 'label' : 'text');
+	}
+	await sort(page, 'NCIt repository results', 'Code', ncit.sorts.search.find((value) => value === 'code:asc')!);
+	for (const [column, control] of Object.entries(ncit.filters).sort(([, a], [, b]) => Number(b.kind === 'categorical') - Number(a.kind === 'categorical'))) {
+		const header = table.locator(`th[data-column-id="${column}"]`);
+		const button = header.getByRole('button', { name: /^Filter / });
+		const label = (await button.getAttribute('aria-label'))!.replace(/^Filter /, '');
+		if (control.kind === 'categorical') {
+			const [value, rendered] = Object.entries(control.values)[0];
+			await filter(page, 'NCIt repository results', label, rendered, column, value, rendered);
+			await page.keyboard.press('Escape');
+		}
+		await button.click();
+		const input = page.getByRole('textbox', { name: `Filter ${label} text` });
+		const first = (await table.locator(`tbody tr`).first().locator('td').nth(await header.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element))).textContent())!.trim();
+		await input.fill(first);
+		await input.press('Enter');
+		await expect(page).toHaveURL((url) => url.searchParams.get(`text_${column}`) === first);
+		await rows(page, 'NCIt repository results');
+		await input.press('Escape');
+	}
+	const ncitCode = (await table.locator('tbody a').first().textContent())!.trim();
+	await detail(page, 'NCIt repository results', ncitCode);
 	await expect(page.getByRole('heading', { name: 'Concept graph' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Additive provisional enhancement' })).toBeVisible();
 	await expect(region(page, 'Stated occurrence delta')).toBeVisible();

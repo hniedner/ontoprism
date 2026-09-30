@@ -28,7 +28,7 @@
 		filters?: Snippet;
 		initial: { result: P; query: string; offset: number; size: PageSize; sort: Sort; filters: Record<string, string[]>; textFilters?: Record<string, string> };
 		defaultSort: Sort;
-		sortKeys: Readonly<Record<string, { asc: Sort; desc: Sort }>>;
+		sortKeys: Readonly<Record<string, Partial<Record<'asc' | 'desc', Sort>>>>;
 		filterKeys: DataTableFilterKeyMap;
 		textKeys?: DataTableFilterKeyMap;
 	}

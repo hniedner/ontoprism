@@ -1,13 +1,51 @@
-import manifest from '../../../repository-manifest.json';
+import manifest from '../../../repository-manifest.json' with { type: 'json' };
+import type { DataTableFilter } from './components/data-table/types';
 
 export type RepositoryKind = 'local-certified-proxy' | 'remote-live-service';
 export type LocalRepositoryId = 'ncit' | 'cadsr' | 'uberon' | 'icdo';
 type RemoteRepositoryId = 'clinicaltrials' | 'pubmed';
 export type RepositoryId = LocalRepositoryId | RemoteRepositoryId;
 
+export interface GridFilter {
+	readonly kind: 'text' | 'categorical';
+	readonly text_parameter: string;
+	readonly values: Record<string, string>;
+}
+export interface GridCapabilities {
+	readonly sorts: Record<'list' | 'search', string[]>;
+	readonly filters: Record<string, GridFilter>;
+	readonly pagination: 'offset' | 'cursor';
+	readonly query_before_results: boolean;
+	readonly metadata: 'certified' | 'remote';
+	readonly graph: 'ontology' | 'source-anchors' | 'none';
+	readonly links: 'mapping' | 'source-anchors' | 'references' | 'none';
+}
+
+function object(value: unknown, allowed?: readonly string[]): Record<string, unknown> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Expected capability object');
+	if (allowed && (Object.keys(value).length !== allowed.length || Object.keys(value).some((key) => !allowed.includes(key)))) throw new TypeError('Unknown or missing capability field');
+	return value as Record<string, unknown>;
+}
+function capabilities(value: unknown, local: boolean): GridCapabilities {
+	const c = object(value, ['sorts', 'filters', 'pagination', 'query_before_results', 'metadata', 'graph', 'links']);
+	const sorts = object(c.sorts, ['list', 'search']);
+	for (const values of Object.values(sorts)) if (!Array.isArray(values) || !values.length || values.some((v) => typeof v !== 'string' || !v) || new Set(values).size !== values.length) throw new TypeError('Invalid sort domain');
+	const parameters = new Set<string>();
+	for (const [key, value] of Object.entries(object(c.filters))) {
+		const f = object(value, ['kind', 'text_parameter', 'values']);
+		const values = object(f.values);
+		if (!key || !['text', 'categorical'].includes(String(f.kind)) || (f.kind === 'categorical') !== Boolean(Object.keys(values).length) || Object.entries(values).some(([k, v]) => !k || typeof v !== 'string' || !v)) throw new TypeError('Invalid filter domain');
+		if (typeof f.text_parameter !== 'string' || !/^[a-z_]+$/.test(f.text_parameter) || parameters.has(f.text_parameter)) throw new TypeError('Invalid text parameter');
+		parameters.add(f.text_parameter);
+	}
+	if (c.metadata !== (local ? 'certified' : 'remote') || typeof c.query_before_results !== 'boolean' || !['offset', 'cursor'].includes(String(c.pagination)) || !['ontology', 'source-anchors', 'none'].includes(String(c.graph)) || !['mapping', 'source-anchors', 'references', 'none'].includes(String(c.links))) throw new TypeError('Contradictory repository capabilities');
+	return c as unknown as GridCapabilities;
+}
+
 interface RepositoryDescriptorBase {
 	readonly label: string;
 	readonly path: `/repositories/${string}`;
+	readonly capabilities?: GridCapabilities;
 }
 
 interface LocalRepositoryDescriptor extends RepositoryDescriptorBase {
@@ -24,7 +62,7 @@ type RepositoryDescriptor = LocalRepositoryDescriptor | RemoteRepositoryDescript
 
 const localIds = new Set(['ncit', 'cadsr', 'uberon', 'icdo']);
 const remoteIds = new Set(['clinicaltrials', 'pubmed']);
-const keys = new Set(['id', 'label', 'path', 'kind']);
+const keys = new Set(['id', 'label', 'path', 'kind', 'capabilities']);
 
 function parseRepositoryRegistry(input: unknown): RepositoryDescriptor[] {
 	if (!Array.isArray(input)) throw new TypeError('Repository manifest must be an array');
@@ -41,8 +79,41 @@ function parseRepositoryRegistry(input: unknown): RepositoryDescriptor[] {
 			(entry.kind === 'remote-live-service' && typeof entry.id === 'string' && remoteIds.has(entry.id));
 		if (!valid || entry.path !== `/repositories/${entry.id}`)
 			throw new TypeError('Repository descriptor kind, id, and path do not agree');
+		if (entry.capabilities !== undefined) capabilities(entry.capabilities, entry.kind === 'local-certified-proxy');
 		return entry as unknown as RepositoryDescriptor;
 	});
 }
 
 export const repositories = parseRepositoryRegistry(manifest);
+
+export function gridCapabilities(id: RepositoryId): GridCapabilities {
+	const found = repositories.find((entry) => entry.id === id)?.capabilities;
+	if (!found) throw new TypeError(`Repository ${id} has no grid declaration`);
+	return found;
+}
+
+export function gridControls(id: RepositoryId) {
+	const c = gridCapabilities(id);
+	const sortKeys: Record<string, Partial<Record<'asc' | 'desc', string>>> = {};
+	for (const sort of new Set(Object.values(c.sorts).flat())) {
+		const [column, direction] = sort.split(':');
+		if (direction === 'asc' || direction === 'desc') (sortKeys[column] ??= {})[direction] = sort;
+	}
+	const categorical = Object.entries(c.filters).filter(([, f]) => f.kind === 'categorical');
+	return {
+		sortKeys,
+		filterKeys: Object.fromEntries(categorical.map(([key]) => [key, key])),
+		textKeys: Object.fromEntries(Object.keys(c.filters).map((key) => [key, key])),
+		filters: Object.fromEntries(categorical.map(([key, f]) => [key, Object.keys(f.values)])),
+		textFilters: Object.keys(c.filters)
+	};
+}
+
+export function columnFilter(id: RepositoryId, column: string, ariaLabel: string): DataTableFilter | undefined {
+	const f = gridCapabilities(id).filters[column];
+	if (!f) return undefined;
+	return f.kind === 'text' ? { kind: 'text', ariaLabel } : {
+		kind: 'categorical', ariaLabel, textFilter: true,
+		options: Object.entries(f.values).map(([value, label]) => ({ value, label }))
+	};
+}
