@@ -100,7 +100,7 @@ _CANNED: list[tuple[str, list[dict[str, str]]]] = [
             {
                 "concept": f"{NS}C3262",
                 "label": "Neoplasm",
-                "semtype": "Neoplastic Process",
+                "semtypes": "Neoplastic Process",
                 "synonyms": "Neoplasia||Neoplasm",
             }
         ],

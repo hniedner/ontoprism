@@ -101,7 +101,7 @@ class _StatusClient:
             if self.status is not None:
                 row["representationStatus"] = self.status
             return [row]
-        if "SELECT ?concept ?label" in query and "SAMPLE(?semtypeValue)" in query:
+        if "SELECT ?concept ?label" in query and "MIN(STR(?semtypeValue))" in query:
             row = {
                 "concept": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
                 "label": "Legacy concept",
@@ -305,10 +305,8 @@ async def test_aggregate_queries_do_not_reuse_source_variables_as_aliases() -> N
     compact_queries = [" ".join(query.split()) for query in client.queries]
     aggregate_queries = [query for query in compact_queries if "SAMPLE(" in query]
     assert len(aggregate_queries) == 2
-    assert all(
-        "SAMPLE(?semtypeValue) AS ?semtype" in query
-        and "SAMPLE(?semtype) AS ?semtype" not in query
-        for query in aggregate_queries
+    assert any(
+        "MIN(STR(?semtypeValue)) AS ?semtype" in query for query in aggregate_queries
     )
     records_query = next(
         query for query in compact_queries if "GROUP_CONCAT(DISTINCT ?syn" in query
@@ -649,7 +647,7 @@ async def test_search_records_returns_records_with_synonyms(
     assert len(records) == 1
     assert records[0]["code"] == "C3262"
     assert records[0]["label"] == "Neoplasm"
-    assert records[0]["semantic_type"] == "Neoplastic Process"
+    assert records[0]["semantic_types"] == ["Neoplastic Process"]
     assert records[0]["synonyms"] == "Neoplasia||Neoplasm"
 
 

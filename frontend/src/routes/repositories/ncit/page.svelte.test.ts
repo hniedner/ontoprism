@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import Page from './+page.svelte';
 import type { SearchHit } from '$lib/types';
 
@@ -7,9 +7,9 @@ vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
 vi.mock('$app/state', () => ({ page: { url: new URL('https://example.test/repositories/ncit') }, navigating: { to: null } }));
 
 function renderPage(hits: SearchHit[], selected: string[] = [], query = '') {
-	return render(Page, { params: {}, form: null, data: { initial: {
-		query, offset: 0, size: 25, sort: 'source', filters: { representation_status: selected }, textFilters: {},
-		result: { query: '', total: hits.length, limit: 25, offset: 0, sort: 'source', representation_status: selected[0] ?? null, column_text: {}, hits }
+	return render(Page, { params: {}, form: null, data: { domains: { semantic_type: ['Disease or Syndrome', 'Neoplastic Process'] }, initial: {
+		query, offset: 0, size: 25, sort: 'source', filters: { representation_status: selected, semantic_type: [] }, textFilters: {},
+		result: { query: '', total: hits.length, limit: 25, offset: 0, sort: 'source', representation_status: selected[0] ?? null, column_text: {}, semantic_types: [], hits }
 	} } as never });
 }
 
@@ -63,6 +63,15 @@ describe('NCIt page typed table snippets', () => {
 	it('preserves authoritative server order', () => {
 		renderPage(hits);
 		expect(rowCodes()).toEqual(['C3', 'C1']);
+	});
+
+	it('offers source-derived Semantic Type multi-select and type-ahead controls', async () => {
+		renderPage(hits);
+		await fireEvent.click(screen.getByRole('button', { name: 'Filter Semantic type' }));
+
+		expect(screen.getByRole('checkbox', { name: 'Disease or Syndrome' })).toBeInTheDocument();
+		expect(screen.getByRole('checkbox', { name: 'Neoplastic Process' })).toBeInTheDocument();
+		expect(screen.getByRole('textbox', { name: 'Filter Semantic type text' })).toBeInTheDocument();
 	});
 
 	it('renders a dash for a missing label or semantic type', () => {

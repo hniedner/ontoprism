@@ -5,11 +5,12 @@
 		"path": "/repositories/ncit",
 		"kind": "local-certified-proxy",
 		"capabilities": {
-			"sorts": { "list": ["source", "code:asc", "code:desc", "label:asc", "label:desc"], "search": ["relevance", "source", "code:asc", "code:desc", "label:asc", "label:desc"] },
+			"sorts": { "list": ["source", "code:asc", "code:desc", "label:asc", "label:desc", "semantic_type:asc", "semantic_type:desc"], "search": ["relevance", "source", "code:asc", "code:desc", "label:asc", "label:desc", "semantic_type:asc", "semantic_type:desc"] },
 			"filters": {
 				"code": { "kind": "text", "text_parameter": "code_text", "values": {} },
 				"label": { "kind": "text", "text_parameter": "label_text", "values": {} },
-				"representation_status": { "kind": "categorical", "text_parameter": "status_text", "values": { "legacy-precoordinated": "Legacy pre-coordinated" } }
+				"representation_status": { "kind": "categorical", "text_parameter": "status_text", "multiple": false, "values": { "legacy-precoordinated": "Legacy pre-coordinated" } },
+				"semantic_type": { "kind": "categorical", "text_parameter": "semantic_type_text", "multiple": true, "source_domain": "semantic-types", "values": {} }
 			},
 			"pagination": "offset", "query_before_results": false,
 			"metadata": "certified", "graph": "ontology", "links": "mapping"

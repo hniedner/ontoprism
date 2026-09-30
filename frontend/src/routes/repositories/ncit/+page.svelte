@@ -10,13 +10,13 @@
 
 	const SUGGESTIONS = ['melanoma', 'thyroid carcinoma', 'BRCA1 gene', 'tumor stage', 'lung neoplasm'];
 	let { data }: PageProps = $props();
-	const controls = gridControls('ncit');
-	const columns: readonly DataTableColumn<SearchHit>[] = [
+	const controls = $derived(gridControls('ncit', data.domains));
+	const columns = $derived<readonly DataTableColumn<SearchHit>[]>([
 		{ id: 'code', label: 'Code', cell: codeCell, sortable: Object.keys(controls.sortKeys.code) as ('asc' | 'desc')[], filter: columnFilter('ncit', 'code', 'Filter NCIt codes'), sticky: { side: 'left', offset: 0 } },
 		{ id: 'label', label: 'Name', cell: labelCell, sortable: Object.keys(controls.sortKeys.label) as ('asc' | 'desc')[], filter: columnFilter('ncit', 'label', 'Filter NCIt names') },
-		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell },
+		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell, sortable: ['asc', 'desc'], filter: columnFilter('ncit', 'semantic_type', 'Filter NCIt semantic types', data.domains.semantic_type) },
 		{ id: 'representation_status', label: 'Status', cell: statusCell, filter: columnFilter('ncit', 'representation_status', 'Filter NCIt representation status') }
-	];
+	]);
 
 </script>
 

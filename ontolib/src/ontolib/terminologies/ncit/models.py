@@ -8,10 +8,23 @@ from ontolib.common.boundary_models import StrictBoundaryModel
 
 RepresentationStatus = Literal["legacy-precoordinated"]
 RepositoryBrowseSort = Literal[
-    "source", "code:asc", "code:desc", "label:asc", "label:desc"
+    "source",
+    "code:asc",
+    "code:desc",
+    "label:asc",
+    "label:desc",
+    "semantic_type:asc",
+    "semantic_type:desc",
 ]
 RepositorySearchSort = Literal[
-    "relevance", "source", "code:asc", "code:desc", "label:asc", "label:desc"
+    "relevance",
+    "source",
+    "code:asc",
+    "code:desc",
+    "label:asc",
+    "label:desc",
+    "semantic_type:asc",
+    "semantic_type:desc",
 ]
 
 
@@ -84,6 +97,7 @@ class SearchPage(StrictBoundaryModel):
     sort: RepositorySearchSort = "relevance"
     representation_status: RepresentationStatus | None
     column_text: dict[str, str] = Field(default_factory=dict)
+    semantic_types: list[str] = Field(default_factory=list)
     hits: list[SearchHit] = Field(default_factory=list)
 
 
@@ -97,6 +111,7 @@ class BrowsePage(StrictBoundaryModel):
     sort: RepositoryBrowseSort = "source"
     representation_status: RepresentationStatus | None
     column_text: dict[str, str] = Field(default_factory=dict)
+    semantic_types: list[str] = Field(default_factory=list)
     hits: list[SearchHit] = Field(default_factory=list)
 
 

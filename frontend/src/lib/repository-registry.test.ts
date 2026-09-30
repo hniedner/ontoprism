@@ -6,6 +6,7 @@ import { repositories, gridCapabilities } from './repository-registry';
 describe('repository registry', () => {
 	it('derives declared controls and rejects rendering or contradictory capabilities', async () => {
 		expect(gridCapabilities('ncit').filters.representation_status.values).toEqual({ 'legacy-precoordinated': 'Legacy pre-coordinated' });
+		expect(gridCapabilities('ncit').filters.semantic_type).toMatchObject({ multiple: true, source_domain: 'semantic-types' });
 		for (const edit of [
 			(c: Record<string, unknown>) => { c.columns = []; },
 			(c: Record<string, unknown>) => { c.metadata = 'remote'; },

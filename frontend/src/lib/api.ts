@@ -148,10 +148,11 @@ export function searchNcit(
 		representationStatus?: RepresentationStatus;
 		sort?: NcitSearchSort;
 		columnText?: NcitColumnText;
+		semanticTypes?: string[];
 		fetch?: typeof fetch;
 	} = {}
 ): Promise<NcitSearchPage> {
-	const url = apiUrl('/api/v1/ncit/search', { q, ...ncitGridParams(opts) });
+	const url = ncitUrl('/api/v1/ncit/search', { q, ...ncitGridParams(opts) }, opts.semanticTypes);
 	return getJson<NcitSearchPage>(url, opts.fetch);
 }
 
@@ -163,6 +164,15 @@ function ncitGridParams(opts: { limit?: number; offset?: number; representationS
 	return params;
 }
 
+function ncitUrl(path: string, params: Record<string, string | number>, semanticTypes: string[] = []): string {
+	const url = apiUrl(path, params);
+	return url + semanticTypes.map((value) => `&semantic_type=${encodeURIComponent(value)}`).join('');
+}
+
+export function getNcitSemanticTypes(fetchImpl?: typeof fetch): Promise<string[]> {
+	return getJson<string[]>(apiUrl('/api/v1/ncit/semantic-types'), fetchImpl);
+}
+
 /** List NCIt concepts in the requested deterministic browse order. */
 export function listNcit(
 	opts: {
@@ -171,10 +181,11 @@ export function listNcit(
 		representationStatus?: RepresentationStatus;
 		sort?: NcitBrowseSort;
 		columnText?: NcitColumnText;
+		semanticTypes?: string[];
 		fetch?: typeof fetch;
 	} = {}
 ): Promise<NcitBrowsePage> {
-	const url = apiUrl('/api/v1/ncit/list', ncitGridParams(opts));
+	const url = ncitUrl('/api/v1/ncit/list', ncitGridParams(opts), opts.semanticTypes);
 	return getJson<NcitBrowsePage>(url, opts.fetch);
 }
 

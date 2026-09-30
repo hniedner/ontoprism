@@ -22,10 +22,12 @@ class GridFilter(CapabilityModel):
     kind: Literal["text", "categorical"]
     text_parameter: str = Field(pattern=r"^[a-z_]+$")
     values: dict[str, str]
+    multiple: bool = False
+    source_domain: str | None = None
 
     @model_validator(mode="after")
     def valid_domain(self):
-        if (self.kind == "categorical") != bool(self.values):
+        if (self.kind == "categorical") != bool(self.values or self.source_domain):
             raise ValueError("only categorical filters require a value domain")
         if any(not key or not label for key, label in self.values.items()):
             raise ValueError("filter values and labels must be nonempty")

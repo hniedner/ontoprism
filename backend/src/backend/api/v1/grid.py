@@ -30,6 +30,14 @@ PageSize = Annotated[
 ]
 
 
+def _selection_values(value: str | list[str] | None) -> list[str]:
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return []
+    return [value]
+
+
 class GridService[Ready]:
     """Certify and dispatch reads; adapters retain source queries and row types."""
 
@@ -46,7 +54,7 @@ class GridService[Ready]:
         operation: Literal["list", "search"],
         sort: str,
         text: Mapping[str, str],
-        selected: Mapping[str, str | None],
+        selected: Mapping[str, str | list[str] | None],
     ) -> None:
         if sort not in self.capabilities.sorts[operation]:
             raise HTTPException(422, "Undeclared repository sort")
@@ -55,11 +63,14 @@ class GridService[Ready]:
         for key, value in selected.items():
             self._validate_selection(key, value)
 
-    def _validate_selection(self, key: str, value: str | None) -> None:
+    def _validate_selection(self, key: str, value: str | list[str] | None) -> None:
         definition = self.capabilities.filters.get(key)
         if definition is None or definition.kind != "categorical":
             raise HTTPException(422, "Undeclared repository categorical filter")
-        if value is not None and value not in definition.values:
+        values = _selection_values(value)
+        if not definition.source_domain and any(
+            v not in definition.values for v in values
+        ):
             raise HTTPException(422, "Undeclared repository filter value")
 
     async def _ready(self) -> Ready:
