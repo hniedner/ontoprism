@@ -72,10 +72,15 @@ def test_rejects_invalid_grid_capabilities(tmp_path: Path, change: str) -> None:
 
 def test_declared_ncit_controls_available_to_grid_consumers() -> None:
     ncit = load_repository_registry(_MANIFEST)[0]
-    assert ncit.capabilities.sorts["list"][0] == "source"
-    assert ncit.capabilities.filters["representation_status"].values == {
+    capabilities = ncit.capabilities
+    assert capabilities is not None
+    assert capabilities.sorts["list"][0] == "source"
+    assert capabilities.filters["representation_status"].values == {
         "legacy-precoordinated": "Legacy pre-coordinated"
     }
+    semantic_type = capabilities.filters["semantic_type"]
+    assert semantic_type.multiple is True
+    assert semantic_type.source_domain == "semantic-types"
 
 
 @pytest.mark.parametrize(
@@ -92,9 +97,9 @@ def test_grid_refuses_controls_outside_declaration(sort, text, selected) -> None
     async def ready():
         return "ready"
 
-    grid = GridService(
-        "NCIt", load_repository_registry(_MANIFEST)[0].capabilities, ready
-    )
+    capabilities = load_repository_registry(_MANIFEST)[0].capabilities
+    assert capabilities is not None
+    grid = GridService("NCIt", capabilities, ready)
     with pytest.raises(HTTPException) as error:
         grid.validate("list", sort, text, selected)
     assert error.value.status_code == 422

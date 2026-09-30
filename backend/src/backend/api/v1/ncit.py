@@ -202,6 +202,7 @@ def _column_text(
     code_text: ColumnText | None = None,
     label_text: ColumnText | None = None,
     status_text: ColumnText | None = None,
+    semantic_type_text: ColumnText | None = None,
 ) -> dict[str, str]:
     return {
         key: value
@@ -209,6 +210,7 @@ def _column_text(
             ("code", code_text),
             ("label", label_text),
             ("representation_status", status_text),
+            ("semantic_type", semantic_type_text),
         )
         if value is not None
     }
@@ -244,10 +246,17 @@ async def search(
         Query(description="Published representation status"),
     ] = None,
     sort: RepositorySearchSort = "relevance",
+    semantic_type: Annotated[list[ColumnText] | None, Query()] = None,
 ) -> SearchPage:
     """Search NCIt through the source-bound certified FTS publication."""
     grid.validate(
-        "search", sort, column_text, {"representation_status": representation_status}
+        "search",
+        sort,
+        column_text,
+        {
+            "representation_status": representation_status,
+            "semantic_type": semantic_type,
+        },
     )
     return await grid.read(
         lambda _: index.search(
@@ -257,6 +266,7 @@ async def search(
             representation_status=representation_status,
             sort=sort,
             column_text=column_text,
+            semantic_types=semantic_type,
         ),
         available=lambda repository: index.is_populated(repository.source_identity),
     )
@@ -274,10 +284,17 @@ async def list_concepts(
         Query(description="Published representation status"),
     ] = None,
     sort: RepositoryBrowseSort = "source",
+    semantic_type: Annotated[list[ColumnText] | None, Query()] = None,
 ) -> BrowsePage:
     """List concepts in the requested deterministic browse order."""
     grid.validate(
-        "list", sort, column_text, {"representation_status": representation_status}
+        "list",
+        sort,
+        column_text,
+        {
+            "representation_status": representation_status,
+            "semantic_type": semantic_type,
+        },
     )
     return await grid.read(
         lambda _: store.list_concepts(
@@ -286,6 +303,7 @@ async def list_concepts(
             representation_status=representation_status,
             sort=sort,
             column_text=column_text,
+            semantic_types=semantic_type,
         )
     )
 
@@ -295,6 +313,11 @@ async def concept_detail(store: NcitStore, grid: NcitGrid, code: str) -> Concept
     """Return full concept detail — parents, roles, associations, incoming roles."""
     detail = await grid.read(lambda _: store.get_concept_detail(code), detail=code)
     return cast("ConceptDetail", detail)  # grid rejects missing details
+
+
+@router.get("/semantic-types", response_model=list[str])
+async def semantic_type_domain(store: NcitStore, grid: NcitGrid) -> list[str]:
+    return await grid.read(lambda _: store.semantic_type_values())
 
 
 @router.get("/concepts/{code}/similar", response_model=list[SimilarConcept])

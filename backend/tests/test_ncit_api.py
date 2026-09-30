@@ -82,6 +82,7 @@ class _FakeStore:
         representation_status: RepresentationStatus | None = None,
         sort: str = "source",
         column_text: dict[str, str] | None = None,
+        semantic_types: list[str] | None = None,
     ) -> BrowsePage:
         self.list_calls.append((limit, offset, representation_status))
         return BrowsePage(
@@ -90,6 +91,7 @@ class _FakeStore:
             limit=limit,
             offset=offset,
             representation_status=representation_status,
+            semantic_types=semantic_types or [],
             hits=[SearchHit(code="C3262", label="Neoplasm")],
         )
 
@@ -114,6 +116,9 @@ class _FakeStore:
     async def labels_for(self, codes: list[str]) -> dict[str, str]:
         known = {"C3262": "Neoplasm", "C9305": "Malignant Neoplasm"}
         return {c: known[c] for c in codes if c in known}
+
+    async def semantic_type_values(self) -> list[str]:
+        return ["Disease or Syndrome", "Neoplastic Process"]
 
 
 class _FakeIndex:
@@ -141,6 +146,7 @@ class _FakeIndex:
         representation_status: RepresentationStatus | None = None,
         sort: str = "relevance",
         column_text: dict[str, str] | None = None,
+        semantic_types: list[str] | None = None,
     ) -> SearchPage:
         self.searched = True
         self.search_calls.append((q, limit, offset, representation_status))
@@ -150,6 +156,7 @@ class _FakeIndex:
             limit=limit,
             offset=offset,
             representation_status=representation_status,
+            semantic_types=semantic_types or [],
             hits=[SearchHit(code="C3262", label="Neoplasm (from cache)")],
         )
 
@@ -315,6 +322,16 @@ def test_search_served_from_populated_cache(ncit_client: TestClient) -> None:
 
 
 @pytest.mark.api
+def test_semantic_type_domain_comes_from_certified_source(
+    ncit_client: TestClient,
+) -> None:
+    response = ncit_client.get("/api/v1/ncit/semantic-types")
+
+    assert response.status_code == 200
+    assert response.json() == ["Disease or Syndrome", "Neoplastic Process"]
+
+
+@pytest.mark.api
 def test_search_fails_closed_when_certified_cache_is_empty() -> None:
     store = _FakeStore()
     gen = _client(store=store, index=_FakeIndex(populated=False))
@@ -362,6 +379,26 @@ def test_list_status_filter_flows_to_store() -> None:
     assert response.status_code == 200
     assert response.json()["representation_status"] == "legacy-precoordinated"
     assert store.list_calls == [(25, 0, "legacy-precoordinated")]
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("path", ["/api/v1/ncit/search", "/api/v1/ncit/list"])
+def test_semantic_type_any_of_selection_is_echoed(path: str) -> None:
+    params: dict[str, str | list[str]] = {
+        "semantic_type": ["Disease or Syndrome", "Neoplastic Process"]
+    }
+    if path.endswith("search"):
+        params["q"] = "x"
+    response = next(_client()).get(
+        path,
+        params=params,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["semantic_types"] == [
+        "Disease or Syndrome",
+        "Neoplastic Process",
+    ]
 
 
 @pytest.mark.api

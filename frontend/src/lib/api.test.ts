@@ -3,6 +3,7 @@ import {
 	apiUrl,
 	searchNcit,
 	listNcit,
+	getNcitSemanticTypes,
 	getConcept,
 	getNeighborhood,
 	getUberonConcept,
@@ -235,6 +236,20 @@ describe('NCIt endpoints', () => {
 		expect(fetchImpl.mock.calls[0][0]).toBe(
 			'/api/v1/ncit/list?limit=25&offset=0&representation_status=legacy-precoordinated'
 		);
+	});
+
+	it('listNcit repeats every selected semantic type', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ hits: [] }));
+		await listNcit({ semanticTypes: ['Disease or Syndrome', 'Neoplastic Process'], fetch: fetchImpl });
+		expect(fetchImpl.mock.calls[0][0]).toBe(
+			'/api/v1/ncit/list?limit=25&offset=0&semantic_type=Disease%20or%20Syndrome&semantic_type=Neoplastic%20Process'
+		);
+	});
+
+	it('loads the Semantic Type source domain', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(['Neoplastic Process']));
+		await expect(getNcitSemanticTypes(fetchImpl)).resolves.toEqual(['Neoplastic Process']);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/semantic-types');
 	});
 
 	it('getConcept encodes the code in the path', async () => {

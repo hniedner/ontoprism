@@ -1,5 +1,6 @@
 """Integration tests for the NCIt FTS search cache (populate from store → search)."""
 
+import asyncio
 from http import HTTPStatus
 
 import pytest
@@ -7,11 +8,62 @@ from fastapi.testclient import TestClient
 
 from backend.dependencies import get_repository_metadata
 from backend.repository_metadata import RepositoryUnhealthy
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 pytestmark = [
     pytest.mark.mutating_integration,
     pytest.mark.usefixtures("isolated_postgres_settings", "isolated_qlever_settings"),
 ]
+
+
+@pytest.mark.integration
+def test_semantic_types_any_of_and_deterministic_projection(
+    isolated_api_client: TestClient, isolated_qlever_url: str
+) -> None:
+    async def add_second_type():
+        async with SparqlHttpClient.for_qlever(isolated_qlever_url) as client:
+            await client.update(
+                "PREFIX ncit: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#> "
+                'INSERT DATA { ncit:C3262 ncit:P106 "Disease or Syndrome" }'
+            )
+
+    asyncio.run(add_second_type())
+    domain = isolated_api_client.get("/api/v1/ncit/semantic-types")
+    assert domain.status_code == 200, domain.text
+    assert domain.json() == sorted(set(domain.json()))
+    assert {"Disease or Syndrome", "Neoplastic Process"} <= set(domain.json())
+    built = isolated_api_client.post("/api/v1/refresh/ncit/search-index")
+    assert built.status_code == 200, built.text
+    for selected, codes in [
+        (["Disease or Syndrome"], ["C3262"]),
+        (["Disease or Syndrome", "Neoplastic Process"], ["C3262", "C9305"]),
+    ]:
+        pages = []
+        for endpoint in ["list", "search"]:
+            params = [("semantic_type", value) for value in selected]
+            params += [("sort", "semantic_type:asc"), ("label_text", "neoplasm")]
+            if endpoint == "search":
+                params.append(("q", "neoplasm"))
+            response = isolated_api_client.get(
+                f"/api/v1/ncit/{endpoint}", params=params
+            )
+            assert response.status_code == 200, response.text
+            page = response.json()
+            assert [row["code"] for row in page["hits"]] == codes
+            assert page["total"] == len(codes)
+            assert page["hits"][0]["semantic_type"] == "Disease or Syndrome"
+            pages.append(page["hits"])
+        assert pages[0] == pages[1]
+    response = isolated_api_client.get(
+        "/api/v1/ncit/list",
+        params={
+            "semantic_type": "Neoplastic Process",
+            "semantic_type_text": "Disease",
+            "representation_status": "legacy-precoordinated",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert [row["code"] for row in response.json()["hits"]] == ["C3262"]
 
 
 @pytest.mark.integration

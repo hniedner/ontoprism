@@ -460,8 +460,8 @@ async def test_production_ncit_source_drift_fails_candidate_and_preserves_active
         await session.execute(text("DELETE FROM ncit_search"))
         await session.execute(
             text(
-                "INSERT INTO ncit_search (code,label,semantic_type,synonyms) "
-                "VALUES ('OLD_FTS','accepted',NULL,'')"
+                "INSERT INTO ncit_search (code,label,semantic_types,synonyms) "
+                "VALUES ('OLD_FTS','accepted','{}','')"
             )
         )
     monkeypatch.setenv("NCIT_EMBEDDING_EXPECTED_ROWS", str(count))
@@ -520,8 +520,8 @@ async def test_production_ncit_staged_fingerprint_mismatch_skips_fts_and_activat
         await session.execute(text("DELETE FROM ncit_search"))
         await session.execute(
             text(
-                "INSERT INTO ncit_search (code,label,semantic_type,synonyms) "
-                "VALUES ('OLD_FTS','accepted',NULL,'')"
+                "INSERT INTO ncit_search (code,label,semantic_types,synonyms) "
+                "VALUES ('OLD_FTS','accepted','{}','')"
             )
         )
     monkeypatch.setenv("NCIT_EMBEDDING_EXPECTED_ROWS", str(count))
@@ -574,8 +574,8 @@ async def test_production_ncit_fts_failure_preserves_active_corpus(
         await session.execute(text("DELETE FROM ncit_search"))
         await session.execute(
             text(
-                "INSERT INTO ncit_search (code,label,semantic_type,synonyms) "
-                "VALUES ('OLD_FTS','accepted',NULL,'')"
+                "INSERT INTO ncit_search (code,label,semantic_types,synonyms) "
+                "VALUES ('OLD_FTS','accepted','{}','')"
             )
         )
     monkeypatch.setenv("NCIT_EMBEDDING_EXPECTED_ROWS", str(count))

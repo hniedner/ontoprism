@@ -10,6 +10,8 @@ export interface GridFilter {
 	readonly kind: 'text' | 'categorical';
 	readonly text_parameter: string;
 	readonly values: Record<string, string>;
+	readonly multiple?: boolean;
+	readonly source_domain?: string;
 }
 export interface GridCapabilities {
 	readonly sorts: Record<'list' | 'search', string[]>;
@@ -21,9 +23,9 @@ export interface GridCapabilities {
 	readonly links: 'mapping' | 'source-anchors' | 'references' | 'none';
 }
 
-function object(value: unknown, allowed?: readonly string[]): Record<string, unknown> {
+function object(value: unknown, allowed?: readonly string[], optional: string[] = []): Record<string, unknown> {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Expected capability object');
-	if (allowed && (Object.keys(value).length !== allowed.length || Object.keys(value).some((key) => !allowed.includes(key)))) throw new TypeError('Unknown or missing capability field');
+	if (allowed && (allowed.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !allowed.includes(key) && !optional.includes(key)))) throw new TypeError('Unknown or missing capability field');
 	return value as Record<string, unknown>;
 }
 function validateSorts(value: unknown): void {
@@ -32,9 +34,11 @@ function validateSorts(value: unknown): void {
 }
 
 function validateFilter(key: string, value: unknown): string {
-	const f = object(value, ['kind', 'text_parameter', 'values']);
+	const f = object(value, ['kind', 'text_parameter', 'values'], ['multiple', 'source_domain']);
 	const values = object(f.values);
-	if (!key || !['text', 'categorical'].includes(String(f.kind)) || (f.kind === 'categorical') !== Boolean(Object.keys(values).length)) throw new TypeError('Invalid filter domain');
+	if (!key || !['text', 'categorical'].includes(String(f.kind)) || (f.kind === 'categorical') !== Boolean(Object.keys(values).length || f.source_domain)) throw new TypeError('Invalid filter domain');
+	if (f.multiple !== undefined && typeof f.multiple !== 'boolean') throw new TypeError('Invalid multiplicity');
+	if (f.source_domain !== undefined && (typeof f.source_domain !== 'string' || !f.source_domain)) throw new TypeError('Invalid source domain');
 	if (Object.entries(values).some(([k, v]) => !k || typeof v !== 'string' || !v)) throw new TypeError('Invalid filter value');
 	if (typeof f.text_parameter !== 'string' || !/^[a-z_]+$/.test(f.text_parameter)) throw new TypeError('Invalid text parameter');
 	return f.text_parameter;
@@ -107,7 +111,7 @@ export function gridCapabilities(id: RepositoryId): GridCapabilities {
 	return found;
 }
 
-export function gridControls(id: RepositoryId) {
+export function gridControls(id: RepositoryId, domains: Record<string, string[]> = {}) {
 	const c = gridCapabilities(id);
 	const sortKeys: Record<string, Partial<Record<'asc' | 'desc', string>>> = {};
 	for (const sort of new Set(Object.values(c.sorts).flat())) {
@@ -119,16 +123,16 @@ export function gridControls(id: RepositoryId) {
 		sortKeys,
 		filterKeys: Object.fromEntries(categorical.map(([key]) => [key, key])),
 		textKeys: Object.fromEntries(Object.keys(c.filters).map((key) => [key, key])),
-		filters: Object.fromEntries(categorical.map(([key, f]) => [key, Object.keys(f.values)])),
+		filters: Object.fromEntries(categorical.map(([key, f]) => [key, f.source_domain ? domains[key] ?? [] : Object.keys(f.values)])),
 		textFilters: Object.keys(c.filters)
 	};
 }
 
-export function columnFilter(id: RepositoryId, column: string, ariaLabel: string): DataTableFilter | undefined {
+export function columnFilter(id: RepositoryId, column: string, ariaLabel: string, domain: string[] = []): DataTableFilter | undefined {
 	const f = gridCapabilities(id).filters[column];
 	if (!f) return undefined;
 	return f.kind === 'text' ? { kind: 'text', ariaLabel } : {
 		kind: 'categorical', ariaLabel, textFilter: true,
-		options: Object.entries(f.values).map(([value, label]) => ({ value, label }))
+		options: f.source_domain ? domain.map((value) => ({ value, label: value })) : Object.entries(f.values).map(([value, label]) => ({ value, label }))
 	};
 }

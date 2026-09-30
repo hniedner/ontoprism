@@ -59,3 +59,29 @@ def sql_text_filters(
         ),
         {f"{column}_text": text_param(value) for column, value in values.items()},
     )
+
+
+def categorical_predicate(
+    column: str,
+    selected: list[str],
+    *,
+    expression: str,
+    multiple: bool,
+    dialect: Literal["sql", "sparql"],
+) -> tuple[str, dict[str, list[str]]]:
+    """Any-of membership; SPARQL expression is a natively bound value per source row.
+
+    SQL multiple columns are text arrays; scalar columns are text. Column and
+    expression are trusted repository declarations, never user-supplied query text.
+    """
+    if not selected:
+        return "", {}
+    if dialect == "sql":
+        parameter = f"{column}_selected"
+        values = f"CAST(:{parameter} AS text[])"
+        predicate = (
+            f"{expression} && {values}" if multiple else f"{expression} = ANY({values})"
+        )
+        return f" AND {predicate}", {parameter: selected}
+    values = ", ".join(json.dumps(value, ensure_ascii=True) for value in selected)
+    return f"FILTER({expression} IN ({values}))", {}

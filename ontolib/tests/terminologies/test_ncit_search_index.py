@@ -7,8 +7,9 @@ skips empty batches. ``populate_from_store`` is checked to page the store and fe
 rebuild.
 """
 
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -16,6 +17,8 @@ from ontolib.terminologies.ncit.search_index import (
     NcitSearchIndex,
     populate_from_store,
 )
+
+type SearchRecord = dict[str, str | list[str] | None]
 
 
 class _Result:
@@ -137,11 +140,12 @@ async def test_search_maps_rows_and_binds_params() -> None:
         "q": "tumor",
         "limit": 10,
         "offset": 5,
-        "representation_status": "legacy-precoordinated",
+        "representation_status_selected": ["legacy-precoordinated"],
     }
     sql = sf.executed[1][0]
-    status_filter = "representation_status = CAST(:representation_status AS text)"
-    assert "CAST(:representation_status AS text) IS NULL" in sql
+    status_filter = (
+        "representation_status = ANY(CAST(:representation_status_selected AS text[]))"
+    )
     assert status_filter in sql
     assert sql.index(status_filter) < sql.index("LIMIT :limit")
     assert "ORDER BY code DESC" in sql
@@ -160,8 +164,8 @@ async def test_search_empty_result_is_zero_total() -> None:
 
 
 async def _batches(
-    *chunks: list[dict[str, str | None]],
-) -> Any:
+    *chunks: list[SearchRecord],
+) -> AsyncIterator[list[SearchRecord]]:
     for chunk in chunks:
         yield chunk
 
@@ -177,7 +181,7 @@ async def test_rebuild_deletes_then_inserts_nonempty_batches() -> None:
                 {
                     "code": "C1",
                     "label": "a",
-                    "semantic_type": None,
+                    "semantic_types": [],
                     "synonyms": None,
                     "representation_status": "legacy-precoordinated",
                 }
@@ -187,14 +191,14 @@ async def test_rebuild_deletes_then_inserts_nonempty_batches() -> None:
                 {
                     "code": "C2",
                     "label": "b",
-                    "semantic_type": None,
+                    "semantic_types": [],
                     "synonyms": None,
                     "representation_status": None,
                 },
                 {
                     "code": "C3",
                     "label": "c",
-                    "semantic_type": None,
+                    "semantic_types": [],
                     "synonyms": None,
                     "representation_status": None,
                 },
@@ -222,13 +226,11 @@ async def test_rebuild_deletes_then_inserts_nonempty_batches() -> None:
 
 
 class _FakeStore:
-    def __init__(self, records: list[dict[str, str | None]]) -> None:
+    def __init__(self, records: list[SearchRecord]) -> None:
         self._records = records
         self.pages: list[tuple[int, int]] = []
 
-    async def search_records(
-        self, *, limit: int, offset: int
-    ) -> list[dict[str, str | None]]:
+    async def search_records(self, *, limit: int, offset: int) -> list[SearchRecord]:
         self.pages.append((limit, offset))
         return self._records[offset : offset + limit]
 
@@ -239,7 +241,7 @@ async def test_populate_from_store_pages_and_feeds_rebuild() -> None:
         {
             "code": f"C{i}",
             "label": f"n{i}",
-            "semantic_type": None,
+            "semantic_types": [],
             "synonyms": None,
             "representation_status": ("legacy-precoordinated" if i == 1 else None),
         }
@@ -250,7 +252,7 @@ async def test_populate_from_store_pages_and_feeds_rebuild() -> None:
     index = NcitSearchIndex(sf)  # type: ignore[arg-type]
 
     total = await populate_from_store(  # type: ignore[arg-type]
-        store,
+        cast("Any", store),
         index,
         source_identity="a" * 64,
         source_hash="b" * 64,

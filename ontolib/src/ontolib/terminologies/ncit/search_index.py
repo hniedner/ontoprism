@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import text
 
-from ontolib.common.grid import sql_text_filters
+from ontolib.common.grid import categorical_predicate, sql_text_filters
 from ontolib.terminologies.ncit.models import (
     RepositorySearchSort,
     RepresentationStatus,
@@ -57,19 +57,15 @@ if TYPE_CHECKING:
 #    is underdetermined and a tied row can appear on two pages of a LIMIT/OFFSET walk,
 #    or on none.
 _SEARCH_SQL = r"""
-    SELECT code, label, semantic_type, representation_status
+    SELECT code, label, semantic_types[1] AS semantic_type, representation_status
     FROM ncit_search, websearch_to_tsquery('english', :q) AS q
     WHERE tsv @@ q
-      AND (CAST(:representation_status AS text) IS NULL
-           OR representation_status = CAST(:representation_status AS text))
       {column_filters}
 """
 _SEARCH_COUNT_SQL = r"""
     SELECT COUNT(*)
     FROM ncit_search, websearch_to_tsquery('english', :q) AS q
     WHERE tsv @@ q
-      AND (CAST(:representation_status AS text) IS NULL
-           OR representation_status = CAST(:representation_status AS text))
       {column_filters}
 """
 _SEARCH_ORDERS: dict[RepositorySearchSort, str] = {
@@ -82,18 +78,29 @@ _SEARCH_ORDERS: dict[RepositorySearchSort, str] = {
     "code:desc": "code DESC",
     "label:asc": "label NULLS LAST, code",
     "label:desc": "label DESC NULLS LAST, code",
+    "semantic_type:asc": 'semantic_types[1] COLLATE "C" NULLS LAST, code',
+    "semantic_type:desc": 'semantic_types[1] COLLATE "C" DESC NULLS LAST, code',
+}
+_SEARCH_TEXT_EXPRESSIONS = {
+    "code": "code",
+    "label": "label",
+    "semantic_type": "semantic_types[1]",
+    "representation_status": (
+        "CASE WHEN representation_status = 'legacy-precoordinated' "
+        "THEN 'Legacy pre-coordinated' ELSE '' END"
+    ),
 }
 
 _UPSERT_SQL = """
     INSERT INTO ncit_search (
-        code, label, semantic_type, synonyms, representation_status
+        code, label, semantic_types, synonyms, representation_status
     )
     VALUES (
-        :code, :label, :semantic_type, :synonyms, :representation_status
+        :code, :label, :semantic_types, :synonyms, :representation_status
     )
     ON CONFLICT (code) DO UPDATE SET
         label = EXCLUDED.label,
-        semantic_type = EXCLUDED.semantic_type,
+        semantic_types = EXCLUDED.semantic_types,
         synonyms = EXCLUDED.synonyms,
         representation_status = EXCLUDED.representation_status
 """
@@ -120,6 +127,36 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 def _require_source_digest(name: str, value: str) -> None:
     if _SHA256.fullmatch(value) is None:
         raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+
+
+def _search_filters(
+    column_text: dict[str, str] | None,
+    representation_status: RepresentationStatus | None,
+    semantic_types: list[str] | None,
+) -> tuple[str, dict[str, str | list[str]]]:
+    predicates, text_params = sql_text_filters(
+        column_text or {}, _SEARCH_TEXT_EXPRESSIONS
+    )
+    params: dict[str, str | list[str]] = dict(text_params)
+    selections = (
+        (
+            "representation_status",
+            [representation_status] if representation_status else [],
+            False,
+        ),
+        ("semantic_types", semantic_types or [], True),
+    )
+    for column, selected, multiple in selections:
+        predicate, bindings = categorical_predicate(
+            column,
+            selected,
+            expression=column,
+            multiple=multiple,
+            dialect="sql",
+        )
+        predicates += predicate
+        params.update(bindings)
+    return predicates, params
 
 
 class NcitSearchIndex:
@@ -153,6 +190,7 @@ class NcitSearchIndex:
         representation_status: RepresentationStatus | None = None,
         sort: RepositorySearchSort = "relevance",
         column_text: dict[str, str] | None = None,
+        semantic_types: list[str] | None = None,
     ) -> SearchPage:
         """Search one page and count all matches with two bounded SQL statements."""
         async with self._sf() as session:
@@ -160,18 +198,9 @@ class NcitSearchIndex:
                 "q": query,
                 "limit": limit,
                 "offset": offset,
-                "representation_status": representation_status,
             }
-            predicates, bindings = sql_text_filters(
-                column_text or {},
-                {
-                    "code": "code",
-                    "label": "label",
-                    "representation_status": (
-                        "CASE WHEN representation_status = 'legacy-precoordinated' "
-                        "THEN 'Legacy pre-coordinated' ELSE '' END"
-                    ),
-                },
+            predicates, bindings = _search_filters(
+                column_text, representation_status, semantic_types
             )
             params.update(bindings)
             count_result = await session.execute(
@@ -206,12 +235,13 @@ class NcitSearchIndex:
             sort=sort,
             representation_status=representation_status,
             column_text=column_text or {},
+            semantic_types=semantic_types or [],
             hits=hits,
         )
 
     async def rebuild(
         self,
-        batches: AsyncIterable[Sequence[dict[str, str | None]]],
+        batches: AsyncIterable[Sequence[dict[str, str | list[str] | None]]],
         *,
         source_identity: str,
         source_hash: str,
@@ -261,7 +291,7 @@ async def populate_from_store(
     which applies them atomically.
     """
 
-    async def _pages() -> AsyncIterator[Sequence[dict[str, str | None]]]:
+    async def _pages() -> AsyncIterator[Sequence[dict[str, str | list[str] | None]]]:
         offset = 0
         while True:
             records = await store.search_records(limit=batch_size, offset=offset)

@@ -3,7 +3,7 @@
 import type { PageSize } from './grid-state';
 
 export type RepresentationStatus = 'legacy-precoordinated';
-export type NcitBrowseSort = 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc';
+export type NcitBrowseSort = 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc' | 'semantic_type:asc' | 'semantic_type:desc';
 export type NcitSearchSort = 'relevance' | NcitBrowseSort;
 export type NcitRepositorySort = NcitSearchSort;
 export type UberonBrowseSort = 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc';
@@ -48,7 +48,7 @@ export interface SearchHit {
 	representation_status: RepresentationStatus | null;
 }
 
-export type NcitTextColumn = 'code' | 'label' | 'representation_status';
+export type NcitTextColumn = 'code' | 'label' | 'representation_status' | 'semantic_type';
 export type NcitColumnText = Partial<Record<NcitTextColumn, string>>;
 
 interface NcitPageBase {
@@ -58,6 +58,7 @@ interface NcitPageBase {
 	offset: number;
 	representation_status: RepresentationStatus | null;
 	column_text: NcitColumnText;
+	semantic_types: string[];
 	hits: SearchHit[];
 }
 

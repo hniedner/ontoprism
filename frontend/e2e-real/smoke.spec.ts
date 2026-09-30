@@ -65,7 +65,7 @@ async function sort(page: Page, regionName: string, name: string, value: string,
 	}
 }
 
-async function filter(page: Page, regionName: string, column: string, option: string, parameter: string, value: string, rendered: string): Promise<void> {
+async function filter(page: Page, regionName: string, column: string, option: string, parameter: string, value: string, rendered: string, displayMatchesSelection = true): Promise<void> {
 	const table = region(page, regionName);
 	const header = table.locator('th').filter({ has: page.getByRole('button', { name: `Filter ${column}`, exact: true }) });
 	const index = await header.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element));
@@ -75,7 +75,7 @@ async function filter(page: Page, regionName: string, column: string, option: st
 	await rows(page, regionName);
 	const cells = table.locator(`tbody tr td:nth-child(${index + 1})`);
 	expect(await cells.count()).toBeGreaterThan(0);
-	for (const text of await cells.allTextContents()) expect(text.trim()).toBe(rendered);
+	if (displayMatchesSelection) for (const text of await cells.allTextContents()) expect(text.trim()).toBe(rendered);
 }
 
 test('read-only configured repository smoke', async ({ page }) => {
@@ -107,17 +107,18 @@ test('read-only configured repository smoke', async ({ page }) => {
 		const header = table.locator(`th[data-column-id="${column}"]`);
 		const button = header.getByRole('button', { name: /^Filter / });
 		const label = (await button.getAttribute('aria-label'))!.replace(/^Filter /, '');
+		const columnIndex = await header.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element));
+		const current = (await table.locator('tbody tr').first().locator('td').nth(columnIndex).textContent())!.trim();
 		if (control.kind === 'categorical') {
-			const [value, rendered] = Object.entries(control.values)[0];
-			await filter(page, 'NCIt repository results', label, rendered, column, value, rendered);
+			const [value, rendered] = control.source_domain ? [current, current] : Object.entries(control.values)[0];
+			await filter(page, 'NCIt repository results', label, rendered, column, value, rendered, !control.multiple);
 			await page.keyboard.press('Escape');
 		}
 		await button.click();
 		const input = page.getByRole('textbox', { name: `Filter ${label} text` });
-		const first = (await table.locator(`tbody tr`).first().locator('td').nth(await header.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element))).textContent())!.trim();
-		await input.fill(first);
+		await input.fill(current);
 		await input.press('Enter');
-		await expect(page).toHaveURL((url) => url.searchParams.get(`text_${column}`) === first);
+		await expect(page).toHaveURL((url) => url.searchParams.get(`text_${column}`) === current);
 		await rows(page, 'NCIt repository results');
 		await input.press('Escape');
 	}
