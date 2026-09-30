@@ -249,6 +249,85 @@ def write_body(root: Path, name: str = "body.md") -> Path:
     return body
 
 
+def test_workflow_dispatch_checks_origin_then_runs_only_ci(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    branch = "chore/workflow-dispatch-507"
+    head = "1" * 40
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    runner = recording_runner(
+        [Result(0, json.dumps({"name": branch, "commit": {"sha": head}})), Result(0)],
+        calls,
+    )
+
+    assert (
+        run_agent_github(
+            ["workflow-dispatch", "--ref", branch],
+            tmp_path,
+            read_only=False,
+            runner=runner,
+        )
+        == 0
+    )
+
+    assert calls[0][0] == [
+        "gh",
+        "api",
+        "--method",
+        "GET",
+        "repos/hniedner/ontoprism/branches/chore%2Fworkflow-dispatch-507",
+    ]
+    assert calls[1][0] == [
+        "gh",
+        "workflow",
+        "run",
+        "CI",
+        "--repo",
+        "hniedner/ontoprism",
+        "--ref",
+        branch,
+    ]
+    assert json.loads(capsys.readouterr().out) == {"head_sha": head, "ref": branch}
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["workflow-dispatch", "Deploy", "--ref", "feat/x"],
+        ["workflow-dispatch", "--ref", "main"],
+        ["workflow-dispatch", "--ref", "bad ref"],
+    ],
+)
+def test_workflow_dispatch_refuses_another_workflow_or_invalid_ref_before_network(
+    tmp_path: Path, arguments: list[str]
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    with pytest.raises(AgentGitHubInputError):
+        run_agent_github(
+            arguments,
+            tmp_path,
+            read_only=False,
+            runner=recording_runner([], calls),
+        )
+
+    assert calls == []
+
+
+def test_workflow_dispatch_refuses_a_branch_absent_from_origin(tmp_path: Path) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    with pytest.raises(AgentGitHubProcessError, match="read operation failed"):
+        run_agent_github(
+            ["workflow-dispatch", "--ref", "feat/absent"],
+            tmp_path,
+            read_only=False,
+            runner=recording_runner([Result(1, stderr="Not Found")], calls),
+        )
+
+    assert [call[0][3] for call in calls] == ["GET"]
+
+
 def test_issue_create_checks_duplicates_and_labels_then_uses_fixed_api(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -430,6 +509,7 @@ def test_wrapper_rejects_deletion_arbitrary_endpoints_and_invalid_arguments(
         ["milestone-edit", "1", "--title", "x"],
         ["milestone-close", "1"],
         ["milestone-reopen", "1"],
+        ["workflow-dispatch", "--ref", "feat/x"],
     ],
 )
 def test_read_only_entrypoint_rejects_every_mutation(

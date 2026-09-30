@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Run repository-scoped issue/milestone mutations, pull-request create/edit
-mutations, a squash merge pinned to the reviewed head, and reads.
+mutations, fixed CI dispatch, a squash merge pinned to the reviewed head, and reads.
 """
 
 from __future__ import annotations
@@ -44,6 +44,7 @@ MUTATION_OPERATIONS = frozenset(
         "pr-edit",
         "pr-merge",
         "main-required-checks",
+        "workflow-dispatch",
     }
 )
 PROCESS_TIMEOUT_SECONDS = 30
@@ -208,6 +209,7 @@ def _invoke(
     payload: dict[str, object] | None = None,
     mutating: bool = False,
     empty_ok: bool = False,
+    json_output: bool = True,
 ) -> Any:
     kwargs: dict[str, object] = {
         "cwd": root,
@@ -237,6 +239,8 @@ def _invoke(
         raise AgentGitHubProcessError(message)
     if empty_ok and not result.stdout.strip():
         return None
+    if not json_output:
+        return result.stdout
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
@@ -1164,6 +1168,32 @@ def _main_required_checks(
     )
 
 
+def _workflow_dispatch(
+    arguments: list[str], root: Path, runner: CommandRunner
+) -> dict[str, str]:
+    options = _flags(arguments, singles=frozenset({"--ref"}))
+    if set(options) != {"--ref"}:
+        raise AgentGitHubInputError("workflow-dispatch requires --ref")
+    branch = _safe_branch(str(options["--ref"]), "ref")
+    value = _api("GET", f"{API_ROOT}/branches/{quote(branch, safe='')}", root, runner)
+    commit = value.get("commit") if isinstance(value, dict) else None
+    head = commit.get("sha") if isinstance(commit, dict) else None
+    if (
+        value.get("name") != branch
+        or not isinstance(head, str)
+        or not FULL_SHA.fullmatch(head)
+    ):
+        raise AgentGitHubProcessError("GitHub branch response is invalid")
+    _invoke(
+        ["gh", "workflow", "run", "CI", "--repo", REPOSITORY, "--ref", branch],
+        root,
+        runner,
+        mutating=True,
+        json_output=False,
+    )
+    return {"ref": branch, "head_sha": head}
+
+
 def run_agent_github(
     arguments: list[str],
     root: Path,
@@ -1191,8 +1221,12 @@ def run_agent_github(
         value = _pr_edit(arguments[1:], resolved_root, command_runner)
     elif operation == "pr-merge":
         value = _pr_merge(arguments[1:], resolved_root, command_runner)
-    elif operation == "main-required-checks":
-        value = _main_required_checks(arguments[1:], resolved_root, command_runner)
+    elif operation in {"main-required-checks", "workflow-dispatch"}:
+        fixed_mutations = {
+            "main-required-checks": _main_required_checks,
+            "workflow-dispatch": _workflow_dispatch,
+        }
+        value = fixed_mutations[operation](arguments[1:], resolved_root, command_runner)
     else:
         value = _milestone_mutation(
             operation, arguments[1:], resolved_root, command_runner
