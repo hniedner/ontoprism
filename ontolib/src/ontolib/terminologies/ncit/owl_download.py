@@ -542,7 +542,7 @@ async def download_ncit_owl(
     reuses the cached zip unless its manifest records another URL (missing/unreadable
     manifests retain file-only fallback). Any failure is returned as ``success=False``
     (never raised) so the caller/endpoint can report it cleanly. ``cached`` is True when
-    result came from the cache (revalidated or offline) rather than a fresh download.
+    the result came from cache (revalidated or offline) rather than a fresh download.
     """
     try:
         url = owl_download_url(variant, base_url)

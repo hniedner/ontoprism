@@ -48,7 +48,7 @@ _DEFAULT_EDGE_LIMIT = 200
 # Upper bound on nodes returned by a multi-hop neighborhood expansion, so a deep
 # request cannot pull an unbounded closure out of the store.
 _MAX_NEIGHBORHOOD_NODES = 400
-# Bound multi-centre reads as well as each centre's own node and edge expansion.
+# Centres per grouped read; each centre retains its own node and edge caps.
 MAX_NEIGHBORHOOD_CENTERS = 12
 
 

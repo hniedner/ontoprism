@@ -192,6 +192,21 @@ describe('DataTable server-owned operations', () => {
 		expect(onintent).toHaveBeenLastCalledWith({ kind: 'filter', columnId: 'active', filter: { kind: 'categorical', selected: ['false'] } });
 	});
 
+	it('reports invalid text without emitting a filter and recovers on valid input', async () => {
+		const onintent = vi.fn();
+		render(DataTableTestHost, { rows, onintent });
+		await fireEvent.click(screen.getByRole('button', { name: 'Filter Name' }));
+		const input = screen.getByRole('textbox', { name: 'Filter Name text' });
+		await fireEvent.input(input, { target: { value: 'a\u0001b' } });
+		await fireEvent.submit(input.closest('form')!);
+		expect(screen.getByRole('alert')).toHaveTextContent('without control characters');
+		expect(onintent).not.toHaveBeenCalled();
+		await fireEvent.input(input, { target: { value: 'beta' } });
+		await fireEvent.submit(input.closest('form')!);
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		expect(onintent).toHaveBeenCalledWith({ kind: 'filter', columnId: 'name', filter: { kind: 'text', text: 'beta' } });
+	});
+
 	it('renders active chips with human column and option labels without dropping selections', () => {
 		const onintent = vi.fn();
 		render(DataTableTestHost, {
