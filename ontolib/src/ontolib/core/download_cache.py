@@ -7,7 +7,8 @@ we know *which version* is on disk. On the next fetch:
 - a **conditional** request (``If-None-Match`` / ``If-Modified-Since``) lets an
   unchanged source answer ``304 Not Modified`` and we reuse the cache with no transfer;
 - if the remote is **unreachable**, we fall back to the cached file (with a warning)
-  rather than failing — so a reload can still proceed offline.
+  unless its manifest identifies another URL; absent/unreadable manifests retain
+  the file-only fallback.
 
 This is the piece fairdata's size-only ``download_cache`` lacks; built here (TDD) and
 shared by the NCIt and caDSR downloaders.
@@ -199,7 +200,7 @@ async def cached_download(
     Returns a :class:`DownloadOutcome` whose ``status`` is ``downloaded`` (fresh copy),
     ``not_modified`` (remote unchanged, cache reused), or ``offline`` (unreachable,
     cache reused). Raises :class:`StorageError` on a terminal error (bad URL, 4xx),
-    or when the remote is unreachable and there is no cached copy to fall back to.
+    or when the remote is unreachable and no usable cache exists for this URL.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     cached_manifest = read_manifest(dest)
@@ -218,9 +219,8 @@ async def cached_download(
             )
 
     if _fallback_allowed(dest, url):
-        # Offline fallback keys off the file on disk, not the manifest — a corrupt
-        # sidecar must not turn a usable cache into "no cache available". Synthesize a
-        # bare manifest when the sidecar is missing/unreadable.
+        # A recorded foreign URL is refused. Missing/unreadable sidecars retain
+        # file-only fallback, with a synthesized bare manifest.
         manifest = _require_manifest(dest, url)
         logger.warning(
             "Remote unreachable (%s); serving cached %s (offline).", last_error, dest

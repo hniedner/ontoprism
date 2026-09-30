@@ -101,7 +101,7 @@ caDSR gets a multi-select on **every** closed-domain field, not just one:
 Preserve source spellings, including distinct `registration_status` values
 “Superceded” (638) and “Superseded” (112). These figures come from the
 [owner's read-only observation](https://github.com/hniedner/ontoprism/issues/487#issuecomment-5897005792),
-not a new local count. #484 delivers shared behavior and NCIt code/label
+not a new local count. #484 delivers shared behavior and NCIt code/label/status
 controls; the other repositories acquire filters in their M12 migrations.
 
 ## Cross-repository links: one construct, distinct semantics

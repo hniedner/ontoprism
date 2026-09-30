@@ -31,6 +31,7 @@ from ontolib.repositories.xref.vocab import (
     COMPOSITE_MATCHING,
     DATABASE_CROSS_REFERENCE,
     LEXICAL_MATCHING,
+    UBERON_CL_CURIE_PREFIXES,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -230,7 +231,7 @@ async def fetch_upstream_labels(
         label = row.get("label")
         if concept_iri and label:
             curie = _iri_to_curie(str(concept_iri))
-            if curie and curie.split(":", 1)[0] in {"UBERON", "CL"}:
+            if curie and curie.startswith(UBERON_CL_CURIE_PREFIXES):
                 result.setdefault(curie, set()).add(str(label))
     return result
 

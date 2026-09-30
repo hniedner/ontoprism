@@ -48,6 +48,7 @@ _DEFAULT_EDGE_LIMIT = 200
 # Upper bound on nodes returned by a multi-hop neighborhood expansion, so a deep
 # request cannot pull an unbounded closure out of the store.
 _MAX_NEIGHBORHOOD_NODES = 400
+# Bound multi-centre reads as well as each centre's own node and edge expansion.
 MAX_NEIGHBORHOOD_CENTERS = 12
 
 
@@ -404,10 +405,10 @@ class NcitGraphStore:
         sort: RepositoryBrowseSort = "source",
         column_text: dict[str, str] | None = None,
     ) -> BrowsePage:
-        """List all named concepts in the requested deterministic browse order.
+        """List matching named concepts in the requested deterministic browse order.
 
-        The total class count is expensive to compute over the full store, so it is
-        memoized after the first call (the concept universe is static between reloads).
+        Counts without text predicates are memoized per status between reloads;
+        text-filtered totals are counted on each request.
         """
         order = {
             "source": "?concept",
@@ -604,9 +605,9 @@ class NcitGraphStore:
         return int(value) if value is not None else 0
 
     async def get_neighborhoods(self, codes: list[str]) -> list[Neighborhood]:
-        """Read at most twelve one-hop neighborhoods with per-concept edge caps."""
+        """Read one-hop neighborhoods within MAX_NEIGHBORHOOD_CENTERS and edge caps."""
         if len(codes) > MAX_NEIGHBORHOOD_CENTERS:
-            raise ValueError("at most twelve neighborhood centers")
+            raise ValueError(f"at most {MAX_NEIGHBORHOOD_CENTERS} neighborhood centers")
         if not codes:
             return []
         batches = await asyncio.gather(

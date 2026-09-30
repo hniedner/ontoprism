@@ -114,6 +114,9 @@ def test_large_cde_neighborhood_matches_individual_real_store_reads(
     original = store.get_neighborhood
 
     async def check() -> None:
+        assert await store.get_neighborhoods([]) == []
+        with pytest.raises(ValueError, match="at most"):
+            await store.get_neighborhoods(["C3262"] * 13)
         # Read each selected neighborhood serially as the pre-change route did.
         expected = [await original(link.concept_code) for link in cde.concepts[:12]]
         center = "cde:100:2.0"
