@@ -705,6 +705,51 @@ def test_python_test_jobs_are_exact_two_child_matrices_with_unique_evidence() ->
     assert jobs["ci-summary"]["steps"][0]["env"]["EXPECTED_JOB_COUNT"] == 8
 
 
+def test_integration_jobs_retry_the_pinned_qlever_pull(tmp_path: Path) -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    step = next(
+        step
+        for step in workflow["jobs"]["integration-tests"]["steps"]
+        if step.get("name") == "Pre-pull pinned QLever image"
+    )
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    count = tmp_path / "pull-count"
+    count.write_text("0", encoding="utf-8")
+    pdm = binaries / "pdm"
+    pdm.write_text("#!/bin/bash\nprintf '%s\\n' \"$QLEVER_TEST_IMAGE\"\n")
+    docker = binaries / "docker"
+    docker.write_text(
+        "#!/bin/bash\n"
+        "[[ $1 == pull && $2 == $QLEVER_TEST_IMAGE ]] || exit 9\n"
+        'attempt=$(<"$COUNT_FILE")\n'
+        "attempt=$((attempt + 1))\n"
+        'printf \'%s\' "$attempt" > "$COUNT_FILE"\n'
+        "[[ $attempt -ge 3 ]]\n"
+    )
+    sleep = binaries / "sleep"
+    sleep.write_text("#!/bin/bash\nexit 0\n")
+    for executable in (pdm, docker, sleep):
+        executable.chmod(0o700)
+
+    result = subprocess.run(  # noqa: S603 - execute the reviewed CI step with stubs
+        ["/bin/bash", "-eu", "-o", "pipefail", "-c", step["run"]],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+        env={
+            **os.environ,
+            "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}",
+            "COUNT_FILE": str(count),
+            "QLEVER_TEST_IMAGE": QLEVER_IMAGE,
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert count.read_text(encoding="utf-8") == "3"
+
+
 def test_obsolete_reasoner_routing_marker_is_removed() -> None:
     project = tomllib.loads((_ROOT / "pyproject.toml").read_text())
     obsolete = "requires_" + "robot"
