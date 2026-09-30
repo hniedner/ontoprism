@@ -267,6 +267,37 @@ async def test_lexical_candidates_have_correct_justification() -> None:
 
 
 @pytest.mark.unit
+async def test_lexical_candidates_exclude_foreign_obo_prefixes() -> None:
+    ncit = _MockClient(
+        {
+            "SELECT DISTINCT ?fillerCode": [{"fillerCode": "C54321"}],
+            "SELECT ?code ?label WHERE": [{"code": "C54321", "label": "liver"}],
+        }
+    )
+    uberon = _MockClient(
+        {
+            "hasDbXref": [],
+            "SELECT ?concept ?label WHERE": [
+                {
+                    "concept": "http://purl.obolibrary.org/obo/UBERON_0000948",
+                    "label": "liver",
+                },
+                {
+                    "concept": "http://purl.obolibrary.org/obo/GO_0008150",
+                    "label": "liver",
+                },
+            ],
+        }
+    )
+
+    records, _ = await generate_candidates(ncit, uberon, _NCIT_VERSION, _UBERON_VERSION)
+
+    assert [(row.object_system, row.object_id) for row in records] == [
+        ("uberon-cl", "UBERON:0000948")
+    ]
+
+
+@pytest.mark.unit
 async def test_filler_with_label_not_found_in_upstream() -> None:
     """Filler has a label but no upstream label matches -> source='none'."""
     ncit_responses = {

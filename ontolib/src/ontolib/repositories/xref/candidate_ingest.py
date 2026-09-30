@@ -230,7 +230,7 @@ async def fetch_upstream_labels(
         label = row.get("label")
         if concept_iri and label:
             curie = _iri_to_curie(str(concept_iri))
-            if curie:
+            if curie and curie.split(":", 1)[0] in {"UBERON", "CL"}:
                 result.setdefault(curie, set()).add(str(label))
     return result
 
