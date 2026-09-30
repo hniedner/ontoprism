@@ -4,14 +4,20 @@ import json
 from collections.abc import Mapping
 from typing import Annotated, Literal, get_args
 
-from pydantic import Field
+from pydantic import StringConstraints
 
 ProductPageSize = Literal[10, 25, 50, 100]
 PRODUCT_PAGE_SIZES = frozenset(get_args(ProductPageSize))
 
 _TEXT_LIMIT = 100
 ColumnText = Annotated[
-    str, Field(min_length=1, max_length=_TEXT_LIMIT, pattern=r"^[^\x00-\x1f]+$")
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=_TEXT_LIMIT,
+        pattern=r"^[^\x00-\x1f]+$",
+    ),
 ]
 
 
@@ -22,7 +28,11 @@ def text_predicate(
     dialect: Literal["sql", "sparql"],
     expressions: Mapping[str, str],
 ) -> str:
-    """Render a bounded case-insensitive substring predicate for a declared column."""
+    """Render a substring predicate using trusted repository column expressions.
+
+    Callers validate values with ColumnText. SQL returns an AND conjunct for an
+    existing WHERE clause; bind text_param(value) as <column>_text separately.
+    """
     if column not in expressions:
         raise ValueError("unsupported grid column")
     if dialect == "sql":
@@ -36,3 +46,16 @@ def text_predicate(
 def text_param(value: str) -> str:
     """Escape SQL LIKE wildcards so text means a literal substring."""
     return f"%{value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')}%"
+
+
+def sql_text_filters(
+    values: Mapping[str, str], expressions: Mapping[str, str]
+) -> tuple[str, dict[str, str]]:
+    """Return SQL conjuncts together with their literal-substring bindings."""
+    return (
+        "".join(
+            text_predicate(column, value, dialect="sql", expressions=expressions)
+            for column, value in values.items()
+        ),
+        {f"{column}_text": text_param(value) for column, value in values.items()},
+    )

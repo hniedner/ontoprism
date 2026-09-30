@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import text
 
-from ontolib.common.grid import text_param, text_predicate
+from ontolib.common.grid import sql_text_filters
 from ontolib.terminologies.ncit.models import (
     RepositorySearchSort,
     RepresentationStatus,
@@ -162,28 +162,18 @@ class NcitSearchIndex:
                 "offset": offset,
                 "representation_status": representation_status,
             }
-            predicates = "".join(
-                text_predicate(
-                    column,
-                    value,
-                    dialect="sql",
-                    expressions={
-                        "code": "code",
-                        "label": "label",
-                        "representation_status": (
-                            "CASE WHEN representation_status = 'legacy-precoordinated' "
-                            "THEN 'Legacy pre-coordinated' ELSE '' END"
-                        ),
-                    },
-                )
-                for column, value in (column_text or {}).items()
-            )
-            params.update(
+            predicates, bindings = sql_text_filters(
+                column_text or {},
                 {
-                    f"{column}_text": text_param(value)
-                    for column, value in (column_text or {}).items()
-                }
+                    "code": "code",
+                    "label": "label",
+                    "representation_status": (
+                        "CASE WHEN representation_status = 'legacy-precoordinated' "
+                        "THEN 'Legacy pre-coordinated' ELSE '' END"
+                    ),
+                },
             )
+            params.update(bindings)
             count_result = await session.execute(
                 text(_SEARCH_COUNT_SQL.format(column_filters=predicates)), params
             )

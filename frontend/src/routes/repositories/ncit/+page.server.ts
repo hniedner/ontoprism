@@ -17,6 +17,8 @@ export const load: PageServerLoad = async ({ fetch, url }) => {
 		(state) => critical(listNcit({ limit: state.size, offset: state.offset, sort: browseSort(state.sort), representationStatus: state.filters.representation_status?.[0] as RepresentationStatus | undefined, columnText: state.textFilters, fetch })), spec);
 	const expected = loaded.initial.filters.representation_status[0] ?? null;
 	if (!Object.hasOwn(loaded.initial.result, 'representation_status') || loaded.initial.result.representation_status !== expected) error(502, 'NCIt page filters did not match the request.');
-	if (JSON.stringify(loaded.initial.result.column_text) !== JSON.stringify(Object.fromEntries(Object.entries(loaded.initial.textFilters ?? {}).map(([key, value]) => [key, value])))) error(502, 'NCIt page text filters did not match the request.');
+	const echoed = loaded.initial.result.column_text;
+	const requested = loaded.initial.textFilters ?? {};
+	if (!echoed || Object.keys(echoed).length !== Object.keys(requested).length || Object.entries(echoed).some(([key, value]) => requested[key] !== value)) error(502, 'NCIt page text filters did not match the request.');
 	return loaded;
 };

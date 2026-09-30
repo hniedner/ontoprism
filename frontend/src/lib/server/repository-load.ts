@@ -79,7 +79,6 @@ function parseTextFilters(params: URLSearchParams, columns: readonly string[] = 
 		if (raw.length !== 1 || raw[0] !== trimmed || !trimmed || trimmed.length > 100 || [...trimmed].some((char) => char.charCodeAt(0) < 32)) invalid = true;
 		else values[column] = trimmed;
 	}
-	for (const key of params.keys()) if (key.startsWith('text_') && !columns.includes(key.slice(5))) invalid = true;
 	return { value: values, invalid };
 }
 

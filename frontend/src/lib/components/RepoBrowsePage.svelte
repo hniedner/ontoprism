@@ -116,9 +116,9 @@
 	function applySort(params: SvelteURLSearchParams, value: Sort): void {
 		if (value !== defaultSort) params.set('sort', value); else params.delete('sort');
 	}
-	function applyFilter(params: SvelteURLSearchParams, key: string, intent: Extract<DataTableIntent, { kind: 'filter' }>): void {
-		if (key) params.delete(key);
-		if (intent.filter.kind === 'categorical') for (const value of intent.filter.selected) params.append(key, value);
+	function applyFilter(params: SvelteURLSearchParams, key: string | null, intent: Extract<DataTableIntent, { kind: 'filter' }>): void {
+		if (key !== null) params.delete(key);
+		if (key !== null && intent.filter.kind === 'categorical') for (const value of intent.filter.selected) params.append(key, value);
 		const textKey = textKeys[intent.columnId];
 		if (textKey) { params.delete(`text_${textKey}`); if (intent.filter.text) params.set(`text_${textKey}`, intent.filter.text); }
 	}
@@ -141,7 +141,7 @@
 		}
 		if (intent.kind === 'filter') {
 			const key = mappedFilterKey(intent.columnId);
-			if (key !== null || textKeys[intent.columnId]) navigateTable((params) => applyFilter(params, key ?? '', intent));
+			if (key !== null || textKeys[intent.columnId]) navigateTable((params) => applyFilter(params, key, intent));
 			else intentError = `No server filter mapping for ${intent.columnId}`;
 			return;
 		}

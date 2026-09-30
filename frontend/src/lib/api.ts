@@ -17,6 +17,7 @@ import type {
 	ConceptAlignments,
 	Neighborhood,
 	NcitBrowsePage,
+	NcitColumnText,
 	NcitBrowseSort,
 	NcitSearchPage,
 	NcitSearchSort,
@@ -130,7 +131,7 @@ export async function postJsonBody<T>(
 	return (await resp.json()) as T;
 }
 
-function appendNcitColumnText(params: Record<string, string | number>, values: Record<string, string> = {}): void {
+function appendNcitColumnText(params: Record<string, string | number>, values: NcitColumnText = {}): void {
 	for (const [column, value] of Object.entries(values)) {
 		if (!['code', 'label', 'representation_status'].includes(column)) throw new Error(`Unknown NCIt text column: ${column}`);
 		params[`${column === 'representation_status' ? 'status' : column}_text`] = value;
@@ -144,7 +145,7 @@ export function searchNcit(
 		offset?: number;
 		representationStatus?: RepresentationStatus;
 		sort?: NcitSearchSort;
-		columnText?: Record<string, string>;
+		columnText?: NcitColumnText;
 		fetch?: typeof fetch;
 	} = {}
 ): Promise<NcitSearchPage> {
@@ -169,7 +170,7 @@ export function listNcit(
 		offset?: number;
 		representationStatus?: RepresentationStatus;
 		sort?: NcitBrowseSort;
-		columnText?: Record<string, string>;
+		columnText?: NcitColumnText;
 		fetch?: typeof fetch;
 	} = {}
 ): Promise<NcitBrowsePage> {

@@ -39,7 +39,7 @@ describe('NCIt page server filter echo contract', () => {
 	});
 
 	it('passes canonical combined column text and categorical state to the backend and accepts its echo', async () => {
-		const response = page({ representation_status: 'legacy-precoordinated', column_text: { label: 'melanoma', representation_status: 'legacy' } });
+		const response = page({ representation_status: 'legacy-precoordinated', column_text: { representation_status: 'legacy', label: 'melanoma' } });
 		listNcit.mockResolvedValue(response);
 		const fetch = vi.fn();
 		const result = await load({

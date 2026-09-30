@@ -165,6 +165,33 @@ describe('DataTable server-owned operations', () => {
 		expect(onintent).toHaveBeenCalledWith({ kind: 'reset' });
 	});
 
+	it('preserves newer typing when an earlier server echo arrives', async () => {
+		vi.useFakeTimers();
+		try {
+			const onintent = vi.fn();
+			const view = render(DataTableTestHost, { rows, onintent });
+			await fireEvent.click(screen.getByRole('button', { name: 'Filter Name' }));
+			const input = screen.getByRole('textbox', { name: 'Filter Name text' });
+			await fireEvent.input(input, { target: { value: 'mel' } });
+			await vi.advanceTimersByTimeAsync(400);
+			await fireEvent.input(input, { target: { value: 'melanoma' } });
+			await view.rerender({ rows, onintent, filters: { name: { kind: 'text', text: 'mel' } } });
+			expect(input).toHaveValue('melanoma');
+			await vi.advanceTimersByTimeAsync(400);
+			expect(onintent).toHaveBeenLastCalledWith({ kind: 'filter', columnId: 'name', filter: { kind: 'text', text: 'melanoma' } });
+		} finally { vi.useRealTimers(); }
+	});
+
+	it('labels option narrowing truthfully and emits only supported categorical state', async () => {
+		const onintent = vi.fn();
+		render(DataTableTestHost, { rows, onintent });
+		await fireEvent.click(screen.getByRole('button', { name: 'Filter Active' }));
+		await fireEvent.input(screen.getByRole('textbox', { name: 'Find Active options' }), { target: { value: 'Inactive' } });
+		expect(screen.queryByRole('checkbox', { name: 'Active' })).not.toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Inactive' }));
+		expect(onintent).toHaveBeenLastCalledWith({ kind: 'filter', columnId: 'active', filter: { kind: 'categorical', selected: ['false'] } });
+	});
+
 	it('renders active chips with human column and option labels without dropping selections', () => {
 		const onintent = vi.fn();
 		render(DataTableTestHost, {
