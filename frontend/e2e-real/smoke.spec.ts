@@ -109,16 +109,18 @@ test('read-only configured repository smoke', async ({ page }) => {
 		const label = (await button.getAttribute('aria-label'))!.replace(/^Filter /, '');
 		const columnIndex = await header.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element));
 		const current = (await table.locator('tbody tr').first().locator('td').nth(columnIndex).textContent())!.trim();
+		let textValue = current;
 		if (control.kind === 'categorical') {
 			const [value, rendered] = control.source_domain ? [current, current] : Object.entries(control.values)[0];
 			await filter(page, 'NCIt repository results', label, rendered, column, value, rendered, !control.multiple);
+			textValue = rendered;
 			await page.keyboard.press('Escape');
 		}
 		await button.click();
 		const input = page.getByRole('textbox', { name: `Filter ${label} text` });
-		await input.fill(current);
+		await input.fill(textValue);
 		await input.press('Enter');
-		await expect(page).toHaveURL((url) => url.searchParams.get(`text_${column}`) === current);
+		await expect(page).toHaveURL((url) => url.searchParams.get(`text_${column}`) === textValue);
 		await rows(page, 'NCIt repository results');
 		await input.press('Escape');
 	}
