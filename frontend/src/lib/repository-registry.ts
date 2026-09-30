@@ -26,18 +26,33 @@ function object(value: unknown, allowed?: readonly string[]): Record<string, unk
 	if (allowed && (Object.keys(value).length !== allowed.length || Object.keys(value).some((key) => !allowed.includes(key)))) throw new TypeError('Unknown or missing capability field');
 	return value as Record<string, unknown>;
 }
+function validateSorts(value: unknown): void {
+	const sorts = object(value, ['list', 'search']);
+	for (const values of Object.values(sorts)) if (!Array.isArray(values) || !values.length || values.some((v) => typeof v !== 'string' || !v) || new Set(values).size !== values.length) throw new TypeError('Invalid sort domain');
+}
+
+function validateFilter(key: string, value: unknown): string {
+	const f = object(value, ['kind', 'text_parameter', 'values']);
+	const values = object(f.values);
+	if (!key || !['text', 'categorical'].includes(String(f.kind)) || (f.kind === 'categorical') !== Boolean(Object.keys(values).length)) throw new TypeError('Invalid filter domain');
+	if (Object.entries(values).some(([k, v]) => !k || typeof v !== 'string' || !v)) throw new TypeError('Invalid filter value');
+	if (typeof f.text_parameter !== 'string' || !/^[a-z_]+$/.test(f.text_parameter)) throw new TypeError('Invalid text parameter');
+	return f.text_parameter;
+}
+
+function validateFilters(value: unknown): void {
+	const parameters = new Set<string>();
+	for (const [key, filter] of Object.entries(object(value))) {
+		const parameter = validateFilter(key, filter);
+		if (parameters.has(parameter)) throw new TypeError('Duplicate text parameter');
+		parameters.add(parameter);
+	}
+}
+
 function capabilities(value: unknown, local: boolean): GridCapabilities {
 	const c = object(value, ['sorts', 'filters', 'pagination', 'query_before_results', 'metadata', 'graph', 'links']);
-	const sorts = object(c.sorts, ['list', 'search']);
-	for (const values of Object.values(sorts)) if (!Array.isArray(values) || !values.length || values.some((v) => typeof v !== 'string' || !v) || new Set(values).size !== values.length) throw new TypeError('Invalid sort domain');
-	const parameters = new Set<string>();
-	for (const [key, value] of Object.entries(object(c.filters))) {
-		const f = object(value, ['kind', 'text_parameter', 'values']);
-		const values = object(f.values);
-		if (!key || !['text', 'categorical'].includes(String(f.kind)) || (f.kind === 'categorical') !== Boolean(Object.keys(values).length) || Object.entries(values).some(([k, v]) => !k || typeof v !== 'string' || !v)) throw new TypeError('Invalid filter domain');
-		if (typeof f.text_parameter !== 'string' || !/^[a-z_]+$/.test(f.text_parameter) || parameters.has(f.text_parameter)) throw new TypeError('Invalid text parameter');
-		parameters.add(f.text_parameter);
-	}
+	validateSorts(c.sorts);
+	validateFilters(c.filters);
 	if (c.metadata !== (local ? 'certified' : 'remote') || typeof c.query_before_results !== 'boolean' || !['offset', 'cursor'].includes(String(c.pagination)) || !['ontology', 'source-anchors', 'none'].includes(String(c.graph)) || !['mapping', 'source-anchors', 'references', 'none'].includes(String(c.links))) throw new TypeError('Contradictory repository capabilities');
 	return c as unknown as GridCapabilities;
 }
