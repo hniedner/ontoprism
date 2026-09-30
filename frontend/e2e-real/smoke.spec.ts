@@ -114,7 +114,11 @@ test('read-only configured repository smoke', async ({ page }) => {
 	await sort(page, 'caDSR CDE repository results', 'Public ID', 'public_id:asc', 'numeric');
 	const cde = await region(page, 'caDSR CDE repository results').locator('tbody a').first().textContent();
 	await detail(page, 'caDSR CDE repository results', cde!.trim());
-	passed('caDSR list/search/sort/detail: PASS; filter: not applicable (#487)');
+	await expect(page.getByRole('heading', { name: 'Concept graph' })).toBeVisible();
+	await page.getByRole('button', { name: 'Explore in graph' }).click();
+	await expect(page.getByRole('heading', { name: 'Network' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Export as PNG' })).toBeVisible();
+	passed('caDSR list/search/sort/detail/graph: PASS; filter: not applicable (#487)');
 
 	await open('/repositories/icdo/3.2/morphology');
 	await rows(page, 'ICD-O repository results');

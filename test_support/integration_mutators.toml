@@ -15,6 +15,11 @@ path = "backend/tests/test_ncit_search_index_integration.py"
 fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
 
 [[mutator]]
+path = "backend/tests/test_cde_neighborhood_api.py"
+tests = ["test_large_cde_neighborhood_matches_individual_real_store_reads"]
+fixtures = ["isolated_postgres_settings", "isolated_qlever_settings", "isolated_cadsr_client"]
+
+[[mutator]]
 path = "backend/tests/test_smoke_real_integration.py"
 fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
 

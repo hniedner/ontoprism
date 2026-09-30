@@ -22,7 +22,10 @@ from ontolib.repositories.cadsr.models import (
     SimilarCde,
 )
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
-from ontolib.terminologies.ncit.graph_store import NcitGraphStore
+from ontolib.terminologies.ncit.graph_store import (
+    MAX_NEIGHBORHOOD_CENTERS,
+    NcitGraphStore,
+)
 from ontolib.terminologies.ncit.models import GraphEdge, GraphNode, Neighborhood
 
 router = APIRouter(prefix="/api/v1/cadsr", tags=["cadsr"])
@@ -43,11 +46,6 @@ def _resolve_similar_cdes(
         SimilarCde(**summaries[doc_id].model_dump(), score=score)
         for doc_id, score in hits
     ]
-
-
-# Cap the mapped concepts expanded per CDE so a heavily-annotated CDE can't pull an
-# unbounded closure (each concept also carries its own capped NCIt neighborhood).
-_MAX_CDE_CONCEPTS = 12
 
 
 @router.get("/search", response_model=CdeSearchPage)
@@ -147,7 +145,6 @@ async def cde_neighborhood(
     store: NcitStore,
     public_id: str,
     version: Annotated[str | None, Query()] = None,
-    depth: Annotated[int, Query(ge=1, le=2)] = 1,
 ) -> Neighborhood:
     """Return a CDE-centred subgraph joining into the NCIt concept graph.
 
@@ -161,7 +158,7 @@ async def cde_neighborhood(
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     if cde is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"CDE not found: {public_id}")
-    return await _build_cde_neighborhood(cde, store, depth=depth)
+    return await _build_cde_neighborhood(cde, store)
 
 
 _EdgeKey = tuple[str, str, str, str]
@@ -180,20 +177,20 @@ def _merge_neighborhood(
 
 
 async def _build_cde_neighborhood(
-    cde: CdeDetail, store: NcitGraphStore, *, depth: int
+    cde: CdeDetail, store: NcitGraphStore
 ) -> Neighborhood:
     center = f"cde:{cde.public_id}:{cde.version}"
     nodes: dict[str, GraphNode] = {
         center: GraphNode(code=center, label=cde.long_name, semantic_type="CDE")
     }
     edges: dict[_EdgeKey, GraphEdge] = {}
-    truncated = len(cde.concepts) > _MAX_CDE_CONCEPTS
-    for link in cde.concepts[:_MAX_CDE_CONCEPTS]:
-        sub = await store.get_neighborhood(link.concept_code, depth=depth)
+    truncated = len(cde.concepts) > MAX_NEIGHBORHOOD_CENTERS
+    links = cde.concepts[:MAX_NEIGHBORHOOD_CENTERS]
+    subgraphs = await store.get_neighborhoods([link.concept_code for link in links])
+    for link, sub in zip(links, subgraphs, strict=True):
         truncated = truncated or sub.truncated
         _merge_neighborhood(nodes, edges, sub)
-        # Ensure the concept node exists even if it has no NCIt neighborhood, so the
-        # CDE→concept edge never dangles.
+        # Keep the CDE→concept edge even when NCIt has no neighborhood.
         nodes.setdefault(
             link.concept_code,
             GraphNode(code=link.concept_code, label=link.concept_name),
