@@ -3,61 +3,22 @@
 `CLAUDE.md` imports the binding workflow from `AGENTS.md`. This file only deepens its
 testing rules; it does not add gates or change when they run.
 
-## Lane timing
+## Precedence
 
-The standards below define good tests, not a reason to run every lane after every edit.
-
-- Inner loop: the tests for the code being changed (`pdm run agent-test <path>`).
-- On commit: pre-commit. Broad change: `pdm run test-unit` (about 4.5 minutes).
-- Once before merging an issue: `pdm run lint` and `pdm run verify`. Gate of record per
-  issue: the CI run on the pushed milestone branch. Per milestone: CI and CodeQL on the
-  milestone PR.
-- Real-store (`full_store`) contracts: when the change touches that store's contract, and
-  before merging such a change — not per commit.
-
-The contract / double-fidelity / data-shape / liveness rule applies to **external**
-boundaries: tools, drivers, services and upstream datasets we do not control. Files our
-own pipeline wrote are not an external boundary. Never build hash- or git-state-bound
-evidence to certify our own intermediate outputs; recompute instead.
+**Incidental findings.** In ONTOPRISM, `AGENTS.md` wins over the global "fix incidental
+findings on the current branch" rule: newly found work does not widen an issue. Fix a
+finding on the issue branch only when the owner allows it in the issue (typically a fix
+under 15 net lines, proven by the test that found it); otherwise report it. At milestone
+review, fix verified findings on the milestone branch.
 
 ## Testing (non-negotiable)
 
-**Strict TDD for all new implementations.** Write the RED test first (a real,
-behavioral test that fails for the right reason), then the minimum code to make it
-GREEN, then refactor with the tests green. No production code without a failing test
-that motivated it. The RED step is an executed observation, not intent: run the exact
-new test before production edits and confirm its failure names the missing/wrong
-behavior. A test written after the implementation, or one that was never observed red,
-does not satisfy TDD.
+`AGENTS.md` ("Issue loop", "Testing tiers") states the TDD, coverage, padding and lane
+rules. Beyond those:
 
-**Coverage: aim for 95%+, never fall to 90%** (line and branch) across the backend
-(`ontolib/src`, `backend/src`) and the frontend library (`frontend/src/lib`).
-`scripts/validation/strict_coverage_gate.py` enforces the strict > 90% floor (run by
-`pdm run test-ci` and the frontend `npm run test:coverage`); exactly 90% fails. The
-floor is deliberately below the target so hard-to-test code with poor value for effort
-never invites padding: real coverage just above the floor beats padded 100%. Do not
-lower a gate to make a change pass. At the floor, add behavioural tests for real
-behaviour, or delete a branch only after showing from the code that neither input nor
-an external failure (tool, driver, store, I/O) reaches it.
-
-**No coverage padding.** Coverage is a by-product of testing behavior, never the goal:
-
-- Every test must assert observable behavior and provide genuine **regression
-  detection** — it must fail if the code's behavior regresses.
-- No tests that merely execute lines without meaningful assertions; no mock-only tests
-  that assert a mock was called; no snapshotting internal state to pad numbers. (The
-  `check test quality` pre-commit hook guards this — do not evade it.)
 - Prefer behavioral tests against real collaborators (local HTTP doubles, ephemeral
   QLever/pgvector, real SQLite) over mocking the unit under test.
-- Tests must be resilient to reasonable refactoring — assert contracts and outputs,
-  not implementation details.
-- A retained test must be a reliable regression indicator: a relevant wrong production
-  behavior must make it fail for the intended reason. Tests that merely execute code,
-  assert mock choreography, mirror implementation logic in a fake, or prove fixture
-  self-consistency are dead test code and must be deleted or replaced, never padded with
-  token assertions.
-- Every declared test suite must collect and execute at least one contract. Exit code 5
-  / “no tests collected” is a failure, never a green empty lane.
+- The `check test quality` pre-commit hook guards against padding — do not evade it.
 
 **Contract / double-fidelity / data-shape tests are mandatory for external dependencies.**
 TDD does not catch false assumptions about an external tool or about the real data: the test
