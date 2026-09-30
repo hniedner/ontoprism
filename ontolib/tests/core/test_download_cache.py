@@ -142,6 +142,44 @@ async def test_changed_source_redownloads_and_updates_manifest(
 
 
 @pytest.mark.unit
+async def test_changed_source_url_does_not_revalidate_another_resources_etag(
+    server: tuple[str, type[_State]], tmp_path: Path
+) -> None:
+    url, state = server
+    dest = tmp_path / "src.owl"
+    await cached_download(url, dest, max_retries=0)
+    # Different resources may legitimately use the same opaque ETag.
+    new_url = url.replace("/src.owl", "/next-release.owl")
+    state.body = b"different source release"
+
+    outcome = await cached_download(new_url, dest, max_retries=0)
+
+    assert dest.read_bytes() == b"different source release"
+    assert outcome.status == "downloaded"
+    assert outcome.manifest.url == new_url
+
+
+@pytest.mark.unit
+async def test_changed_source_url_refuses_offline_fallback_to_another_resource(
+    server: tuple[str, type[_State]], tmp_path: Path
+) -> None:
+    url, state = server
+    dest = tmp_path / "src.owl"
+    await cached_download(url, dest, max_retries=0)
+    state.status = 503
+
+    with pytest.raises(StorageError, match="no cache available"):
+        await cached_download(
+            url.replace("/src.owl", "/next-release.owl"), dest, max_retries=0
+        )
+
+    assert dest.read_bytes() == b"ontology source v1"
+    manifest = read_manifest(dest)
+    assert manifest is not None
+    assert manifest.url == url
+
+
+@pytest.mark.unit
 async def test_offline_falls_back_to_cached_file(tmp_path: Path) -> None:
     # Populate the cache from a live server, then take the server down and confirm a
     # subsequent call serves the cached copy instead of failing.

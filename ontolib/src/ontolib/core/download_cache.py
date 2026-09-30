@@ -182,6 +182,15 @@ async def _attempt(url: str, dest: Path, headers: dict[str, str]) -> DownloadOut
         _raise_if_terminal(exc, url)  # NoReturn: raises terminal or re-raises retryable
 
 
+def _cache_matches_url(manifest: CacheManifest | None, url: str) -> bool:
+    return manifest is not None and manifest.url == url
+
+
+def _fallback_allowed(dest: Path, url: str) -> bool:
+    manifest = read_manifest(dest)
+    return dest.exists() and (manifest is None or _cache_matches_url(manifest, url))
+
+
 async def cached_download(
     url: str, dest: Path, *, max_retries: int = 2
 ) -> DownloadOutcome:
@@ -193,7 +202,9 @@ async def cached_download(
     or when the remote is unreachable and there is no cached copy to fall back to.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    headers = _conditional_headers(read_manifest(dest))
+    cached_manifest = read_manifest(dest)
+    same_source = _cache_matches_url(cached_manifest, url)
+    headers = _conditional_headers(cached_manifest if same_source else None)
     last_error: Exception | None = None
     for attempt in range(max_retries + 1):
         if attempt:
@@ -206,7 +217,7 @@ async def cached_download(
                 "download attempt %d failed for %s: %s", attempt + 1, url, exc
             )
 
-    if dest.exists():
+    if _fallback_allowed(dest, url):
         # Offline fallback keys off the file on disk, not the manifest — a corrupt
         # sidecar must not turn a usable cache into "no cache available". Synthesize a
         # bare manifest when the sidecar is missing/unreadable.
