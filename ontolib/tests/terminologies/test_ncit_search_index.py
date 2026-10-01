@@ -1,21 +1,25 @@
 """Hermetic tests for the NCIt FTS cache (fake async session, no real Postgres).
 
 The live-Postgres variants are in ``backend`` integration tests; here we pin the
-SQL contract and behaviour: counts/probes coerce correctly, search binds q/limit/
+SQL contract and behaviour: probes coerce correctly, search binds q/limit/
 offset and maps rows to hits, and rebuild is a single DELETE+insert transaction that
 skips empty batches. ``populate_from_store`` is checked to page the store and feed
 rebuild.
 """
 
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from ontolib.common.search_publication import SearchPublicationError
 from ontolib.terminologies.ncit.search_index import (
     NcitSearchIndex,
     populate_from_store,
 )
+
+type SearchRecord = dict[str, str | list[str] | None]
 
 
 class _Result:
@@ -31,16 +35,22 @@ class _Result:
 
 
 class _Begin:
+    def __init__(self, session: _Session) -> None:
+        self._session = session
+
     async def __aenter__(self) -> _Begin:
+        self._session.in_transaction = True
         return self
 
     async def __aexit__(self, *_exc: object) -> bool:
+        self._session.in_transaction = False
         return False
 
 
 class _Session:
     def __init__(self, factory: _SessionFactory) -> None:
         self._factory = factory
+        self.in_transaction = False
 
     async def __aenter__(self) -> _Session:
         return self
@@ -49,11 +59,14 @@ class _Session:
         return False
 
     def begin(self) -> _Begin:
-        return _Begin()
+        return _Begin(self)
 
     async def execute(self, sql: Any, params: Any = None) -> _Result:
-        self._factory.executed.append((str(sql).strip(), params))
-        return self._factory.result_for(str(sql))
+        statement = str(sql).strip()
+        if statement.startswith(("DELETE", "INSERT")):
+            assert self.in_transaction
+        self._factory.executed.append((statement, params))
+        return self._factory.result_for(statement)
 
 
 class _SessionFactory:
@@ -74,12 +87,6 @@ class _SessionFactory:
 
 
 @pytest.mark.unit
-async def test_count_coerces_scalar_to_int() -> None:
-    sf = _SessionFactory({"COUNT(*)": _Result(scalar=42)})
-    assert await NcitSearchIndex(sf).count() == 42  # type: ignore[arg-type]
-
-
-@pytest.mark.unit
 async def test_is_populated_reflects_existence_probe() -> None:
     identity = "a" * 64
     ready = _SessionFactory({"EXISTS": _Result(scalar=True)})
@@ -93,19 +100,27 @@ async def test_is_populated_reflects_existence_probe() -> None:
 
 
 @pytest.mark.unit
+async def test_identity_only_publication_rejects_a_source_hash() -> None:
+    index = NcitSearchIndex(_SessionFactory({}))  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="does not bind a source hash"):
+        await index.is_populated("a" * 64, "b" * 64)
+
+
+@pytest.mark.unit
 async def test_search_maps_rows_and_binds_params() -> None:
     rows = [
         SimpleNamespace(
             code="C3262",
             label="Neoplasm",
-            semantic_type="Neo",
+            semantic_types=["Disease or Syndrome", "Neoplastic Process"],
             representation_status="legacy-precoordinated",
             total=2,
         ),
         SimpleNamespace(
             code="C9305",
             label="Malignant",
-            semantic_type=None,
+            semantic_types=[],
             representation_status=None,
             total=2,
         ),
@@ -122,6 +137,8 @@ async def test_search_maps_rows_and_binds_params() -> None:
         offset=5,
         representation_status="legacy-precoordinated",
         sort="code:desc",
+        column_text={"semantic_type": "Neoplastic"},
+        semantic_types=["Disease or Syndrome", "Neoplastic Process"],
     )
 
     assert page.total == 2
@@ -131,18 +148,27 @@ async def test_search_maps_rows_and_binds_params() -> None:
         "legacy-precoordinated",
         None,
     ]
+    assert page.hits[0].semantic_types == [
+        "Disease or Syndrome",
+        "Neoplastic Process",
+    ]
     assert page.limit == 10
     _sql, params = sf.executed[1]
     assert params == {
         "q": "tumor",
         "limit": 10,
         "offset": 5,
-        "representation_status": "legacy-precoordinated",
+        "representation_status_selected": ["legacy-precoordinated"],
+        "semantic_type_text": "%Neoplastic%",
+        "semantic_types_selected": ["Disease or Syndrome", "Neoplastic Process"],
     }
     sql = sf.executed[1][0]
-    status_filter = "representation_status = CAST(:representation_status AS text)"
-    assert "CAST(:representation_status AS text) IS NULL" in sql
+    status_filter = (
+        "representation_status = ANY(CAST(:representation_status_selected AS text[]))"
+    )
     assert status_filter in sql
+    assert "semantic_types && CAST(:semantic_types_selected AS text[])" in sql
+    assert "array_to_string(semantic_types" in sql
     assert sql.index(status_filter) < sql.index("LIMIT :limit")
     assert "ORDER BY code DESC" in sql
     assert "COUNT(*) OVER" not in sql
@@ -159,16 +185,36 @@ async def test_search_empty_result_is_zero_total() -> None:
     assert page.hits == []
 
 
+@pytest.mark.unit
+async def test_semantic_type_sort_and_text_filter_use_the_display_projection() -> None:
+    sf = _SessionFactory(
+        {"SELECT COUNT(*)": _Result(scalar=0), "SELECT code": _Result(rows=[])}
+    )
+
+    await NcitSearchIndex(sf).search(  # type: ignore[arg-type]
+        "neoplasm",
+        sort="semantic_type:asc",
+        column_text={"semantic_type": "Syndrome, Neo"},
+    )
+
+    sql = sf.executed[1][0]
+    assert "COALESCE(array_to_string(semantic_types, ', '), '') ILIKE" in sql
+    assert (
+        "NULLIF(array_to_string(semantic_types, ', '), '') "
+        'COLLATE "C" NULLS LAST, code'
+    ) in sql
+
+
 async def _batches(
-    *chunks: list[dict[str, str | None]],
-) -> Any:
+    *chunks: list[SearchRecord],
+) -> AsyncIterator[list[SearchRecord]]:
     for chunk in chunks:
         yield chunk
 
 
 @pytest.mark.unit
 async def test_rebuild_deletes_then_inserts_nonempty_batches() -> None:
-    sf = _SessionFactory({})
+    sf = _SessionFactory({"SELECT COUNT(*) FROM ncit_search": _Result(scalar=3)})
     index = NcitSearchIndex(sf)  # type: ignore[arg-type]
 
     total = await index.rebuild(
@@ -177,7 +223,7 @@ async def test_rebuild_deletes_then_inserts_nonempty_batches() -> None:
                 {
                     "code": "C1",
                     "label": "a",
-                    "semantic_type": None,
+                    "semantic_types": [],
                     "synonyms": None,
                     "representation_status": "legacy-precoordinated",
                 }
@@ -187,14 +233,14 @@ async def test_rebuild_deletes_then_inserts_nonempty_batches() -> None:
                 {
                     "code": "C2",
                     "label": "b",
-                    "semantic_type": None,
+                    "semantic_types": [],
                     "synonyms": None,
                     "representation_status": None,
                 },
                 {
                     "code": "C3",
                     "label": "c",
-                    "semantic_type": None,
+                    "semantic_types": [],
                     "synonyms": None,
                     "representation_status": None,
                 },
@@ -221,14 +267,40 @@ async def test_rebuild_deletes_then_inserts_nonempty_batches() -> None:
     }
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "records",
+    [
+        [
+            {"code": "C1", "label": "first", "semantic_types": []},
+            {"code": "C1", "label": "second", "semantic_types": []},
+        ],
+        [{"code": None, "label": "missing", "semantic_types": []}],
+    ],
+)
+async def test_rebuild_refuses_duplicate_or_missing_codes(
+    records: list[SearchRecord],
+) -> None:
+    sf = _SessionFactory({})
+
+    with pytest.raises(SearchPublicationError, match="missing or duplicate code"):
+        await NcitSearchIndex(sf).rebuild(  # type: ignore[arg-type]
+            _batches(records),
+            source_identity="a" * 64,
+            source_hash="b" * 64,
+        )
+
+    assert not any(
+        "INSERT INTO ncit_search (" in statement for statement, _params in sf.executed
+    )
+
+
 class _FakeStore:
-    def __init__(self, records: list[dict[str, str | None]]) -> None:
+    def __init__(self, records: list[SearchRecord]) -> None:
         self._records = records
         self.pages: list[tuple[int, int]] = []
 
-    async def search_records(
-        self, *, limit: int, offset: int
-    ) -> list[dict[str, str | None]]:
+    async def search_records(self, *, limit: int, offset: int) -> list[SearchRecord]:
         self.pages.append((limit, offset))
         return self._records[offset : offset + limit]
 
@@ -239,18 +311,18 @@ async def test_populate_from_store_pages_and_feeds_rebuild() -> None:
         {
             "code": f"C{i}",
             "label": f"n{i}",
-            "semantic_type": None,
+            "semantic_types": [],
             "synonyms": None,
             "representation_status": ("legacy-precoordinated" if i == 1 else None),
         }
         for i in range(3)
     ]
     store = _FakeStore(records)
-    sf = _SessionFactory({})
+    sf = _SessionFactory({"SELECT COUNT(*) FROM ncit_search": _Result(scalar=3)})
     index = NcitSearchIndex(sf)  # type: ignore[arg-type]
 
     total = await populate_from_store(  # type: ignore[arg-type]
-        store,
+        cast("Any", store),
         index,
         source_identity="a" * 64,
         source_hash="b" * 64,

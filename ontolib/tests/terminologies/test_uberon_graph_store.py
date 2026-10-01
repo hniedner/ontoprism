@@ -109,15 +109,66 @@ async def test_list_filters_source_before_page_and_memoizes_total() -> None:
     client = _ListClient()
     store = UberonGraphStore(client)  # type: ignore[arg-type]
 
-    first = await store.list_concepts(source="cl", limit=25, offset=0)
-    second = await store.list_concepts(source="cl", limit=25, offset=25)
+    first = await store.list_concepts(sources=["cl"], limit=25, offset=0)
+    second = await store.list_concepts(sources=["cl"], limit=25, offset=25)
 
     assert first.total == second.total == 1
-    assert first.source == second.source == "cl"
+    assert first.sources == second.sources == ["cl"]
     assert first.hits[0].source == "cl"
     page_query = next(query for query in client.queries if "LIMIT 25 OFFSET 0" in query)
     assert page_query.index("CL_") < page_query.index("LIMIT 25")
     assert len([q for q in client.queries if "COUNT(DISTINCT ?concept)" in q]) == 1
+
+
+@pytest.mark.asyncio
+async def test_list_applies_displayed_code_label_and_source_text_before_page() -> None:
+    class _ListClient:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def select(self, query: str) -> list[dict[str, str]]:
+            self.queries.append(query)
+            if "COUNT(DISTINCT ?concept)" in query:
+                return [{"count": "0"}]
+            return []
+
+    client = _ListClient()
+    page = await UberonGraphStore(client).list_concepts(  # type: ignore[arg-type]
+        sources=["cl"],
+        column_text={"code": "CL:", "label": "cell", "source": "Cell Ontology"},
+    )
+
+    assert page.column_text == {
+        "code": "CL:",
+        "label": "cell",
+        "source": "Cell Ontology",
+    }
+    query = next(value for value in client.queries if "LIMIT 25 OFFSET 0" in value)
+    assert '"cl"' in query
+    assert '"Cell Ontology"' in query
+    assert 'LCASE("CL:")' in query
+    assert "LCASE(STR(?label))" in query
+    assert query.index("FILTER") < query.index("LIMIT 25")
+
+
+@pytest.mark.asyncio
+async def test_filtered_list_total_does_not_poison_unfiltered_cache() -> None:
+    class _ListClient:
+        def __init__(self) -> None:
+            self.counts = iter((2, 10))
+
+        async def select(self, query: str) -> list[dict[str, str]]:
+            if "COUNT(DISTINCT ?concept)" in query:
+                return [{"count": str(next(self.counts))}]
+            return []
+
+    store = UberonGraphStore(_ListClient())  # type: ignore[arg-type]
+
+    filtered = await store.list_concepts(column_text={"label": "lung"})
+    unfiltered = await store.list_concepts()
+
+    assert filtered.total == 2
+    assert unfiltered.total == 10
 
 
 def test_browse_page_requires_an_explicit_applied_source_echo() -> None:
@@ -255,7 +306,7 @@ async def test_missing_list_count_fails_closed() -> None:
     store = UberonGraphStore(_MissingCountClient())  # type: ignore[arg-type]
 
     with pytest.raises(StorageError, match="list count"):
-        await store.list_concepts(source="uberon")
+        await store.list_concepts(sources=["uberon"])
 
 
 @pytest.mark.unit
@@ -278,7 +329,7 @@ def test_models_enforce_curie_source_edge_and_pagination_invariants() -> None:
             target=UberonConceptRef(code="CL:0000000", source="cl"),
         )
     with pytest.raises(ValidationError):
-        UberonSearchPage(query="x", total=-1, limit=0, offset=-1, source=None)
+        UberonSearchPage(query="x", total=-1, limit=0, offset=-1)
 
 
 @pytest.mark.unit

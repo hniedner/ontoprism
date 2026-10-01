@@ -3,6 +3,7 @@ import {
 	apiUrl,
 	searchNcit,
 	listNcit,
+	getNcitSemanticTypes,
 	getConcept,
 	getNeighborhood,
 	getUberonConcept,
@@ -237,6 +238,20 @@ describe('NCIt endpoints', () => {
 		);
 	});
 
+	it('listNcit repeats every selected semantic type', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ hits: [] }));
+		await listNcit({ semanticTypes: ['Disease or Syndrome', 'Neoplastic Process'], fetch: fetchImpl });
+		expect(fetchImpl.mock.calls[0][0]).toBe(
+			'/api/v1/ncit/list?limit=25&offset=0&semantic_type=Disease%20or%20Syndrome&semantic_type=Neoplastic%20Process'
+		);
+	});
+
+	it('loads the Semantic Type source domain', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(['Neoplastic Process']));
+		await expect(getNcitSemanticTypes(fetchImpl)).resolves.toEqual(['Neoplastic Process']);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/semantic-types');
+	});
+
 	it('getConcept encodes the code in the path', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ code: 'C 3262' }));
 		await getConcept('C 3262', fetchImpl);
@@ -288,13 +303,13 @@ describe('NCIt endpoints', () => {
 });
 
 describe('Uberon/CL endpoints', () => {
-	it('searchUberon includes the source facet', async () => {
+	it('searchUberon includes source and declared column filters', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(
 			jsonResponse({ query: 'cell', total: 0, limit: 25, offset: 0, hits: [] })
 		);
-		await searchUberon('cell', { source: 'cl', fetch: fetchImpl });
+		await searchUberon('cell', { sources: ['cl'], columnText: { code: 'CL:', source: 'Cell Ontology' }, fetch: fetchImpl });
 		expect(fetchImpl.mock.calls[0][0]).toBe(
-			'/api/v1/uberon/search?q=cell&limit=25&offset=0&source=cl'
+			'/api/v1/uberon/search?q=cell&limit=25&offset=0&source=cl&code_text=CL%3A&source_text=Cell+Ontology'
 		);
 	});
 

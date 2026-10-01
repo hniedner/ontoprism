@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { listNcit, searchNcit } = vi.hoisted(() => ({ listNcit: vi.fn(), searchNcit: vi.fn() }));
-vi.mock('$lib/api', () => ({ listNcit, searchNcit }));
+vi.mock('$lib/api', () => ({
+	listNcit,
+	searchNcit,
+	getNcitSemanticTypes: async () => ['Disease or Syndrome', 'Neoplastic Process']
+}));
 
 import { load } from './+page.server';
 
 function page(overrides: Record<string, unknown> = {}) {
-	return { query: '', total: 0, limit: 25, offset: 0, sort: 'source', representation_status: null, column_text: {}, hits: [], ...overrides };
+	return { query: '', total: 0, limit: 25, offset: 0, sort: 'source', representation_status: null, column_text: {}, semantic_types: [], hits: [], ...overrides };
 }
 
 describe('NCIt page server filter echo contract', () => {
@@ -50,5 +54,17 @@ describe('NCIt page server filter echo contract', () => {
 			columnText: { label: 'melanoma', representation_status: 'legacy' }, fetch
 		}));
 		expect(result).toMatchObject({ initial: { result: response } });
+	});
+
+	it('passes every selected semantic type and rejects a different response echo', async () => {
+		const url = new URL('https://example.test/repositories/ncit?semantic_type=Disease+or+Syndrome&semantic_type=Neoplastic+Process');
+		listNcit.mockResolvedValueOnce(page({ semantic_types: ['Disease or Syndrome', 'Neoplastic Process'] }));
+		await load({ url, fetch: vi.fn() } as never);
+		expect(listNcit).toHaveBeenCalledWith(expect.objectContaining({
+			semanticTypes: ['Disease or Syndrome', 'Neoplastic Process']
+		}));
+
+		listNcit.mockResolvedValueOnce(page({ semantic_types: ['Neoplastic Process'] }));
+		await expect(load({ url, fetch: vi.fn() } as never)).rejects.toMatchObject({ status: 502 });
 	});
 });

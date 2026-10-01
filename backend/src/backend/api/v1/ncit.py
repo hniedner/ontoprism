@@ -10,7 +10,7 @@ from pydantic import Field, computed_field, model_validator
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.v1.alignment import mapping_relative_to
-from backend.api.v1.grid import PageSize
+from backend.api.v1.grid import GridService, PageSize, declared_grid, present_text
 from backend.config import get_settings
 from backend.dependencies import (
     DecompositionReads,
@@ -198,25 +198,52 @@ def _column_text(
     code_text: ColumnText | None = None,
     label_text: ColumnText | None = None,
     status_text: ColumnText | None = None,
+    semantic_type_text: ColumnText | None = None,
 ) -> dict[str, str]:
-    return {
-        key: value
-        for key, value in (
-            ("code", code_text),
-            ("label", label_text),
-            ("representation_status", status_text),
-        )
-        if value is not None
-    }
+    return present_text(
+        code=code_text,
+        label=label_text,
+        representation_status=status_text,
+        semantic_type=semantic_type_text,
+    )
 
 
 NcitColumnText = Annotated[dict[str, str], Depends(_column_text)]
 
 
+_semantic_type_cache: dict[str, tuple[str, ...]] = {}
+
+
+async def _semantic_types_for(
+    repository: NcitRepositoryReady, store: NcitStore
+) -> tuple[str, ...]:
+    source_identity = repository.source_identity
+    if source_identity not in _semantic_type_cache:
+        _semantic_type_cache.clear()
+        _semantic_type_cache[source_identity] = tuple(
+            await store.semantic_type_values()
+        )
+    return _semantic_type_cache[source_identity]
+
+
+def _grid(
+    metadata: RepositoryMetadataReads, store: NcitStore
+) -> GridService[NcitRepositoryReady]:
+    async def semantic_types(repository: NcitRepositoryReady) -> tuple[str, ...]:
+        return await _semantic_types_for(repository, store)
+
+    return declared_grid(
+        "ncit", metadata.ncit, source_domains={"semantic-types": semantic_types}
+    )
+
+
+NcitGrid = Annotated[GridService[NcitRepositoryReady], Depends(_grid)]
+
+
 @router.get("/search", response_model=SearchPage)
 async def search(
     index: NcitSearch,
-    metadata: RepositoryMetadataReads,
+    grid: NcitGrid,
     q: Annotated[str, Query(min_length=1, description="Search term")],
     column_text: NcitColumnText,
     limit: PageSize = 25,
@@ -226,39 +253,36 @@ async def search(
         Query(description="Published representation status"),
     ] = None,
     sort: RepositorySearchSort = "relevance",
+    semantic_type: Annotated[list[ColumnText] | None, Query()] = None,
 ) -> SearchPage:
     """Search NCIt through the source-bound certified FTS publication."""
-    repository = await metadata.ncit()
-    if isinstance(repository, RepositoryUnhealthy):
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            repository.model_dump(mode="json"),
-        )
-    try:
-        if not await index.is_populated(repository.source_identity):
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-                "NCIt certified search index is unavailable.",
-            )
-        return await index.search(
+    await grid.validate(
+        "search",
+        sort,
+        column_text,
+        {
+            "representation_status": representation_status,
+            "semantic_type": semantic_type,
+        },
+    )
+    return await grid.read(
+        lambda _: index.search(
             q,
             limit=limit,
             offset=offset,
             representation_status=representation_status,
             sort=sort,
             column_text=column_text,
-        )
-    except SQLAlchemyError as exc:
-        logger.warning("NCIt FTS cache unavailable: %s", exc)
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "NCIt certified search index is unavailable.",
-        ) from exc
+            semantic_types=semantic_type,
+        ),
+        available=lambda repository: index.is_populated(repository.source_identity),
+    )
 
 
 @router.get("/list", response_model=BrowsePage)
 async def list_concepts(
     store: NcitStore,
+    grid: NcitGrid,
     column_text: NcitColumnText,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -267,27 +291,44 @@ async def list_concepts(
         Query(description="Published representation status"),
     ] = None,
     sort: RepositoryBrowseSort = "source",
+    semantic_type: Annotated[list[ColumnText] | None, Query()] = None,
 ) -> BrowsePage:
     """List concepts in the requested deterministic browse order."""
-    return await store.list_concepts(
-        limit=limit,
-        offset=offset,
-        representation_status=representation_status,
-        sort=sort,
-        column_text=column_text,
+    await grid.validate(
+        "list",
+        sort,
+        column_text,
+        {
+            "representation_status": representation_status,
+            "semantic_type": semantic_type,
+        },
+    )
+    return await grid.read(
+        lambda _: store.list_concepts(
+            limit=limit,
+            offset=offset,
+            representation_status=representation_status,
+            sort=sort,
+            column_text=column_text,
+            semantic_types=semantic_type,
+        )
     )
 
 
 @router.get("/concepts/{code}", response_model=ConceptDetail)
-async def concept_detail(store: NcitStore, code: str) -> ConceptDetail:
+async def concept_detail(store: NcitStore, grid: NcitGrid, code: str) -> ConceptDetail:
     """Return full concept detail — parents, roles, associations, incoming roles."""
     try:
-        detail = await store.get_concept_detail(code)
-    except ValueError as exc:  # malformed code rejected by the IRI guard
+        safe_iri(code, NCIT_NS)
+    except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
-    if detail is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Concept not found: {code}")
-    return detail
+    return await grid.read_detail(lambda _: store.get_concept_detail(code), detail=code)
+
+
+@router.get("/semantic-types", response_model=list[str])
+async def semantic_type_domain(store: NcitStore, grid: NcitGrid) -> list[str]:
+    values = await grid.read(lambda repository: _semantic_types_for(repository, store))
+    return list(values)
 
 
 @router.get("/concepts/{code}/similar", response_model=list[SimilarConcept])

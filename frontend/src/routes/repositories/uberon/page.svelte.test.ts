@@ -20,13 +20,16 @@ const data = {
 			total: 26,
 			limit: 25,
 			offset: 25,
+			sources: ['uberon'],
+			column_text: {},
 			hits: [{ code: 'UBERON:0002048', label: 'lung', source: 'uberon', matched_synonym: null }]
 		},
 		query: 'lung',
 		offset: 25,
 		size: 25,
 		sort: 'relevance',
-		filters: { source: ['uberon'] }
+		filters: { source: ['uberon'] },
+		textFilters: {}
 	}
 };
 
@@ -46,6 +49,17 @@ describe('Uberon repository page table ownership', () => {
 
 		await fireEvent.click(screen.getByRole('checkbox', { name: 'Uberon' }));
 		expect(goto).toHaveBeenLastCalledWith('/repositories/uberon?q=lung');
+	});
+
+	it('sends declared type-ahead filters through canonical URL state', async () => {
+		render(Page, { data: data as never, params: {}, form: null });
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Filter Code' }));
+		const input = screen.getByRole('textbox', { name: 'Filter Code text' });
+		await fireEvent.input(input, { target: { value: 'UBERON:' } });
+		await fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+		expect(goto).toHaveBeenLastCalledWith('/repositories/uberon?q=lung&source=uberon&text_code=UBERON%3A');
 	});
 
 	it('marks the real repository table busy during same-route revalidation', () => {

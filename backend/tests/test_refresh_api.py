@@ -18,6 +18,7 @@ from backend.dependencies import (
 )
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy, UberonClassCounts
+from ontolib.common.search_publication import SearchPublicationError
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.uberon.store import (
     CertifiedUberonIndexObservation,
@@ -336,6 +337,11 @@ class _FailingSearchIndex:
         raise StorageError("store unreachable")
 
 
+class _InvalidPublicationSearchIndex:
+    async def rebuild(self, *args: object, **kwargs: object) -> int:
+        raise SearchPublicationError("duplicate code")
+
+
 @pytest.mark.api
 def test_rebuild_search_index_store_error_returns_502() -> None:
     app = create_app()
@@ -348,6 +354,21 @@ def test_rebuild_search_index_store_error_returns_502() -> None:
         resp = client.post("/api/v1/refresh/ncit/search-index")
     assert resp.status_code == 502
     assert "search-index" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_rebuild_search_index_publication_error_returns_502() -> None:
+    app = create_app()
+    app.dependency_overrides[get_ncit_store] = _FakeNcitStore
+    app.dependency_overrides[get_ncit_search_index] = _InvalidPublicationSearchIndex
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        ncit=_ready_ncit
+    )
+    with TestClient(app) as client:
+        response = client.post("/api/v1/refresh/ncit/search-index")
+
+    assert response.status_code == 502
+    assert "search-index" in response.json()["detail"]
 
 
 async def _unhealthy_ncit(*, force: bool = False) -> RepositoryUnhealthy:

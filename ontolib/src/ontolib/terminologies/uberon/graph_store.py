@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ontolib.common.grid import categorical_predicate, sparql_text_filters
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.uberon.models import (
     UberonBrowsePage,
@@ -34,6 +35,11 @@ _PREFIXES = f"PREFIX owl: <{_OWL}>\nPREFIX rdfs: <{_RDFS}>\nPREFIX oio: <{_OIO}>
 _LIST_SEPARATOR = "||"
 _DEFAULT_EDGE_LIMIT = 200
 _MAX_NEIGHBORHOOD_NODES = 400
+_BROWSE_TEXT_EXPRESSIONS = {
+    "code": f'REPLACE(STR(?concept), "^{_OBO}(UBERON|CL)_", "$1:")',
+    "label": "STR(?label)",
+    "source": f'IF(STRSTARTS(STR(?concept), "{_OBO}CL_"), "Cell Ontology", "Uberon")',
+}
 
 
 def _source_for_iri(iri: str) -> UberonSource:
@@ -66,14 +72,25 @@ def _iri_for_code(code: str) -> str:
     return f"{_OBO}{prefix}_{identifier}"
 
 
-def _source_filter(variable: str, source: UberonSource | None) -> str:
-    if source is None:
-        return (
-            f'FILTER(STRSTARTS(STR({variable}), "{_OBO}UBERON_") || '
-            f'STRSTARTS(STR({variable}), "{_OBO}CL_"))'
-        )
-    prefix = "UBERON" if source == "uberon" else "CL"
-    return f'FILTER(STRSTARTS(STR({variable}), "{_OBO}{prefix}_"))'
+def _source_filter(variable: str) -> str:
+    return (
+        f'FILTER(STRSTARTS(STR({variable}), "{_OBO}UBERON_") || '
+        f'STRSTARTS(STR({variable}), "{_OBO}CL_"))'
+    )
+
+
+def _browse_filters(column_text: Mapping[str, str], sources: list[UberonSource]) -> str:
+    text_filters = sparql_text_filters(column_text, _BROWSE_TEXT_EXPRESSIONS)
+    source_predicate, _ = categorical_predicate(
+        "source",
+        sources,
+        expression=(f'IF(STRSTARTS(STR(?concept), "{_OBO}CL_"), "cl", "uberon")'),
+        array_column=False,
+        dialect="sparql",
+    )
+    return "\n".join(
+        filter(None, (_source_filter("?concept"), text_filters, source_predicate))
+    )
 
 
 def _required(row: Mapping[str, str | None], *names: str) -> tuple[str, ...]:
@@ -96,7 +113,7 @@ class UberonGraphStore:
 
     def __init__(self, client: SparqlHttpClient) -> None:
         self._client = client
-        self._totals: dict[UberonSource | None, int] = {}
+        self._totals: dict[tuple[UberonSource, ...], int] = {}
 
     async def get_concept_detail(self, code: str) -> UberonConceptDetail | None:
         iri = _iri_for_code(code)
@@ -146,7 +163,7 @@ class UberonGraphStore:
             f"""{_PREFIXES}
             SELECT ?node (MIN(STR(?labelValue)) AS ?label) WHERE {{
               {pattern} . FILTER(isIRI(?node))
-              {_source_filter("?node", None)}
+              {_source_filter("?node")}
               OPTIONAL {{ ?node rdfs:label ?labelValue }}
             }} GROUP BY ?node ORDER BY ?node LIMIT {_DEFAULT_EDGE_LIMIT + 1}"""
         )
@@ -165,7 +182,7 @@ class UberonGraphStore:
               <{iri}> rdfs:subClassOf ?restriction .
               ?restriction a owl:Restriction ; owl:onProperty ?rel ;
                 owl:someValuesFrom ?target .
-              {_source_filter("?target", None)}
+              {_source_filter("?target")}
               OPTIONAL {{ ?rel rdfs:label ?rellabelValue }}
               OPTIONAL {{ ?target rdfs:label ?tlabelValue }}
             }} GROUP BY ?rel ?target ORDER BY ?rel ?target
@@ -199,10 +216,11 @@ class UberonGraphStore:
     async def list_concepts(
         self,
         *,
-        source: UberonSource | None = None,
+        sources: list[UberonSource] | None = None,
         limit: int = 25,
         offset: int = 0,
         sort: UberonBrowseSort = "source",
+        column_text: dict[str, str] | None = None,
     ) -> UberonBrowsePage:
         order = {
             "source": "?concept ?label",
@@ -211,32 +229,47 @@ class UberonGraphStore:
             "label:asc": "?label ?concept",
             "label:desc": "DESC(?label) ?concept",
         }[sort]
-        source_filter = _source_filter("?concept", source)
+        resolved_sources = sources or []
+        source_key = tuple(sorted(resolved_sources))
+        filters = _browse_filters(column_text or {}, resolved_sources)
         rows = await self._client.select(
             f"""{_PREFIXES}
             SELECT ?concept ?label WHERE {{
-              ?concept a owl:Class ; rdfs:label ?label . {source_filter}
+              ?concept a owl:Class ; rdfs:label ?label . {filters}
             }} ORDER BY {order} LIMIT {limit} OFFSET {offset}"""
         )
-        if source not in self._totals:
-            count_rows = await self._client.select(
-                f"""{_PREFIXES}
-                SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{
-                  ?concept a owl:Class ; rdfs:label ?label . {source_filter}
-                }}"""
-            )
-            if len(count_rows) != 1:
-                raise StorageError("Uberon/CL list count was not a single row")
-            self._totals[source] = int(_required(count_rows[0], "count")[0])
+        total = await self._browse_total(filters, column_text, source_key)
         return UberonBrowsePage(
             query="",
-            total=self._totals[source],
+            total=total,
             limit=limit,
             offset=offset,
             sort=sort,
-            source=source,
+            sources=resolved_sources,
+            column_text=column_text or {},
             hits=self._hits(rows),
         )
+
+    async def _browse_total(
+        self,
+        filters: str,
+        column_text: dict[str, str] | None,
+        source_key: tuple[UberonSource, ...],
+    ) -> int:
+        if not column_text and source_key in self._totals:
+            return self._totals[source_key]
+        count_rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{
+              ?concept a owl:Class ; rdfs:label ?label . {filters}
+            }}"""
+        )
+        if len(count_rows) != 1:
+            raise StorageError("Uberon/CL list count was not a single row")
+        total = int(_required(count_rows[0], "count")[0])
+        if not column_text:
+            self._totals[source_key] = total
+        return total
 
     async def search_records(
         self, *, limit: int, offset: int
@@ -249,7 +282,7 @@ class UberonGraphStore:
                separator="{_LIST_SEPARATOR}") AS ?synonyms)
             WHERE {{
               ?concept a owl:Class ; rdfs:label ?label .
-              {_source_filter("?concept", None)}
+              {_source_filter("?concept")}
               OPTIONAL {{ ?concept oio:hasExactSynonym ?synonym }}
             }} GROUP BY ?concept ?label ORDER BY ?concept ?label
             LIMIT {limit} OFFSET {offset}"""
@@ -278,7 +311,7 @@ class UberonGraphStore:
                 separator="{_LIST_SEPARATOR}") AS ?parents)
             WHERE {{
               ?concept a owl:Class ; rdfs:label ?label .
-              {_source_filter("?concept", None)}
+              {_source_filter("?concept")}
               OPTIONAL {{ ?concept oio:hasExactSynonym ?synonym }}
               OPTIONAL {{ ?concept rdfs:subClassOf ?parent . FILTER(isIRI(?parent))
                          ?parent rdfs:label ?parentLabel }}

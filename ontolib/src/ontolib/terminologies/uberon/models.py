@@ -100,7 +100,8 @@ class UberonSearchPage(_ReadModel):
     limit: int = Field(ge=1)
     offset: int = Field(ge=0)
     sort: UberonSearchSort = "relevance"
-    source: UberonSource | None
+    sources: list[UberonSource]
+    column_text: dict[str, str] = Field(default_factory=dict)
     hits: list[UberonSearchHit] = Field(default_factory=list)
 
 
@@ -110,7 +111,8 @@ class UberonBrowsePage(_ReadModel):
     limit: int = Field(ge=1)
     offset: int = Field(ge=0)
     sort: UberonBrowseSort = "source"
-    source: UberonSource | None
+    sources: list[UberonSource]
+    column_text: dict[str, str] = Field(default_factory=dict)
     hits: list[UberonSearchHit] = Field(default_factory=list)
 
 

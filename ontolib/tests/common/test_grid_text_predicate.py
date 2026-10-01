@@ -3,7 +3,12 @@
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from ontolib.common.grid import ColumnText, sql_text_filters, text_predicate
+from ontolib.common.grid import (
+    ColumnText,
+    categorical_predicate,
+    sql_text_filters,
+    text_predicate,
+)
 
 
 def test_second_repository_supplies_its_own_declared_column_expression() -> None:
@@ -37,3 +42,47 @@ def test_column_text_normalizes_surrounding_spaces_and_rejects_blank() -> None:
     assert adapter.validate_python(" melanoma ") == "melanoma"
     with pytest.raises(ValidationError):
         adapter.validate_python("   ")
+
+
+def test_categorical_predicate_supports_declared_scalar_and_array_columns() -> None:
+    scalar, scalar_params = categorical_predicate(
+        "status",
+        ["legacy"],
+        expression="representation_status",
+        array_column=False,
+        dialect="sql",
+    )
+    array, array_params = categorical_predicate(
+        "semantic_type",
+        ["Disease", "Neoplasm"],
+        expression="semantic_types",
+        array_column=True,
+        dialect="sql",
+    )
+
+    assert scalar == (
+        " AND representation_status = ANY(CAST(:status_selected AS text[]))"
+    )
+    assert scalar_params == {"status_selected": ["legacy"]}
+    assert array == (" AND semantic_types && CAST(:semantic_type_selected AS text[])")
+    assert array_params == {"semantic_type_selected": ["Disease", "Neoplasm"]}
+
+
+def test_categorical_sparql_membership_escapes_values_and_empty_is_noop() -> None:
+    predicate, params = categorical_predicate(
+        "semantic_type",
+        ['Disease "type"'],
+        expression="?type",
+        array_column=True,
+        dialect="sparql",
+    )
+
+    assert predicate == 'FILTER(?type IN ("Disease \\"type\\""))'
+    assert params == {}
+    assert categorical_predicate(
+        "semantic_type",
+        [],
+        expression="?type",
+        array_column=True,
+        dialect="sparql",
+    ) == ("", {})

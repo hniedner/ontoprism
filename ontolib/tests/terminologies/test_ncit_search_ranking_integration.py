@@ -48,10 +48,10 @@ _TERM = "zorbulax"
 _TYPE = "Neoplastic Process"
 
 _INSERT = text(
-    "INSERT INTO ncit_search (code, label, semantic_type, synonyms) "
-    "VALUES (:code, :label, :semantic_type, :syn) "
+    "INSERT INTO ncit_search (code, label, semantic_types, synonyms) "
+    "VALUES (:code, :label, ARRAY[CAST(:semantic_type AS text)], :syn) "
     "ON CONFLICT (code) DO UPDATE SET label = EXCLUDED.label, "
-    "semantic_type = EXCLUDED.semantic_type, synonyms = EXCLUDED.synonyms"
+    "semantic_types = EXCLUDED.semantic_types, synonyms = EXCLUDED.synonyms"
 )
 _DELETE_OWNED_ROWS = text(
     "DELETE FROM ncit_search WHERE code IN "

@@ -22,6 +22,62 @@ from backend.config import get_settings
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+@pytest.mark.usefixtures("isolated_migration_postgres_settings")
+def test_semantic_array_migration_invalidates_lossy_index() -> None:
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    dsn = _asyncpg_dsn(get_settings().database_url)
+
+    async def seed() -> None:
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(
+                "INSERT INTO ncit_search(code,label,semantic_type,synonyms) "
+                "VALUES ('C1','old','One','')"
+            )
+            await conn.execute(
+                "INSERT INTO ncit_search_manifest("
+                "singleton,source_identity,source_hash,row_count,built_at) "
+                "VALUES(true,$1,$2,1,now())",
+                "a" * 64,
+                "b" * 64,
+            )
+        finally:
+            await conn.close()
+
+    async def check() -> None:
+        conn = await asyncpg.connect(dsn)
+        try:
+            assert await conn.fetchval("SELECT count(*) FROM ncit_search_manifest") == 0
+            assert await conn.fetchval("SELECT count(*) FROM ncit_search") == 0
+            await conn.execute(
+                "INSERT INTO ncit_search(code,label,semantic_types,synonyms) "
+                "VALUES ('C1','new',ARRAY['One','Two'],'')"
+            )
+            assert (
+                await conn.fetchval(
+                    "SELECT code FROM ncit_search WHERE semantic_types && ARRAY['Two']"
+                )
+                == "C1"
+            )
+            index = await conn.fetchval(
+                "SELECT indexdef FROM pg_indexes "
+                "WHERE indexname='ix_ncit_search_semantic_types'"
+            )
+            assert "USING gin (semantic_types)" in index
+        finally:
+            await conn.close()
+
+    try:
+        command.downgrade(cfg, "0031_r101_run_conservation")
+        asyncio.run(seed())
+        command.upgrade(cfg, "head")
+        asyncio.run(check())
+    finally:
+        command.upgrade(cfg, "head")
+
+
 def _asyncpg_dsn(sqlalchemy_url: str) -> str:
     """Turn a ``postgresql+asyncpg://…`` URL into a plain asyncpg DSN."""
     return sqlalchemy_url.replace("+asyncpg", "")
@@ -542,7 +598,7 @@ def _assert_embedding_schema(facts: dict[str, Any]) -> None:
     assert facts["search_columns"] == {
         "code": "text",
         "label": "text",
-        "semantic_type": "text",
+        "semantic_types": "ARRAY",
         "synonyms": "text",
         "tsv": "tsvector",
         "representation_status": "text",
@@ -643,7 +699,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0031_r101_run_conservation"
+    assert revision == "0032_ncit_semantic_types"
     assert legacy_rows == 1
     assert publication_tables == 2
 

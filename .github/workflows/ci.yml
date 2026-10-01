@@ -431,6 +431,19 @@ jobs:
         run: |
           "$ONTOPRISM_JENA_DIR/bin/riot" --version
 
+      - name: Pre-pull pinned QLever image
+        run: |
+          QLEVER_IMAGE="$(pdm run python -c 'from ontolib.core.data_build_tools import QLEVER_IMAGE; print(QLEVER_IMAGE)')"
+          for attempt in 1 2 3; do
+            if docker pull "$QLEVER_IMAGE"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep 10
+          done
+
       - name: Integration file partition (disposable resources)
         env:
           COVERAGE_CONFIG_SET: python-combined

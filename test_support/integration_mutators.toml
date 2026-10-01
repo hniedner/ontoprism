@@ -168,6 +168,11 @@ tests = ["test_distinct_group_identity_migration_preserves_existing_runs"]
 fixtures = ["isolated_migration_postgres_settings"]
 
 [[mutator]]
+path = "backend/tests/test_migrations_integration.py"
+tests = ["test_semantic_array_migration_invalidates_lossy_index"]
+fixtures = ["isolated_migration_postgres_settings"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_provenance_integration.py"
 fixtures = ["isolated_postgres_settings"]
 

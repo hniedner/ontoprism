@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.ncit.graph_store import (
     _MAX_NEIGHBORHOOD_NODES,
     NcitGraphStore,
@@ -27,6 +28,8 @@ class _RecordingClient:
 
     async def select(self, query: str) -> list[dict[str, str]]:
         self.queries.append(query)
+        if "COUNT(DISTINCT ?concept)" in query:
+            return [{"count": "0"}]
         if self._metadata and "GROUP_CONCAT" in query:
             self._metadata = False
             return [{"label": "Center"}]
@@ -101,7 +104,7 @@ class _StatusClient:
             if self.status is not None:
                 row["representationStatus"] = self.status
             return [row]
-        if "SELECT ?concept ?label" in query and "SAMPLE(?semtypeValue)" in query:
+        if "SELECT ?concept ?label" in query and "MIN(STR(?semtypeValue))" in query:
             row = {
                 "concept": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
                 "label": "Legacy concept",
@@ -305,10 +308,8 @@ async def test_aggregate_queries_do_not_reuse_source_variables_as_aliases() -> N
     compact_queries = [" ".join(query.split()) for query in client.queries]
     aggregate_queries = [query for query in compact_queries if "SAMPLE(" in query]
     assert len(aggregate_queries) == 2
-    assert all(
-        "SAMPLE(?semtypeValue) AS ?semtype" in query
-        and "SAMPLE(?semtype) AS ?semtype" not in query
-        for query in aggregate_queries
+    assert any(
+        "MIN(STR(?semtypeValue)) AS ?semtype" in query for query in aggregate_queries
     )
     records_query = next(
         query for query in compact_queries if "GROUP_CONCAT(DISTINCT ?syn" in query
@@ -635,7 +636,10 @@ async def test_list_concepts_returns_ordered_page(ncit_stub_url: str) -> None:
 
     assert page.total == 2
     assert [h.code for h in page.hits] == ["C3262", "C9305"]
-    assert page.hits[0].semantic_type == "Neoplastic Process"
+    assert page.hits[0].semantic_types == [
+        "Disease or Syndrome",
+        "Neoplastic Process",
+    ]
     assert page.hits[0].matched_synonym is None
 
 
@@ -649,7 +653,7 @@ async def test_search_records_returns_records_with_synonyms(
     assert len(records) == 1
     assert records[0]["code"] == "C3262"
     assert records[0]["label"] == "Neoplasm"
-    assert records[0]["semantic_type"] == "Neoplastic Process"
+    assert records[0]["semantic_types"] == ["Neoplastic Process"]
     assert records[0]["synonyms"] == "Neoplasia||Neoplasm"
 
 
@@ -676,6 +680,32 @@ async def test_list_concepts_memoizes_total(ncit_stub_url: str) -> None:
         assert page1.total == 2
         page2 = await store.list_concepts(limit=25, offset=1)
         assert page2.total == 2  # memoized after first call
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "count_rows",
+    [
+        [],
+        [{}],
+        [{"count": "not-a-number"}],
+        [{"count": "-1"}],
+        [{"count": "1"}, {"count": "2"}],
+    ],
+)
+async def test_list_concepts_rejects_a_malformed_count(
+    count_rows: list[dict[str, str]],
+) -> None:
+    class MissingCountClient:
+        async def select(self, query: str) -> list[dict[str, str]]:
+            if "COUNT(DISTINCT ?concept)" in query:
+                return count_rows
+            return []
+
+    store = NcitGraphStore(MissingCountClient())  # type: ignore[arg-type]
+
+    with pytest.raises(StorageError, match="NCIt list count"):
+        await store.list_concepts()
 
 
 @pytest.mark.unit

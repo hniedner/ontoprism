@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
-from backend.api.v1.ncit import _xref_expected
+from backend.api.v1.ncit import _semantic_type_cache, _xref_expected
 from backend.api.v1.ncit import router as ncit_router
 from backend.config import get_settings
 from backend.dependencies import (
@@ -82,6 +82,7 @@ class _FakeStore:
         representation_status: RepresentationStatus | None = None,
         sort: str = "source",
         column_text: dict[str, str] | None = None,
+        semantic_types: list[str] | None = None,
     ) -> BrowsePage:
         self.list_calls.append((limit, offset, representation_status))
         return BrowsePage(
@@ -90,6 +91,7 @@ class _FakeStore:
             limit=limit,
             offset=offset,
             representation_status=representation_status,
+            semantic_types=semantic_types or [],
             hits=[SearchHit(code="C3262", label="Neoplasm")],
         )
 
@@ -114,6 +116,9 @@ class _FakeStore:
     async def labels_for(self, codes: list[str]) -> dict[str, str]:
         known = {"C3262": "Neoplasm", "C9305": "Malignant Neoplasm"}
         return {c: known[c] for c in codes if c in known}
+
+    async def semantic_type_values(self) -> list[str]:
+        return ["Disease or Syndrome", "Neoplastic Process"]
 
 
 class _FakeIndex:
@@ -141,6 +146,7 @@ class _FakeIndex:
         representation_status: RepresentationStatus | None = None,
         sort: str = "relevance",
         column_text: dict[str, str] | None = None,
+        semantic_types: list[str] | None = None,
     ) -> SearchPage:
         self.searched = True
         self.search_calls.append((q, limit, offset, representation_status))
@@ -150,6 +156,7 @@ class _FakeIndex:
             limit=limit,
             offset=offset,
             representation_status=representation_status,
+            semantic_types=semantic_types or [],
             hits=[SearchHit(code="C3262", label="Neoplasm (from cache)")],
         )
 
@@ -315,6 +322,36 @@ def test_search_served_from_populated_cache(ncit_client: TestClient) -> None:
 
 
 @pytest.mark.api
+def test_semantic_type_domain_comes_from_certified_source(
+    ncit_client: TestClient,
+) -> None:
+    response = ncit_client.get("/api/v1/ncit/semantic-types")
+
+    assert response.status_code == 200
+    assert response.json() == ["Disease or Syndrome", "Neoplastic Process"]
+
+
+@pytest.mark.api
+def test_semantic_type_domain_reuses_the_certified_source_cache() -> None:
+    class CountingStore(_FakeStore):
+        domain_reads = 0
+
+        async def semantic_type_values(self) -> list[str]:
+            self.domain_reads += 1
+            return await super().semantic_type_values()
+
+    _semantic_type_cache.clear()
+    store = CountingStore()
+    client = next(_client(store=store))
+    try:
+        assert client.get("/api/v1/ncit/semantic-types").status_code == 200
+        assert client.get("/api/v1/ncit/semantic-types").status_code == 200
+        assert store.domain_reads == 1
+    finally:
+        _semantic_type_cache.clear()
+
+
+@pytest.mark.api
 def test_search_fails_closed_when_certified_cache_is_empty() -> None:
     store = _FakeStore()
     gen = _client(store=store, index=_FakeIndex(populated=False))
@@ -362,6 +399,57 @@ def test_list_status_filter_flows_to_store() -> None:
     assert response.status_code == 200
     assert response.json()["representation_status"] == "legacy-precoordinated"
     assert store.list_calls == [(25, 0, "legacy-precoordinated")]
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("path", ["/api/v1/ncit/search", "/api/v1/ncit/list"])
+def test_semantic_type_any_of_selection_is_echoed(path: str) -> None:
+    params: dict[str, str | list[str]] = {
+        "semantic_type": ["Disease or Syndrome", "Neoplastic Process"]
+    }
+    if path.endswith("search"):
+        params["q"] = "x"
+    response = next(_client()).get(
+        path,
+        params=params,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["semantic_types"] == [
+        "Disease or Syndrome",
+        "Neoplastic Process",
+    ]
+
+
+@pytest.mark.api
+def test_semantic_type_selection_and_read_share_one_certification() -> None:
+    class CountingMetadata(_Metadata):
+        reads = 0
+
+        async def ncit(self) -> SimpleNamespace:
+            type(self).reads += 1
+            return await super().ncit()
+
+    _semantic_type_cache.clear()
+    try:
+        response = next(_client(metadata=CountingMetadata)).get(
+            "/api/v1/ncit/list", params={"semantic_type": "Neoplastic Process"}
+        )
+        assert response.status_code == 200
+        assert CountingMetadata.reads == 1
+    finally:
+        _semantic_type_cache.clear()
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("path", ["/api/v1/ncit/search?q=x", "/api/v1/ncit/list"])
+def test_semantic_type_selection_rejects_values_outside_certified_domain(
+    path: str,
+) -> None:
+    separator = "&" if "?" in path else "?"
+    response = next(_client()).get(f"{path}{separator}semantic_type=Not+A+Type")
+
+    assert response.status_code == 422
 
 
 @pytest.mark.api
@@ -484,6 +572,20 @@ def test_concept_detail_malformed_code_is_404(ncit_client: TestClient) -> None:
     resp = ncit_client.get("/api/v1/ncit/concepts/bad code")
     assert resp.status_code == 404
     assert "Invalid code" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_concept_detail_malformed_store_row_is_502() -> None:
+    class MalformedStore(_FakeStore):
+        async def get_concept_detail(self, code: str) -> ConceptDetail | None:
+            return ConceptDetail.model_validate({"code": code, "semantic_types": "bad"})
+
+    response = next(_client(store=MalformedStore())).get("/api/v1/ncit/concepts/C3262")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "NCIt repository returned an invalid or unavailable response."
+    )
 
 
 @pytest.mark.api

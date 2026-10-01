@@ -16,6 +16,7 @@ _APP_OPERATIONS = {
     ("GET", "/ready"),
     ("GET", "/api/v1/ncit/search"),
     ("GET", "/api/v1/ncit/list"),
+    ("GET", "/api/v1/ncit/semantic-types"),
     ("GET", "/api/v1/ncit/concepts/{code}"),
     ("GET", "/api/v1/ncit/concepts/{code}/similar"),
     ("GET", "/api/v1/ncit/concepts/{code}/neighborhood"),

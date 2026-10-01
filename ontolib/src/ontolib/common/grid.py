@@ -1,7 +1,7 @@
 """Shared closed product vocabulary and source-safe repository text predicates."""
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Literal, get_args
 
 from pydantic import StringConstraints
@@ -59,3 +59,42 @@ def sql_text_filters(
         ),
         {f"{column}_text": text_param(value) for column, value in values.items()},
     )
+
+
+def sparql_text_filters(
+    values: Mapping[str, str], expressions: Mapping[str, str]
+) -> str:
+    """Render validated literal-substring predicates for a SPARQL query."""
+    return "\n".join(
+        text_predicate(column, value, dialect="sparql", expressions=expressions)
+        for column, value in values.items()
+    )
+
+
+def categorical_predicate(
+    column: str,
+    selected: Sequence[str],
+    *,
+    expression: str,
+    array_column: bool,
+    dialect: Literal["sql", "sparql"],
+) -> tuple[str, dict[str, list[str]]]:
+    """Any-of membership over an expression evaluated for each source row.
+
+    SQL array columns use overlap membership; scalar columns use scalar membership.
+    Column and expression are trusted repository declarations, never user-supplied query
+    text. SPARQL membership is independent of the source expression's storage shape.
+    """
+    if not selected:
+        return "", {}
+    if dialect == "sql":
+        parameter = f"{column}_selected"
+        values = f"CAST(:{parameter} AS text[])"
+        predicate = (
+            f"{expression} && {values}"
+            if array_column
+            else f"{expression} = ANY({values})"
+        )
+        return f" AND {predicate}", {parameter: list(selected)}
+    values = ", ".join(json.dumps(value, ensure_ascii=True) for value in selected)
+    return f"FILTER({expression} IN ({values}))", {}

@@ -25,16 +25,22 @@ class _Result:
 
 
 class _Transaction:
+    def __init__(self, session: _Session) -> None:
+        self._session = session
+
     async def __aenter__(self) -> _Transaction:
+        self._session.in_transaction = True
         return self
 
     async def __aexit__(self, *_exc: object) -> bool:
+        self._session.in_transaction = False
         return False
 
 
 class _Session:
     def __init__(self, factory: _Factory) -> None:
         self.factory = factory
+        self.in_transaction = False
 
     async def __aenter__(self) -> _Session:
         return self
@@ -43,10 +49,12 @@ class _Session:
         return False
 
     def begin(self) -> _Transaction:
-        return _Transaction()
+        return _Transaction(self)
 
     async def execute(self, sql: Any, params: Any = None) -> _Result:
         statement = str(sql)
+        if statement.strip().startswith(("DELETE", "INSERT")):
+            assert self.in_transaction
         self.factory.executed.append((statement, params))
         if statement.strip() == "SELECT COUNT(*) FROM uberon_search":
             return _Result(scalar=self.factory.stored_rows)
@@ -88,6 +96,14 @@ async def test_ready_requires_matching_identity_and_complete_nonempty_rows() -> 
 
 
 @pytest.mark.unit
+async def test_hash_bound_publication_requires_a_source_hash() -> None:
+    index = UberonSearchIndex(_Factory({}))  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="source_hash is required"):
+        await index.is_populated("a" * 64)
+
+
+@pytest.mark.unit
 async def test_search_filters_source_before_pagination() -> None:
     factory = _Factory(
         {
@@ -103,16 +119,30 @@ async def test_search_filters_source_before_pagination() -> None:
     )
 
     page = await UberonSearchIndex(factory).search(  # type: ignore[arg-type]
-        "cell", source="cl", limit=10, offset=20, sort="label:desc"
+        "cell",
+        sources=["uberon", "cl"],
+        limit=10,
+        offset=20,
+        sort="label:desc",
+        column_text={"code": "CL:", "source": "Cell Ontology"},
     )
 
     assert page.hits[0].source == "cl"
-    assert page.source == "cl"
+    assert page.sources == ["uberon", "cl"]
+    assert page.column_text == {"code": "CL:", "source": "Cell Ontology"}
     sql, params = factory.executed[1]
-    assert sql.index("source = CAST(:source AS text)") < sql.index("LIMIT :limit")
+    assert sql.index("source = ANY") < sql.index("LIMIT :limit")
+    assert "CASE source WHEN 'cl' THEN 'Cell Ontology' ELSE 'Uberon' END" in sql
     assert "ORDER BY label DESC NULLS LAST, code" in sql
     assert "COUNT(*) OVER" not in sql
-    assert params == {"q": "cell", "source": "cl", "limit": 10, "offset": 20}
+    assert params == {
+        "q": "cell",
+        "limit": 10,
+        "offset": 20,
+        "code_text": "%CL:%",
+        "source_text": "%Cell Ontology%",
+        "source_selected": ["uberon", "cl"],
+    }
 
 
 @pytest.mark.unit
@@ -126,7 +156,7 @@ async def test_search_preserves_total_when_offset_page_is_empty() -> None:
     )
 
     assert page.total == 2
-    assert page.source is None
+    assert page.sources == []
     assert page.hits == []
 
 

@@ -3,7 +3,7 @@
 import type { PageSize } from './grid-state';
 
 export type RepresentationStatus = 'legacy-precoordinated';
-export type NcitBrowseSort = 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc';
+export type NcitBrowseSort = 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc' | 'semantic_type:asc' | 'semantic_type:desc';
 export type NcitSearchSort = 'relevance' | NcitBrowseSort;
 export type NcitRepositorySort = NcitSearchSort;
 export type UberonBrowseSort = 'source' | 'code:asc' | 'code:desc' | 'label:asc' | 'label:desc';
@@ -43,13 +43,15 @@ export interface ConceptDetail {
 export interface SearchHit {
 	code: string;
 	label: string | null;
-	semantic_type: string | null;
+	semantic_types: string[];
 	matched_synonym: string | null;
 	representation_status: RepresentationStatus | null;
 }
 
-export type NcitTextColumn = 'code' | 'label' | 'representation_status';
+export type NcitTextColumn = 'code' | 'label' | 'representation_status' | 'semantic_type';
 export type NcitColumnText = Partial<Record<NcitTextColumn, string>>;
+export type UberonTextColumn = 'code' | 'label' | 'source';
+export type UberonColumnText = Partial<Record<UberonTextColumn, string>>;
 
 interface NcitPageBase {
 	query: string;
@@ -58,6 +60,7 @@ interface NcitPageBase {
 	offset: number;
 	representation_status: RepresentationStatus | null;
 	column_text: NcitColumnText;
+	semantic_types: string[];
 	hits: SearchHit[];
 }
 
@@ -170,7 +173,8 @@ interface UberonPageBase {
 	total: number;
 	limit: number;
 	offset: number;
-	source: UberonSource | null;
+	sources: UberonSource[];
+	column_text: UberonColumnText;
 	hits: UberonSearchHit[];
 }
 

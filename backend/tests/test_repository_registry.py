@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import get_args
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
+from backend.api.v1.grid import GridService
 from backend.repository_metadata import RepositoryName
 from backend.repository_registry import load_repository_registry
 
@@ -35,3 +37,85 @@ def test_manifest_rejects_identity_fields_on_remote_descriptors(tmp_path: Path) 
 
     with pytest.raises(ValidationError, match="release"):
         load_repository_registry(invalid)
+
+
+@pytest.mark.parametrize(
+    "change", ["columns", "empty-sort", "text-domain", "remote-metadata"]
+)
+def test_rejects_invalid_grid_capabilities(tmp_path: Path, change: str) -> None:
+    payload = json.loads(_MANIFEST.read_text())
+    capabilities = {
+        "sorts": {"list": ["source"], "search": ["relevance"]},
+        "filters": {
+            "code": {"kind": "text", "text_parameter": "code_text", "values": {}}
+        },
+        "pagination": "offset",
+        "query_before_results": False,
+        "metadata": "certified",
+        "graph": "ontology",
+        "links": "mapping",
+    }
+    if change == "columns":
+        capabilities["columns"] = []
+    elif change == "empty-sort":
+        capabilities["sorts"]["list"] = []
+    elif change == "text-domain":
+        capabilities["filters"]["code"]["values"] = {"C1": "Concept"}
+    else:
+        capabilities["metadata"] = "remote"
+    payload[0]["capabilities"] = capabilities
+    invalid = tmp_path / "repositories.json"
+    invalid.write_text(json.dumps(payload))
+    with pytest.raises(ValidationError):
+        load_repository_registry(invalid)
+
+
+def test_declared_ncit_controls_available_to_grid_consumers() -> None:
+    ncit = load_repository_registry(_MANIFEST)[0]
+    capabilities = ncit.capabilities
+    assert capabilities is not None
+    assert capabilities.sorts["list"][0] == "source"
+    assert capabilities.filters["representation_status"].values == {
+        "legacy-precoordinated": "Legacy pre-coordinated"
+    }
+    semantic_type = capabilities.filters["semantic_type"]
+    assert semantic_type.multiple is True
+    assert semantic_type.source_domain == "semantic-types"
+
+
+def test_declared_uberon_controls_include_ontology_and_two_source_filter() -> None:
+    uberon = next(
+        entry for entry in load_repository_registry(_MANIFEST) if entry.id == "uberon"
+    )
+    capabilities = uberon.capabilities
+
+    assert capabilities is not None
+    assert capabilities.graph == "ontology"
+    assert capabilities.links == "mapping"
+    assert capabilities.filters["code"].kind == "text"
+    assert capabilities.filters["label"].kind == "text"
+    source = capabilities.filters["source"]
+    assert source.multiple is True
+    assert source.values == {"uberon": "Uberon", "cl": "Cell Ontology"}
+
+
+@pytest.mark.parametrize(
+    ("sort", "text", "selected"),
+    [
+        ("unknown", {}, {}),
+        ("source", {"unknown": "x"}, {}),
+        ("source", {}, {"code": "C1"}),
+        ("source", {}, {"unknown": "x"}),
+        ("source", {}, {"representation_status": "unknown"}),
+    ],
+)
+async def test_grid_refuses_controls_outside_declaration(sort, text, selected) -> None:
+    async def ready():
+        return "ready"
+
+    capabilities = load_repository_registry(_MANIFEST)[0].capabilities
+    assert capabilities is not None
+    grid = GridService("NCIt", capabilities, ready)
+    with pytest.raises(HTTPException) as error:
+        await grid.validate("list", sort, text, selected)
+    assert error.value.status_code == 422

@@ -86,11 +86,13 @@ _CANNED: list[tuple[str, list[dict[str, str]]]] = [
                 "concept": f"{NS}C3262",
                 "label": "Neoplasm",
                 "semtype": "Neoplastic Process",
+                "semtypes": "Disease or Syndrome||Neoplastic Process",
             },
             {
                 "concept": f"{NS}C9305",
                 "label": "Malignant Neoplasm",
                 "semtype": "Neoplastic Process",
+                "semtypes": "Neoplastic Process",
             },
         ],
     ),
@@ -100,7 +102,7 @@ _CANNED: list[tuple[str, list[dict[str, str]]]] = [
             {
                 "concept": f"{NS}C3262",
                 "label": "Neoplasm",
-                "semtype": "Neoplastic Process",
+                "semtypes": "Neoplastic Process",
                 "synonyms": "Neoplasia||Neoplasm",
             }
         ],

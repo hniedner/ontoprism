@@ -18,6 +18,7 @@ from backend.api.v1.icdo import (
     require_served_icdo_dataset,
     validate_icdo_grid_filters,
 )
+from ontolib.common.grid import ColumnText
 from ontolib.decomposition.read_models import ConceptDecomposition
 from ontolib.repositories.cadsr.models import CdeRepositorySort, CdeSearchPage
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
@@ -185,12 +186,18 @@ async def refresh_repositories() -> dict[str, object]:
     }
 
 
+@app.get("/api/v1/ncit/semantic-types", response_model=list[str])
+async def ncit_semantic_types() -> list[str]:
+    return ["Disease or Syndrome", "Neoplastic Process"]
+
+
 @app.get("/api/v1/ncit/list", response_model=BrowsePage)
 async def list_ncit(
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: RepositoryBrowseSort = "source",
     representation_status: RepresentationStatus | None = None,
+    semantic_type: Annotated[list[ColumnText] | None, Query()] = None,
 ) -> dict[str, object]:
     return {
         "query": "",
@@ -199,11 +206,12 @@ async def list_ncit(
         "offset": offset,
         "sort": sort,
         "representation_status": representation_status,
+        "semantic_types": semantic_type or [],
         "hits": [
             {
                 "code": "C3262",
                 "label": "SSR Neoplasm",
-                "semantic_type": "Neoplastic Process",
+                "semantic_types": ["Neoplastic Process"],
                 "matched_synonym": None,
                 "representation_status": "legacy-precoordinated",
             }
@@ -218,6 +226,7 @@ async def search_ncit(
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: RepositorySearchSort = "relevance",
     representation_status: RepresentationStatus | None = None,
+    semantic_type: Annotated[list[ColumnText] | None, Query()] = None,
 ) -> dict[str, object]:
     code = "CSLOW" if q == "slow" else "C3262" if q == "neoplasm" else "C4005"
     return {
@@ -227,11 +236,12 @@ async def search_ncit(
         "offset": offset,
         "sort": sort,
         "representation_status": representation_status,
+        "semantic_types": semantic_type or [],
         "hits": [
             {
                 "code": code,
                 "label": f"SSR result for {q}",
-                "semantic_type": "Neoplastic Process",
+                "semantic_types": ["Neoplastic Process"],
                 "matched_synonym": None,
                 "representation_status": (
                     "legacy-precoordinated" if code == "C3262" else None
@@ -246,16 +256,17 @@ async def list_uberon(
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: UberonBrowseSort = "source",
-    source: UberonSource | None = None,
+    source: Annotated[list[UberonSource] | None, Query()] = None,
 ) -> dict[str, object]:
-    selected_source = source or "uberon"
+    sources = source or []
+    selected_source = sources[0] if len(sources) == 1 else "uberon"
     return {
         "query": "",
         "total": 1,
         "limit": limit,
         "offset": offset,
         "sort": sort,
-        "source": source,
+        "sources": sources,
         "hits": [
             {
                 "code": "CL:0000000" if selected_source == "cl" else "UBERON:0002048",
@@ -273,7 +284,7 @@ async def search_uberon(
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: UberonSearchSort = "relevance",
-    source: UberonSource | None = None,
+    source: Annotated[list[UberonSource] | None, Query()] = None,
 ) -> dict[str, object]:
     browse_sort: UberonBrowseSort = "source" if sort == "relevance" else sort
     result = await list_uberon(

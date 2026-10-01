@@ -21,6 +21,8 @@ describe('Uberon page server sort contract', () => {
 			limit: 25,
 			offset: 0,
 			sort: 'source',
+			sources: [],
+			column_text: {},
 			hits: [{ code: 'UBERON:0002048', source: 'uberon', label: 'lung', matched_synonym: null }]
 		});
 
@@ -33,19 +35,27 @@ describe('Uberon page server sort contract', () => {
 	});
 
 	it.each([
-		['one selected source', '?source=cl', 'cl'],
-		['unfiltered', '', null],
-		['both selected sources', '?source=uberon&source=cl', null]
-	])('accepts the canonical %s response echo', async (_label, query, source) => {
-		listUberon.mockResolvedValue({ query: '', total: 0, limit: 25, offset: 0, sort: 'source', source, hits: [] });
-		await expect(load({ url: new URL(`https://example.test/repositories/uberon${query}`), fetch: vi.fn() } as never)).resolves.toMatchObject({ initial: { result: { source } } });
+		['one selected source', '?source=cl', ['cl']],
+		['unfiltered', '', []],
+		['both selected sources', '?source=uberon&source=cl', ['uberon', 'cl']]
+	])('accepts the canonical %s response echo', async (_label, query, sources) => {
+		listUberon.mockResolvedValue({ query: '', total: 0, limit: 25, offset: 0, sort: 'source', sources, column_text: {}, hits: [] });
+		await expect(load({ url: new URL(`https://example.test/repositories/uberon${query}`), fetch: vi.fn() } as never)).resolves.toMatchObject({ initial: { result: { sources } } });
 	});
 
 	it.each([
-		['wrong', { source: null }],
-		['missing', { source: undefined }]
+		['wrong', { sources: [] }],
+		['missing', { sources: undefined }]
 	])('fails closed on %s selected-source response echo', async (_label, drift) => {
-		listUberon.mockResolvedValue({ query: '', total: 0, limit: 25, offset: 0, sort: 'source', hits: [], ...drift });
+		listUberon.mockResolvedValue({ query: '', total: 0, limit: 25, offset: 0, sort: 'source', column_text: {}, hits: [], ...drift });
 		await expect(load({ url: new URL('https://example.test/repositories/uberon?source=cl'), fetch: vi.fn() } as never)).rejects.toMatchObject({ status: 502 });
+	});
+
+	it('passes canonical declared text filters and requires their response echo', async () => {
+		listUberon.mockResolvedValue({ query: '', total: 0, limit: 25, offset: 0, sort: 'source', sources: [], column_text: { code: 'CL:', source: 'Cell Ontology' }, hits: [] });
+
+		await load({ url: new URL('https://example.test/repositories/uberon?text_code=CL%3A&text_source=Cell+Ontology'), fetch: vi.fn() } as never);
+
+		expect(listUberon).toHaveBeenCalledWith(expect.objectContaining({ columnText: { code: 'CL:', source: 'Cell Ontology' } }));
 	});
 });
