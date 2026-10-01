@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
 
+from ontolib.common.grid import sqlite_grid_filters
 from ontolib.repositories.cadsr.archive import CadsrSource
 from ontolib.repositories.cadsr.models import (
     CdeDetail,
@@ -67,24 +69,11 @@ _TEXT_EXPRESSIONS = {
     "name": "COALESCE(cdes.long_name, '') || ' ' || COALESCE(cdes.short_name, '')",
     **_CATEGORICAL_COLUMNS,
 }
-
-
-def _grid_where(
-    filters: Mapping[str, Sequence[str]], column_text: Mapping[str, str]
-) -> tuple[str, tuple[str, ...]]:
-    clauses: list[str] = []
-    params: list[str] = []
-    for field, selected in filters.items():
-        if not selected:
-            continue
-        expression = _CATEGORICAL_COLUMNS[field]
-        clauses.append(f"{expression} IN ({', '.join('?' for _ in selected)})")
-        params.extend(selected)
-    for field, value in column_text.items():
-        expression = _TEXT_EXPRESSIONS[field]
-        clauses.append(f"instr(lower(COALESCE({expression}, '')), lower(?)) > 0")
-        params.append(value)
-    return "".join(f" AND {clause}" for clause in clauses), tuple(params)
+_grid_filters = partial(
+    sqlite_grid_filters,
+    categorical_expressions=_CATEGORICAL_COLUMNS,
+    text_expressions=_TEXT_EXPRESSIONS,
+)
 
 
 def _fts_match_query(query: str) -> str:
@@ -208,7 +197,7 @@ class CdeRepository:
             return _search_page(query, 0, limit, offset, sort, filters, column_text)
         # Count separately so pages beyond the final hit retain the authoritative total.
         # Both bounded statements use the FTS index; the result order is deterministic.
-        grid_where, grid_params = _grid_where(filters, column_text)
+        grid_where, grid_params = _grid_filters(filters, column_text)
         count_source = (
             "cdes JOIN cdes_fts ON cdes_fts.rowid = cdes.rowid"
             if grid_where
@@ -245,7 +234,7 @@ class CdeRepository:
         column_text: Mapping[str, str],
     ) -> CdeSearchPage:
         like = f"%{query}%"
-        grid_where, grid_params = _grid_where(filters, column_text)
+        grid_where, grid_params = _grid_filters(filters, column_text)
         where = (
             "(cdes.long_name LIKE ? OR cdes.short_name LIKE ? "
             "OR cdes.definition LIKE ?)"
@@ -343,7 +332,7 @@ class CdeRepository:
         applied_filters = filters or {}
         applied_text = column_text or {}
         with self._connect() as conn:
-            grid_where, grid_params = _grid_where(applied_filters, applied_text)
+            grid_where, grid_params = _grid_filters(applied_filters, applied_text)
             total = conn.execute(
                 f"SELECT COUNT(*) AS n FROM cdes WHERE 1=1{grid_where}",  # noqa: S608
                 grid_params,

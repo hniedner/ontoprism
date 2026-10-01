@@ -71,6 +71,33 @@ def sparql_text_filters(
     )
 
 
+def sqlite_grid_filters(
+    selected: Mapping[str, Sequence[str]],
+    text: Mapping[str, str],
+    *,
+    categorical_expressions: Mapping[str, str],
+    text_expressions: Mapping[str, str],
+) -> tuple[str, tuple[str, ...]]:
+    """Return SQLite predicates and positional bindings for declared grid fields."""
+    unsupported = set(selected) - categorical_expressions.keys()
+    unsupported |= set(text) - text_expressions.keys()
+    if unsupported:
+        raise ValueError("unsupported grid column")
+    clauses: list[str] = []
+    params: list[str] = []
+    for column, values in selected.items():
+        if values:
+            placeholders = ", ".join("?" for _ in values)
+            clauses.append(f"{categorical_expressions[column]} IN ({placeholders})")
+            params.extend(values)
+    for column, value in text.items():
+        clauses.append(
+            f"instr(lower(COALESCE({text_expressions[column]}, '')), lower(?)) > 0"
+        )
+        params.append(value)
+    return "".join(f" AND {clause}" for clause in clauses), tuple(params)
+
+
 def categorical_predicate(
     column: str,
     selected: Sequence[str],

@@ -7,6 +7,7 @@ from ontolib.common.grid import (
     ColumnText,
     categorical_predicate,
     sql_text_filters,
+    sqlite_grid_filters,
     text_predicate,
 )
 
@@ -86,3 +87,25 @@ def test_categorical_sparql_membership_escapes_values_and_empty_is_noop() -> Non
         array_column=True,
         dialect="sparql",
     ) == ("", {})
+
+
+def test_sqlite_filters_bind_declared_categories_and_literal_text() -> None:
+    predicate, params = sqlite_grid_filters(
+        {"status": ["RELEASED", "DRAFT"]},
+        {"name": "100%_\\"},
+        categorical_expressions={"status": "cdes.status"},
+        text_expressions={"name": "cdes.name"},
+    )
+
+    assert predicate == (
+        " AND cdes.status IN (?, ?)"
+        " AND instr(lower(COALESCE(cdes.name, '')), lower(?)) > 0"
+    )
+    assert params == ("RELEASED", "DRAFT", "100%_\\")
+    with pytest.raises(ValueError, match="unsupported"):
+        sqlite_grid_filters(
+            {"unknown": ["x"]},
+            {},
+            categorical_expressions={"status": "cdes.status"},
+            text_expressions={},
+        )
