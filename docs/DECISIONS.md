@@ -7,6 +7,27 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-10-01 — CI runs once per milestone
+
+### D100. Issues merge into the milestone branch without CI; CI runs on the milestone PR
+
+**Context.** D92 gated every issue merge with a CI run on the pushed milestone branch.
+M12 produced eleven push runs, three of them red, before its PR. The owner's milestone
+pattern has no per-issue CI.
+
+**Decision (owner, amends D92).** An issue is implemented on its own branch, tested
+locally (`pdm run lint`, `pdm run verify`), demonstrated, merged into the milestone
+branch without a PR or review, and its branch deleted. When every issue is merged, the
+milestone branch takes `main`, runs `pdm run verify` and `pdm run smoke-real`, and the
+five-dimension review runs to convergence. Only then is the branch pushed and the PR to
+`main` opened; that PR run is the milestone's first CI run. When every check is green the
+PR merges, CI runs on the merge SHA, and the milestone branch is deleted. Pushes to
+milestone branches trigger no CI. The milestone PR closes its issues with `Closes #n`.
+
+**Why.** One CI run per milestone instead of one per issue, and one place where issues
+close. Problems that local `verify` misses now surface at the milestone PR and are fixed
+on the milestone branch like review findings.
+
 ## 2026-09-29 — one repository kit for the six shipped repositories
 
 ### D99. Capabilities are configuration; readers, controls and links are reused
