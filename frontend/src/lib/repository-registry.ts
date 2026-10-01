@@ -23,53 +23,6 @@ export interface GridCapabilities {
 	readonly links: 'mapping' | 'source-anchors' | 'references' | 'none';
 }
 
-function object(value: unknown, allowed?: readonly string[], optional: string[] = []): Record<string, unknown> {
-	if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Expected capability object');
-	if (allowed && (allowed.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !allowed.includes(key) && !optional.includes(key)))) throw new TypeError('Unknown or missing capability field');
-	return value as Record<string, unknown>;
-}
-function validateSorts(value: unknown): void {
-	const sorts = object(value, ['list', 'search']);
-	for (const values of Object.values(sorts)) if (!Array.isArray(values) || !values.length || values.some((v) => typeof v !== 'string' || !v) || new Set(values).size !== values.length) throw new TypeError('Invalid sort domain');
-}
-
-function validateFilterDomain(key: string, f: Record<string, unknown>, values: Record<string, unknown>): void {
-	const hasDomain = Boolean(Object.keys(values).length || f.source_domain);
-	if (!key || !['text', 'categorical'].includes(String(f.kind)) || (f.kind === 'categorical') !== hasDomain) throw new TypeError('Invalid filter domain');
-	if (f.source_domain !== undefined && Object.keys(values).length) throw new TypeError('Filter values and source domain are mutually exclusive');
-	if (Object.entries(values).some(([name, label]) => !name || typeof label !== 'string' || !label)) throw new TypeError('Invalid filter value');
-}
-
-function validateFilterMetadata(f: Record<string, unknown>): string {
-	if (f.multiple !== undefined && typeof f.multiple !== 'boolean') throw new TypeError('Invalid multiplicity');
-	if (f.source_domain !== undefined && (typeof f.source_domain !== 'string' || !f.source_domain)) throw new TypeError('Invalid source domain');
-	if ((f.kind === 'text' && f.text_parameter === undefined) || (f.text_parameter !== undefined && (typeof f.text_parameter !== 'string' || !/^[a-z_]+$/.test(f.text_parameter)))) throw new TypeError('Invalid text parameter');
-	return String(f.text_parameter ?? '');
-}
-
-function validateFilter(key: string, value: unknown): string {
-	const f = object(value, ['kind', 'values'], ['text_parameter', 'multiple', 'source_domain']);
-	validateFilterDomain(key, f, object(f.values));
-	return validateFilterMetadata(f);
-}
-
-function validateFilters(value: unknown): void {
-	const parameters = new Set<string>();
-	for (const [key, filter] of Object.entries(object(value))) {
-		const parameter = validateFilter(key, filter);
-		if (parameter && parameters.has(parameter)) throw new TypeError('Duplicate text parameter');
-		if (parameter) parameters.add(parameter);
-	}
-}
-
-function capabilities(value: unknown, local: boolean): GridCapabilities {
-	const c = object(value, ['sorts', 'filters', 'pagination', 'query_before_results', 'metadata', 'graph', 'links']);
-	validateSorts(c.sorts);
-	validateFilters(c.filters);
-	if (c.metadata !== (local ? 'certified' : 'remote') || typeof c.query_before_results !== 'boolean' || !['offset', 'cursor'].includes(String(c.pagination)) || !['ontology', 'source-anchors', 'none'].includes(String(c.graph)) || !['mapping', 'source-anchors', 'references', 'none'].includes(String(c.links))) throw new TypeError('Contradictory repository capabilities');
-	return c as unknown as GridCapabilities;
-}
-
 interface RepositoryDescriptorBase {
 	readonly label: string;
 	readonly path: `/repositories/${string}`;
@@ -88,49 +41,7 @@ interface RemoteRepositoryDescriptor extends RepositoryDescriptorBase {
 }
 
 type RepositoryDescriptor = LocalRepositoryDescriptor | RemoteRepositoryDescriptor;
-
-const localIds = new Set(['ncit', 'cadsr', 'uberon', 'icdo']);
-const remoteIds = new Set(['clinicaltrials', 'pubmed']);
-const keys = new Set(['id', 'label', 'path', 'kind', 'capabilities', 'capabilities_by_dataset']);
-
-function descriptorObject(value: unknown): Record<string, unknown> {
-	if (typeof value !== 'object' || value === null) throw new TypeError('Repository descriptor must be an object');
-	for (const key of Object.keys(value)) {
-		if (!keys.has(key)) throw new TypeError(`Repository descriptor field is not allowed: ${key}`);
-	}
-	return value as Record<string, unknown>;
-}
-
-function validIdentity(entry: Record<string, unknown>): boolean {
-	return (
-		(entry.kind === 'local-certified-proxy' && typeof entry.id === 'string' && localIds.has(entry.id)) ||
-		(entry.kind === 'remote-live-service' && typeof entry.id === 'string' && remoteIds.has(entry.id))
-	);
-}
-
-function validateDeclaredCapabilities(entry: Record<string, unknown>): void {
-	if (entry.capabilities !== undefined) capabilities(entry.capabilities, entry.kind === 'local-certified-proxy');
-	if (entry.capabilities_by_dataset === undefined) return;
-	if (entry.id !== 'icdo' || entry.capabilities !== undefined) throw new TypeError('Invalid dataset capability declaration');
-	const datasets = object(entry.capabilities_by_dataset);
-	if (!Object.keys(datasets).length) throw new TypeError('Dataset capabilities must not be empty');
-	for (const value of Object.values(datasets)) capabilities(value, true);
-}
-
-function repositoryDescriptor(value: unknown): RepositoryDescriptor {
-	const entry = descriptorObject(value);
-	if (typeof entry.label !== 'string' || typeof entry.path !== 'string') throw new TypeError('Repository label and path must be strings');
-	if (!validIdentity(entry) || entry.path !== `/repositories/${entry.id}`) throw new TypeError('Repository descriptor kind, id, and path do not agree');
-	validateDeclaredCapabilities(entry);
-	return entry as unknown as RepositoryDescriptor;
-}
-
-function parseRepositoryRegistry(input: unknown): RepositoryDescriptor[] {
-	if (!Array.isArray(input)) throw new TypeError('Repository manifest must be an array');
-	return input.map(repositoryDescriptor);
-}
-
-export const repositories = parseRepositoryRegistry(manifest);
+export const repositories = manifest as RepositoryDescriptor[];
 
 export function gridCapabilities(id: RepositoryId, dataset?: string): GridCapabilities {
 	const repository = repositories.find((entry) => entry.id === id);
