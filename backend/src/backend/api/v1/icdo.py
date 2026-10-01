@@ -299,9 +299,8 @@ async def _grid_page(
         if value is not None
     }
     await grid.validate(operation, sort, column_text, selected)
-    ready = await grid.ready()
 
-    async def read_page(_: IcdoRepositoryReady) -> IcdoPage:
+    async def read_page(repository_ready: IcdoRepositoryReady) -> IcdoPage:
         result = await repository.search(
             dataset.edition,
             dataset.axis,
@@ -311,10 +310,10 @@ async def _grid_page(
             column_text=column_text,
             limit=limit,
             offset=offset,
-            generation_id=ready.activation_identity,
+            generation_id=repository_ready.activation_identity,
             sort=sort,
         )
-        return _page_response(result, dataset, ready)
+        return _page_response(result, dataset, repository_ready)
 
     try:
         return await grid.read(read_page)

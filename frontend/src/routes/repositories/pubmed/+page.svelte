@@ -11,13 +11,17 @@
 	const controls = gridControls('pubmed');
 	const dateSort = gridCapabilities('pubmed').sorts.search.includes('pub_date');
 	const response = $derived(data.result.state === 'ready' ? data.result.data : null);
-	const remote = $derived({
-		service: 'NCBI PubMed',
-		state: data.result.state,
-		error: data.result.state === 'error'
-			? { remoteState: data.result.remoteState, message: data.result.message }
-			: null
-	} as const);
+	const remote = $derived.by(() => data.result.state === 'error'
+		? {
+				service: 'NCBI PubMed' as const,
+				state: 'error' as const,
+				error: { remoteState: data.result.remoteState, message: data.result.message }
+			}
+		: {
+				service: 'NCBI PubMed' as const,
+				state: data.result.state,
+				error: null
+			});
 </script>
 
 <RepoBrowsePage

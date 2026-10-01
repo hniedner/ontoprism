@@ -47,11 +47,16 @@
 	interface RemoteProps {
 		kind: 'remote-live-service';
 		instruction: Snippet;
-		remote: {
-			service: 'NCBI PubMed' | 'ClinicalTrials.gov';
-			state: 'empty' | 'ready' | 'error';
-			error: { remoteState: 'unavailable' | 'rate-limited' | 'timeout'; message: string } | null;
-		};
+		remote: { service: 'NCBI PubMed' | 'ClinicalTrials.gov' } & (
+			| {
+				state: 'error';
+				error: { remoteState: 'unavailable' | 'rate-limited' | 'timeout'; message: string };
+			}
+			| {
+				state: 'empty' | 'ready';
+				error: null;
+			}
+		);
 		cursor?: { trail: string[]; next: string | null };
 	}
 
@@ -86,7 +91,6 @@
 	let queryValue = $derived(initial.query);
 	const mode = $derived(initial.query ? 'search' : 'browse');
 	const repositoryKind = $derived(kind ?? 'local-certified-proxy');
-	const remoteInstruction = $derived(instruction);
 	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
 	const hasActiveFilters = $derived(Object.values(initial.filters).some((selected) => selected.length > 0) || Object.values(initial.textFilters ?? {}).some(Boolean));
 
@@ -263,9 +267,9 @@
 	</RepoResultsCard>
 {/snippet}
 
-{#if remote && remoteInstruction}
+{#if remote && instruction}
 	<RemoteServiceDisclosure service={remote.service} />
-	<RemoteSearchSurface service={remote.service} ready={remote.state === 'ready'} error={remote.error} instruction={remoteInstruction}>
+	<RemoteSearchSurface service={remote.service} ready={remote.state === 'ready'} error={remote.error} {instruction}>
 		{@render resultCard()}
 	</RemoteSearchSurface>
 {:else}

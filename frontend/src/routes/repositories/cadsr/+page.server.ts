@@ -6,7 +6,9 @@ import { loadRepositoryPage, type OffsetGridSpec } from '$lib/server/repository-
 import type { CadsrFilterDomains, CdeRepositorySort, CdeSearchPage } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
-const domainKeys = ['value_domain_type', 'workflow_status', 'registration_status', 'context', 'datatype'] as const;
+const domainKeys = Object.entries(gridCapabilities('cadsr').filters)
+	.filter(([, definition]) => definition.source_domain)
+	.map(([key]) => key) as Array<keyof CadsrFilterDomains>;
 
 function requireDomains(value: unknown): CadsrFilterDomains {
 	if (typeof value !== 'object' || value === null) error(502, 'caDSR API returned invalid filter domains.');

@@ -10,13 +10,17 @@
 	let { data }: PageProps = $props();
 	const controls = gridControls('clinicaltrials');
 	const response = $derived(data.result.state === 'ready' ? data.result.data : null);
-	const remote = $derived({
-		service: 'ClinicalTrials.gov',
-		state: data.result.state,
-		error: data.result.state === 'error'
-			? { remoteState: data.result.remoteState, message: data.result.message }
-			: null
-	} as const);
+	const remote = $derived.by(() => data.result.state === 'error'
+		? {
+				service: 'ClinicalTrials.gov' as const,
+				state: 'error' as const,
+				error: { remoteState: data.result.remoteState, message: data.result.message }
+			}
+		: {
+				service: 'ClinicalTrials.gov' as const,
+				state: data.result.state,
+				error: null
+			});
 </script>
 
 <RepoBrowsePage

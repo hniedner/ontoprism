@@ -371,6 +371,7 @@ class CdeRepository:
     def _filter_values(conn: sqlite3.Connection, field: str) -> list[str]:
         column = _CATEGORICAL_COLUMNS[field]
         rows = conn.execute(
+            # S608: `column` is a closed-map lookup; undeclared fields raise first.
             f"SELECT DISTINCT {column} AS value FROM cdes "  # noqa: S608
             f"WHERE {column} IS NOT NULL AND {column} != '' "
             "ORDER BY value COLLATE NOCASE, value"
