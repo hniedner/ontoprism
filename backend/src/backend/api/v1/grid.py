@@ -187,11 +187,16 @@ def declared_grid[Ready](
     source_domains: (
         Mapping[str, Callable[[Ready], Awaitable[Sequence[str]]]] | None
     ) = None,
+    *,
+    dataset: str | None = None,
 ) -> GridService[Ready]:
     """Build one grid guard from the tracked capability declaration."""
     descriptor = _declared(repository_id)
-    if descriptor.capabilities is None:
-        raise RuntimeError(f"{descriptor.label} grid capabilities are missing")
-    return GridService(
-        descriptor.label, descriptor.capabilities, certify, source_domains
+    capabilities = (
+        (descriptor.capabilities_by_dataset or {}).get(dataset)
+        if dataset is not None
+        else descriptor.capabilities
     )
+    if capabilities is None:
+        raise RuntimeError(f"{descriptor.label} grid capabilities are missing")
+    return GridService(descriptor.label, capabilities, certify, source_domains)

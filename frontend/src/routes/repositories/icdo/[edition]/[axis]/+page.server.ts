@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { listIcdo, searchIcdo } from '$lib/api';
-import { parseIcdoDataset, type IcdoPageFor } from '$lib/icdo-routes';
+import { icdoDatasetKey, parseIcdoDataset, type IcdoPageFor } from '$lib/icdo-routes';
+import { gridCapabilities, gridControls } from '$lib/repository-registry';
 import { critical } from '$lib/server/critical-load';
 import { loadRepositoryPage, type OffsetGridSpec } from '$lib/server/repository-load';
 import type { IcdoBehaviour, IcdoRecordLevel, IcdoRepositorySort } from '$lib/types';
@@ -10,27 +11,37 @@ function sameValues(left: readonly string[], right: readonly string[]): boolean 
 	return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function requireFilterEcho(result: { behaviour?: unknown; level?: unknown }, filters: { behaviour?: readonly string[]; level: readonly string[] }): void {
-	if (!Array.isArray(result.behaviour) || !Array.isArray(result.level) || !sameValues(result.behaviour, filters.behaviour ?? []) || !sameValues(result.level, filters.level)) error(502, 'ICD-O page filters did not match the request.');
+function requireFilterEcho(result: { behaviour?: unknown; level?: unknown; column_text?: unknown }, filters: { behaviour: readonly string[]; level: readonly string[]; columnText: Record<string, string> }): void {
+	if (!Array.isArray(result.behaviour) || !Array.isArray(result.level) || !sameValues(result.behaviour, filters.behaviour) || !sameValues(result.level, filters.level)) error(502, 'ICD-O page filters did not match the request.');
+	const echoed = result.column_text;
+	if (!echoed || typeof echoed !== 'object' || Array.isArray(echoed) || Object.keys(echoed).length !== Object.keys(filters.columnText).length || Object.entries(echoed).some(([key, value]) => filters.columnText[key] !== value)) error(502, 'ICD-O page text filters did not match the request.');
 }
 
 export const load: PageServerLoad = async ({ fetch, params, url }) => {
 	const dataset = parseIcdoDataset(params.edition, params.axis);
 	if (!dataset) error(404, 'ICD-O dataset not found.');
+	const datasetKey = icdoDatasetKey(dataset);
+	const searching = Boolean(url.searchParams.get('q')?.trim());
+	const sorts = gridCapabilities('icdo', datasetKey).sorts[searching ? 'search' : 'list'] as IcdoRepositorySort[];
+	const { filters, textFilters } = gridControls('icdo', {}, datasetKey);
 	if (dataset.axis === 'morphology') {
-		const filters = { level: ['morphology'] as const, behaviour: ['0','1','2','3','4','5','6','7','8','9'] as const } satisfies { level: readonly IcdoRecordLevel[]; behaviour: readonly IcdoBehaviour[] };
-		const spec = { defaultSort: 'source', sorts: ['source', 'code:asc', 'code:desc', 'preferred:asc', 'preferred:desc'], filters } satisfies OffsetGridSpec<IcdoRepositorySort, typeof filters>;
-		const loaded = await loadRepositoryPage<IcdoPageFor<typeof dataset>, typeof filters>(url,
-			(query, state) => critical(searchIcdo(dataset, query, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, behaviour: state.filters.behaviour, fetch })),
-			(state) => critical(listIcdo(dataset, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, behaviour: state.filters.behaviour, fetch })), spec);
-		requireFilterEcho(loaded.initial.result, loaded.initial.filters);
+		const morphologyFilters: Record<'behaviour', readonly IcdoBehaviour[]> = {
+			behaviour: filters.behaviour as readonly IcdoBehaviour[]
+		};
+		const spec = { defaultSort: sorts[0], sorts, filters: morphologyFilters, textFilters } satisfies OffsetGridSpec<IcdoRepositorySort, typeof morphologyFilters>;
+		const loaded = await loadRepositoryPage<IcdoPageFor<typeof dataset>, typeof morphologyFilters>(url,
+			(query, state) => critical(searchIcdo(dataset, query, { limit: state.size, offset: state.offset, sort: state.sort, behaviour: state.filters.behaviour, columnText: state.textFilters, fetch })),
+			(state) => critical(listIcdo(dataset, { limit: state.size, offset: state.offset, sort: state.sort, behaviour: state.filters.behaviour, columnText: state.textFilters, fetch })), spec);
+		requireFilterEcho(loaded.initial.result, { behaviour: loaded.initial.filters.behaviour, level: [], columnText: loaded.initial.textFilters ?? {} });
 		return { ...dataset, ...loaded };
 	}
-	const filters = { level: ['category', 'leaf'] as const } satisfies { level: readonly IcdoRecordLevel[] };
-	const spec = { defaultSort: 'source', sorts: ['source', 'code:asc', 'code:desc', 'preferred:asc', 'preferred:desc'], filters } satisfies OffsetGridSpec<IcdoRepositorySort, typeof filters>;
-	const loaded = await loadRepositoryPage<IcdoPageFor<typeof dataset>, typeof filters>(url,
-		(query, state) => critical(searchIcdo(dataset, query, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, fetch })),
-		(state) => critical(listIcdo(dataset, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, fetch })), spec);
-	requireFilterEcho(loaded.initial.result, loaded.initial.filters);
+	const topographyFilters: Record<'level', readonly IcdoRecordLevel[]> = {
+		level: filters.level as readonly IcdoRecordLevel[]
+	};
+	const spec = { defaultSort: sorts[0], sorts, filters: topographyFilters, textFilters } satisfies OffsetGridSpec<IcdoRepositorySort, typeof topographyFilters>;
+	const loaded = await loadRepositoryPage<IcdoPageFor<typeof dataset>, typeof topographyFilters>(url,
+		(query, state) => critical(searchIcdo(dataset, query, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, columnText: state.textFilters, fetch })),
+		(state) => critical(listIcdo(dataset, { limit: state.size, offset: state.offset, sort: state.sort, level: state.filters.level, columnText: state.textFilters, fetch })), spec);
+	requireFilterEcho(loaded.initial.result, { behaviour: [], level: loaded.initial.filters.level, columnText: loaded.initial.textFilters ?? {} });
 	return { ...dataset, ...loaded };
 };

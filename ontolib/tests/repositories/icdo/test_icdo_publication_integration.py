@@ -475,6 +475,33 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
         code_hits = await repository.search(
             "4.0", "morphology", query="8001a", limit=10, offset=0
         )
+        code_column_hits, preferred_column_hits, behaviour_text_hits = (
+            await repository.search(
+                "4.0",
+                "morphology",
+                query="",
+                column_text={"code": "01"},
+                limit=10,
+                offset=0,
+            ),
+            await repository.search(
+                "4.0",
+                "morphology",
+                query="",
+                column_text={"preferred": "MALIGNANT"},
+                limit=10,
+                offset=0,
+            ),
+            await repository.search(
+                "4.0",
+                "morphology",
+                query="",
+                behaviour=("3",),
+                column_text={"behaviour": "3"},
+                limit=10,
+                offset=0,
+            ),
+        )
         filtered = await repository.search(
             "4.0",
             "morphology",
@@ -501,6 +528,18 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
         assert [row.code for row in text_hits.hits] == ["8010B/3"]
         assert code_hits.total == 1
         assert [row.code for row in code_hits.hits] == ["8001A/3"]
+        assert [
+            (page.total, [row.code for row in page.hits])
+            for page in (
+                code_column_hits,
+                preferred_column_hits,
+                behaviour_text_hits,
+            )
+        ] == [
+            (2, ["8001A/3", "8010B/3"]),
+            (1, ["8001A/3"]),
+            (2, ["8001A/3", "8010B/3"]),
+        ]
         assert filtered.total == 2
         assert filtered.behaviour == ("3",)
         assert filtered.level == ("morphology",)

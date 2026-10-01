@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { randomUUID } from 'node:crypto';
 
-test('NCIt column text and controlled-vocabulary selection combine before pagination', async ({ page }) => {
+test('NCIt column text and controlled-vocabulary selection combine before pagination', async ({ page }, testInfo) => {
 	const errors: string[] = [];
 	page.on('pageerror', (error) => errors.push(error.message));
 	page.on('response', (response) => { if (response.status() >= 500) errors.push(`${response.status()} ${response.url()}`); });
@@ -17,7 +16,7 @@ test('NCIt column text and controlled-vocabulary selection combine before pagina
 	await expect(page).toHaveURL((url) => url.searchParams.get('text_code') === 'C111021');
 	await expect(table.locator('tbody tr')).toHaveCount(1);
 	await expect(table.locator('tbody tr td').first()).toContainText('C111021');
-	const textScreenshot = `../tmp/plans/484-correction-text-${randomUUID()}.png`;
+	const textScreenshot = testInfo.outputPath('ncit-text.png');
 	await page.screenshot({ path: textScreenshot });
 	console.log(`NCIt text screenshot: ${textScreenshot}`);
 	await table.getByRole('button', { name: 'Filter Name', exact: true }).click();
@@ -37,7 +36,7 @@ test('NCIt column text and controlled-vocabulary selection combine before pagina
 	await expect(page).toHaveURL((url) => url.searchParams.get('text_representation_status') === 'pre-coordinated' && url.searchParams.get('representation_status') === 'legacy-precoordinated' && url.searchParams.get('text_label') === 'Melanoma');
 	await expect(table.locator('tbody tr')).toHaveCount(1);
 	await expect(page.getByText('Showing 1–1 of 1')).toBeVisible();
-	const combinedScreenshot = `../tmp/plans/484-correction-combined-${randomUUID()}.png`;
+	const combinedScreenshot = testInfo.outputPath('ncit-combined.png');
 	await page.screenshot({ path: combinedScreenshot });
 	console.log(`NCIt combined screenshot: ${combinedScreenshot}`);
 	await page.getByRole('button', { name: 'Clear all filters' }).click();

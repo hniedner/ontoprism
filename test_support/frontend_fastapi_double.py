@@ -11,12 +11,11 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 
 from backend.api.v1 import clinicaltrials, pubmed
-from backend.api.v1.grid import PageSize
+from backend.api.v1.grid import PageSize, declared_grid, present_text
 from backend.api.v1.icdo import (
     IcdoDetail,
     IcdoPage,
     require_served_icdo_dataset,
-    validate_icdo_grid_filters,
 )
 from ontolib.common.grid import ColumnText
 from ontolib.decomposition.read_models import ConceptDecomposition
@@ -320,11 +319,31 @@ async def list_icdo(
     sort: IcdoRepositorySort = "source",
     behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
     level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
+    code_text: ColumnText | None = None,
+    preferred_text: ColumnText | None = None,
+    behaviour_text: ColumnText | None = None,
+    level_text: ColumnText | None = None,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     _require_icdo(x_icdo_entitlement)
-    require_served_icdo_dataset(edition, axis)
-    validate_icdo_grid_filters(axis, behaviour, level)
+    dataset = require_served_icdo_dataset(edition, axis)
+    column_text = present_text(
+        code=code_text,
+        preferred=preferred_text,
+        behaviour=behaviour_text,
+        level=level_text,
+    )
+
+    async def ready() -> str:
+        return "ready"
+
+    grid = declared_grid("icdo", ready, dataset=f"{dataset.edition}/{dataset.axis}")
+    selected = {
+        key: value
+        for key, value in {"behaviour": behaviour, "level": level}.items()
+        if value is not None
+    }
+    await grid.validate("list", sort, column_text, selected)
     if edition == "4.0" and axis == "topography":
         record = {
             "code": "C34.9",
@@ -347,6 +366,21 @@ async def list_icdo(
         hits = []
     if level and record["level"] not in level:
         hits = []
+    if code_text and code_text.casefold() not in str(record["code"]).casefold():
+        hits = []
+    if (
+        preferred_text
+        and preferred_text.casefold() not in str(record["preferred"]).casefold()
+    ):
+        hits = []
+    if (
+        behaviour_text
+        and behaviour_text.casefold()
+        not in str(record.get("behaviour") or "").casefold()
+    ):
+        hits = []
+    if level_text and level_text.casefold() not in str(record["level"]).casefold():
+        hits = []
     return {
         "activation_identity": "d" * 64,
         "serving_identity": "e" * 64,
@@ -355,7 +389,8 @@ async def list_icdo(
         "query": "",
         "behaviour": behaviour or [],
         "level": level or [],
-        "total": 51 if hits and not (behaviour or level) else len(hits),
+        "column_text": column_text,
+        "total": 51 if hits and not (behaviour or level or column_text) else len(hits),
         "limit": limit,
         "offset": offset,
         "sort": sort,
@@ -391,6 +426,10 @@ async def search_icdo(
     sort: IcdoRepositorySort = "source",
     behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
     level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
+    code_text: ColumnText | None = None,
+    preferred_text: ColumnText | None = None,
+    behaviour_text: ColumnText | None = None,
+    level_text: ColumnText | None = None,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     result = await list_icdo(
@@ -401,6 +440,10 @@ async def search_icdo(
         sort=sort,
         behaviour=behaviour,
         level=level,
+        code_text=code_text,
+        preferred_text=preferred_text,
+        behaviour_text=behaviour_text,
+        level_text=level_text,
         x_icdo_entitlement=x_icdo_entitlement,
     )
     result["query"] = q

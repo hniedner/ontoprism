@@ -21,6 +21,11 @@ describe('repository registry', () => {
 			finally { vi.doUnmock('../../../repository-manifest.json'); vi.resetModules(); }
 		}
 	});
+	it('declares only the controls supported by each served ICD-O dataset', () => {
+		expect(Object.keys(gridCapabilities('icdo', '3.2/morphology').filters)).toEqual(['code', 'preferred', 'behaviour']);
+		expect(Object.keys(gridCapabilities('icdo', '4.0/topography').filters)).toEqual(['code', 'preferred', 'level']);
+		expect(() => gridCapabilities('icdo', '3.2/topography')).toThrow('no grid declaration');
+	});
 	it('loads the tracked local-certified and remote-live descriptors', () => {
 		expect(repositories).toEqual(manifest);
 		expect(repositories.filter((entry) => entry.kind === 'local-certified-proxy').map((entry) => entry.id)).toEqual([

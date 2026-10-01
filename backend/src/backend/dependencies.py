@@ -151,6 +151,7 @@ class IcdoReader(Protocol):
         offset: int,
         behaviour: tuple[IcdoBehaviour, ...] = (),
         level: tuple[IcdoRecordLevel, ...] = (),
+        column_text: dict[str, str] | None = None,
         sort: IcdoRepositorySort = "source",
         generation_id: str | None = None,
     ) -> IcdoSearchPage: ...
