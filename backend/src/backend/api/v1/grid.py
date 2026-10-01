@@ -1,15 +1,20 @@
 """Shared closed query vocabulary for repository grids."""
 
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Never
 
 from fastapi import HTTPException
 from pydantic import BeforeValidator
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.repository_metadata import RepositoryUnhealthy
-from backend.repository_registry import GridCapabilities
+from backend.repository_registry import (
+    REPOSITORY_MANIFEST_PATH,
+    GridCapabilities,
+    load_repository_registry,
+)
 from ontolib.common.grid import ProductPageSize
+from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -36,6 +41,11 @@ def _selection_values(value: str | list[str] | None) -> list[str]:
     if value is None:
         return []
     return [value]
+
+
+def present_text(**values: str | None) -> dict[str, str]:
+    """Drop absent validated column-text query parameters."""
+    return {key: value for key, value in values.items() if value is not None}
 
 
 class GridService[Ready]:
@@ -73,16 +83,11 @@ class GridService[Ready]:
         ):
             raise HTTPException(422, "Undeclared repository filter value")
 
-    async def _ready(self) -> Ready:
+    async def ready(self) -> Ready:
         repository = await self.certify()
         if isinstance(repository, RepositoryUnhealthy):
             raise HTTPException(503, repository.model_dump(mode="json"))
         return repository
-
-    @staticmethod
-    def _require_detail(result: object, detail: str | None) -> None:
-        if detail is not None and result is None:
-            raise HTTPException(404, f"Concept not found: {detail}")
 
     async def read[Result](
         self,
@@ -91,21 +96,63 @@ class GridService[Ready]:
         detail: str | None = None,
         available: Callable[[Ready], Awaitable[bool]] | None = None,
     ) -> Result:
-        repository = await self._ready()
+        repository = await self.ready()
         try:
-            if available is not None and not await available(repository):
-                raise HTTPException(
-                    503, f"{self.label} certified search index is unavailable."
-                )
-            result = await query(repository)
+            result = await self._execute(repository, query, available)
         except SQLAlchemyError as exc:
             logger.warning("%s repository read unavailable: %s", self.label, exc)
             raise HTTPException(
                 503, f"{self.label} certified search index is unavailable."
             ) from exc
+        except StorageError as exc:
+            logger.warning("%s repository read failed: %s", self.label, exc)
+            raise HTTPException(
+                502,
+                f"{self.label} repository returned an invalid or unavailable response.",
+            ) from exc
+        except LookupError as exc:
+            self._raise_detail_error(detail, "Concept not found", exc)
         except ValueError as exc:
-            if detail is None:
-                raise
-            raise HTTPException(404, f"Invalid code: {detail}") from exc
-        self._require_detail(result, detail)
+            self._raise_detail_error(detail, "Invalid code", exc)
+        return self._require_detail(result, detail)
+
+    async def _execute[Result](
+        self,
+        repository: Ready,
+        query: Callable[[Ready], Awaitable[Result]],
+        available: Callable[[Ready], Awaitable[bool]] | None,
+    ) -> Result:
+        if available is not None and not await available(repository):
+            raise HTTPException(
+                503, f"{self.label} certified search index is unavailable."
+            )
+        return await query(repository)
+
+    @staticmethod
+    def _raise_detail_error(
+        detail: str | None, message: str, cause: Exception
+    ) -> Never:
+        if detail is None:
+            raise cause
+        raise HTTPException(404, f"{message}: {detail}") from cause
+
+    @staticmethod
+    def _require_detail[Result](result: Result, detail: str | None) -> Result:
+        if detail is not None and result is None:
+            raise HTTPException(404, f"Concept not found: {detail}")
         return result
+
+
+def declared_grid[Ready](
+    repository_id: str,
+    certify: Callable[[], Awaitable[Ready | RepositoryUnhealthy]],
+) -> GridService[Ready]:
+    """Build one grid guard from the tracked capability declaration."""
+    descriptor = next(
+        entry
+        for entry in load_repository_registry(REPOSITORY_MANIFEST_PATH)
+        if entry.id == repository_id
+    )
+    if descriptor.capabilities is None:
+        raise RuntimeError(f"{descriptor.label} grid capabilities are missing")
+    return GridService(descriptor.label, descriptor.capabilities, certify)

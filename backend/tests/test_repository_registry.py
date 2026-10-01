@@ -83,6 +83,22 @@ def test_declared_ncit_controls_available_to_grid_consumers() -> None:
     assert semantic_type.source_domain == "semantic-types"
 
 
+def test_declared_uberon_controls_include_ontology_and_two_source_filter() -> None:
+    uberon = next(
+        entry for entry in load_repository_registry(_MANIFEST) if entry.id == "uberon"
+    )
+    capabilities = uberon.capabilities
+
+    assert capabilities is not None
+    assert capabilities.graph == "ontology"
+    assert capabilities.links == "mapping"
+    assert capabilities.filters["code"].kind == "text"
+    assert capabilities.filters["label"].kind == "text"
+    source = capabilities.filters["source"]
+    assert source.multiple is True
+    assert source.values == {"uberon": "Uberon", "cl": "Cell Ontology"}
+
+
 @pytest.mark.parametrize(
     ("sort", "text", "selected"),
     [

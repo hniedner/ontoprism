@@ -61,6 +61,16 @@ def sql_text_filters(
     )
 
 
+def sparql_text_filters(
+    values: Mapping[str, str], expressions: Mapping[str, str]
+) -> str:
+    """Render validated literal-substring predicates for a SPARQL query."""
+    return "\n".join(
+        text_predicate(column, value, dialect="sparql", expressions=expressions)
+        for column, value in values.items()
+    )
+
+
 def categorical_predicate(
     column: str,
     selected: list[str],

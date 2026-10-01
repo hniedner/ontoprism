@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from ontolib.repositories.embeddings.generate import NcitEmbeddingRecord
 
-from ontolib.common.grid import categorical_predicate, text_predicate
+from ontolib.common.grid import categorical_predicate, sparql_text_filters
 from ontolib.decomposition import vocab as decomp_vocab
 from ontolib.decomposition.label_validation import ConceptLabelError
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
@@ -137,15 +137,7 @@ def _concept_iris(rows: Iterable[Mapping[str, str | None]]) -> list[str]:
 
 
 def _browse_filters(column_text: Mapping[str, str], semantic_types: list[str]) -> str:
-    filters = "\n".join(
-        text_predicate(
-            column,
-            value,
-            dialect="sparql",
-            expressions=_BROWSE_TEXT_EXPRESSIONS,
-        )
-        for column, value in column_text.items()
-    )
+    filters = sparql_text_filters(column_text, _BROWSE_TEXT_EXPRESSIONS)
     membership, _ = categorical_predicate(
         "semantic_type",
         semantic_types,

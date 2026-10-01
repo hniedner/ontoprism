@@ -1,12 +1,11 @@
 """Certified Uberon/CL list, search, detail, and neighborhood endpoints."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, HTTPException, Path, Query, status
-from sqlalchemy.exc import SQLAlchemyError
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
 from backend.api.v1.alignment import mapping_relative_to
-from backend.api.v1.grid import PageSize
+from backend.api.v1.grid import GridService, PageSize, declared_grid, present_text
 from backend.dependencies import (
     RepositoryMetadataReads,
     UberonSearch,
@@ -15,8 +14,7 @@ from backend.dependencies import (
 )
 from backend.repository_metadata import RepositoryUnhealthy, UberonRepositoryReady
 from ontolib.common.boundary_models import StrictBoundaryModel
-from ontolib.core.exceptions import StorageError
-from ontolib.core.logging_config import get_logger
+from ontolib.common.grid import ColumnText
 from ontolib.repositories.xref.models import (
     StaleXrefGenerationError,
     UberonReadIdentity,
@@ -24,7 +22,6 @@ from ontolib.repositories.xref.models import (
     XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
-from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
     UberonBrowsePage,
     UberonBrowseSort,
@@ -36,7 +33,6 @@ from ontolib.terminologies.uberon.models import (
 )
 
 router = APIRouter(prefix="/api/v1/uberon", tags=["uberon"])
-logger = get_logger(__name__)
 
 
 class NcitAlignment(StrictBoundaryModel):
@@ -54,123 +50,103 @@ class UberonAlignments(StrictBoundaryModel):
     alignments: list[NcitAlignment]
 
 
-async def _ready(metadata: RepositoryMetadataReads) -> UberonRepositoryReady:
-    repository = await metadata.uberon()
-    if isinstance(repository, RepositoryUnhealthy):
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            repository.model_dump(mode="json"),
-        )
-    return repository
+def _column_text(
+    code_text: ColumnText | None = None,
+    label_text: ColumnText | None = None,
+    source_text: ColumnText | None = None,
+) -> dict[str, str]:
+    return present_text(code=code_text, label=label_text, source=source_text)
 
 
-def _repository_failure(exc: StorageError) -> HTTPException:
-    logger.exception("Uberon/CL repository read failed")
-    return HTTPException(
-        status.HTTP_502_BAD_GATEWAY,
-        "Uberon/CL repository returned an invalid or unavailable response.",
-    )
+UberonColumnText = Annotated[dict[str, str], Depends(_column_text)]
+
+
+def _grid(metadata: RepositoryMetadataReads) -> GridService[UberonRepositoryReady]:
+    return declared_grid("uberon", metadata.uberon)
+
+
+UberonGrid = Annotated[GridService[UberonRepositoryReady], Depends(_grid)]
 
 
 @router.get("/search", response_model=UberonSearchPage)
 async def search(
     index: UberonSearch,
-    metadata: RepositoryMetadataReads,
+    grid: UberonGrid,
     q: Annotated[str, Query(min_length=1)],
+    column_text: UberonColumnText,
     source: UberonSource | None = None,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: UberonSearchSort = "relevance",
 ) -> UberonSearchPage:
-    repository = await _ready(metadata)
-    try:
-        if not await index.is_populated(
+    grid.validate("search", sort, column_text, {"source": source})
+    return await grid.read(
+        lambda _: index.search(
+            q,
+            source=source,
+            limit=limit,
+            offset=offset,
+            sort=sort,
+            column_text=column_text,
+        ),
+        available=lambda repository: index.is_populated(
             repository.source_identity, repository.observation.serving.sha256
-        ):
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-                "Uberon/CL certified search index is unavailable.",
-            )
-        return await index.search(
-            q, source=source, limit=limit, offset=offset, sort=sort
-        )
-    except SQLAlchemyError as exc:
-        logger.exception("Uberon/CL FTS read failed")
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Uberon/CL search cache is unavailable.",
-        ) from exc
+        ),
+    )
 
 
 @router.get("/list", response_model=UberonBrowsePage)
 async def list_concepts(
     store: UberonStore,
-    metadata: RepositoryMetadataReads,
+    grid: UberonGrid,
+    column_text: UberonColumnText,
     source: UberonSource | None = None,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: UberonBrowseSort = "source",
 ) -> UberonBrowsePage:
-    await _ready(metadata)
-    try:
-        return await store.list_concepts(
-            source=source, limit=limit, offset=offset, sort=sort
+    grid.validate("list", sort, column_text, {"source": source})
+    return await grid.read(
+        lambda _: store.list_concepts(
+            source=source,
+            limit=limit,
+            offset=offset,
+            sort=sort,
+            column_text=column_text,
         )
-    except StorageError as exc:
-        raise _repository_failure(exc) from exc
+    )
 
 
 @router.get("/concepts/{code}", response_model=UberonConceptDetail)
 async def concept_detail(
     store: UberonStore,
-    metadata: RepositoryMetadataReads,
+    grid: UberonGrid,
     code: Annotated[str, Path(pattern=r"^(UBERON|CL):[0-9]+$")],
 ) -> UberonConceptDetail:
-    await _ready(metadata)
-    try:
-        detail = await store.get_concept_detail(code)
-    except (InvalidUberonCurieError, LookupError) as exc:
-        message = (
-            "Invalid code"
-            if isinstance(exc, InvalidUberonCurieError)
-            else "Concept not found"
-        )
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{message}: {code}") from exc
-    except StorageError as exc:
-        raise _repository_failure(exc) from exc
-    if detail is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Concept not found: {code}")
-    return detail
+    detail = await grid.read(lambda _: store.get_concept_detail(code), detail=code)
+    return cast("UberonConceptDetail", detail)
 
 
 @router.get("/concepts/{code}/neighborhood", response_model=UberonNeighborhood)
 async def neighborhood(
     store: UberonStore,
-    metadata: RepositoryMetadataReads,
+    grid: UberonGrid,
     code: Annotated[str, Path(pattern=r"^(UBERON|CL):[0-9]+$")],
     depth: Annotated[int, Query(ge=1, le=1)] = 1,
 ) -> UberonNeighborhood:
-    await _ready(metadata)
-    try:
-        return await store.get_neighborhood(code, depth=depth)
-    except (InvalidUberonCurieError, LookupError) as exc:
-        message = (
-            "Invalid code"
-            if isinstance(exc, InvalidUberonCurieError)
-            else "Concept not found"
-        )
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{message}: {code}") from exc
-    except StorageError as exc:
-        raise _repository_failure(exc) from exc
+    return await grid.read(
+        lambda _: store.get_neighborhood(code, depth=depth), detail=code
+    )
 
 
 @router.get("/concepts/{code}/alignments", response_model=UberonAlignments)
 async def alignments(
     xref_store: XrefReads,
     metadata: RepositoryMetadataReads,
+    grid: UberonGrid,
     code: Annotated[str, Path(pattern=r"^(UBERON|CL):[0-9]+$")],
 ) -> UberonAlignments:
-    repository = await _ready(metadata)
+    repository = await grid.ready()
     ncit = await metadata.ncit()
     if isinstance(ncit, RepositoryUnhealthy):
         raise HTTPException(

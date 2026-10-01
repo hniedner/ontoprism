@@ -50,6 +50,8 @@ export interface SearchHit {
 
 export type NcitTextColumn = 'code' | 'label' | 'representation_status' | 'semantic_type';
 export type NcitColumnText = Partial<Record<NcitTextColumn, string>>;
+export type UberonTextColumn = 'code' | 'label' | 'source';
+export type UberonColumnText = Partial<Record<UberonTextColumn, string>>;
 
 interface NcitPageBase {
 	query: string;
@@ -172,6 +174,7 @@ interface UberonPageBase {
 	limit: number;
 	offset: number;
 	source: UberonSource | null;
+	column_text: UberonColumnText;
 	hits: UberonSearchHit[];
 }
 
