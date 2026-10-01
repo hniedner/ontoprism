@@ -41,16 +41,17 @@ def test_manifest_rejects_identity_fields_on_remote_descriptors(tmp_path: Path) 
 
 
 @pytest.mark.parametrize(
-    "change",
+    ("change", "message"),
     [
-        "mismatched-path",
-        "empty-datasets",
-        "missing-capabilities",
-        "empty-dataset-key",
+        ("mismatched-path", "repository path must match"),
+        ("empty-datasets", "at least 1 item"),
+        ("missing-capabilities", "exactly one capability"),
+        ("empty-dataset-key", "dataset capability names must be nonempty"),
+        ("both-capabilities", "exactly one capability"),
     ],
 )
 def test_manifest_rejects_invalid_descriptor_identity_or_dataset_domain(
-    tmp_path: Path, change: str
+    tmp_path: Path, change: str, message: str
 ) -> None:
     payload = json.loads(_MANIFEST.read_text())
     if change == "mismatched-path":
@@ -60,14 +61,17 @@ def test_manifest_rejects_invalid_descriptor_identity_or_dataset_domain(
         icdo["capabilities_by_dataset"] = {}
     elif change == "missing-capabilities":
         payload[0].pop("capabilities")
-    else:
+    elif change == "empty-dataset-key":
         icdo = next(entry for entry in payload if entry["id"] == "icdo")
         first = next(iter(icdo["capabilities_by_dataset"].values()))
         icdo["capabilities_by_dataset"] = {"": first}
+    else:
+        icdo = next(entry for entry in payload if entry["id"] == "icdo")
+        icdo["capabilities"] = payload[0]["capabilities"]
     invalid = tmp_path / "repositories.json"
     invalid.write_text(json.dumps(payload))
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match=message):
         load_repository_registry(invalid)
 
 
