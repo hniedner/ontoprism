@@ -207,8 +207,7 @@ former "Hardening (when touched)" queue was superseded on 2026-10-01: unverified
 suggestions are dropped with a reason, while every verified finding follows "Review" in
 the same PR unless its exceptional deferral rule applies. AGENTS.md "Review"
 adds a ceiling: after a dimension's third round its remaining suggestions are dropped with
-a reason, while verified findings always continue. Removal work waits in "Deferred cleanup
-(when touched)".
+a reason, while verified findings always continue.
 
 **Why.** Each rule is checkable by the owner at a merge, unlike prose about avoiding
 machinery, which did not stop it. The stages keep the core goals (graph balancing,

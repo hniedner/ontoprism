@@ -81,8 +81,9 @@ def categorical_predicate(
 ) -> tuple[str, dict[str, list[str]]]:
     """Any-of membership over an expression evaluated for each source row.
 
-    SQL multiple columns are text arrays; scalar columns are text. Column and
-    expression are trusted repository declarations, never user-supplied query text.
+    SQL array columns use overlap membership; scalar columns use scalar membership.
+    Column and expression are trusted repository declarations, never user-supplied query
+    text. SPARQL membership is independent of the source expression's storage shape.
     """
     if not selected:
         return "", {}
