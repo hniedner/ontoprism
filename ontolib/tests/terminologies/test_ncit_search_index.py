@@ -13,6 +13,7 @@ from typing import Any, cast
 
 import pytest
 
+from ontolib.common.search_publication import SearchPublicationError
 from ontolib.terminologies.ncit.search_index import (
     NcitSearchIndex,
     populate_from_store,
@@ -261,6 +262,34 @@ async def test_rebuild_deletes_then_inserts_nonempty_batches() -> None:
         "source_hash": "b" * 64,
         "row_count": 3,
     }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "records",
+    [
+        [
+            {"code": "C1", "label": "first", "semantic_types": []},
+            {"code": "C1", "label": "second", "semantic_types": []},
+        ],
+        [{"code": None, "label": "missing", "semantic_types": []}],
+    ],
+)
+async def test_rebuild_refuses_duplicate_or_missing_codes(
+    records: list[SearchRecord],
+) -> None:
+    sf = _SessionFactory({})
+
+    with pytest.raises(SearchPublicationError, match="missing or duplicate code"):
+        await NcitSearchIndex(sf).rebuild(  # type: ignore[arg-type]
+            _batches(records),
+            source_identity="a" * 64,
+            source_hash="b" * 64,
+        )
+
+    assert not any(
+        "INSERT INTO ncit_search (" in statement for statement, _params in sf.executed
+    )
 
 
 class _FakeStore:

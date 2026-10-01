@@ -683,11 +683,23 @@ async def test_list_concepts_memoizes_total(ncit_stub_url: str) -> None:
 
 
 @pytest.mark.unit
-async def test_list_concepts_rejects_a_missing_count_binding() -> None:
+@pytest.mark.parametrize(
+    "count_rows",
+    [
+        [],
+        [{}],
+        [{"count": "not-a-number"}],
+        [{"count": "-1"}],
+        [{"count": "1"}, {"count": "2"}],
+    ],
+)
+async def test_list_concepts_rejects_a_malformed_count(
+    count_rows: list[dict[str, str]],
+) -> None:
     class MissingCountClient:
         async def select(self, query: str) -> list[dict[str, str]]:
             if "COUNT(DISTINCT ?concept)" in query:
-                return []
+                return count_rows
             return []
 
     store = NcitGraphStore(MissingCountClient())  # type: ignore[arg-type]
