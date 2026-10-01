@@ -66,7 +66,9 @@ steps but reaches `main` through its own reviewed PR; it is never merged locally
 6. Push the milestone branch immediately. Find the CI push run by the full merge SHA
    and watch it. That run is the issue's gate of record. Never batch issue merges or
    start the next issue while the merge is unpushed or CI is red. Fix a red run on a
-   new issue branch before continuing. A risky issue branch may first use a manually
+   new issue branch before continuing. When that run is green, close the issue with
+   `pdm run agent-github issue-close <n>`, linking the merge SHA, the CI run and the demo
+   result. A risky issue branch may first use a manually
    dispatched CI run; this is optional and does not replace the post-merge push run.
 
 One session may carry a milestone; start another when context is exhausted or the work
@@ -83,8 +85,8 @@ moving or reordering issues.
    in all five dimensions to convergence (Review below).
 3. Open one milestone PR to `main`. Its title uses the highest-impact issue commit type
    (`feat` > `fix`/`perf` > others; preserve `!`). Its body lists landed issues with a
-   link to each issue's demo result comment, all five verdicts, every dropped and deferred
-   finding, every item placed in "Hardening (when touched)", every red CI run restored
+   link to each issue's demo result comment, all five verdicts, every dropped finding
+   with its reason, every deferred finding with its issue, every red CI run restored
    without prior approval, and every pending milestone edit.
 4. Merge only after all expected checks pass, then watch CI on the exact merge SHA.
 
@@ -153,9 +155,10 @@ and passes. Whether a `main` merge released is not judged here (#131).
   blocked, and only with the owner's approval before it starts. A red gate-of-record CI
   run counts as blocked: restoring it without weakening any gate needs no prior approval
   and is reported in the milestone PR body.
-- "Hardening (when touched)" holds only unverified hardening suggestions; every verified
-  finding follows "Review" (fixed, or deferred as a major out-of-scope finding). Each item
-  placed in the hardening milestone is listed in the milestone PR body.
+- New issues come from two sources only: an owner-approved split, or an exceptional
+  deferral under "Review". A finding made while implementing an issue is fixed in that
+  issue when the owner allows it there; otherwise it is reported on the issue and fixed
+  at the milestone review. Unverified suggestions are dropped with a reason, never filed.
 
 ## Evidence and diagnostics
 
@@ -276,10 +279,14 @@ Once all milestone issues are implemented, fix pre-PR review findings and reason
 suggestions directly on the milestone branch. Commit coherent fixes there, run targeted
 tests and the required pre-PR gates, and rerun affected review dimensions until all five
 converge. Do not create corrective issue branches for this cycle.
-Defer only a major out-of-scope finding needing its own design, tests and
-review: search issue bodies and comments first, then list the issue/comment URL and the
-contract sentence excluding it in the PR body. Use `issue-steward` for proposed
-deferrals or tracker passes. New issue placement or milestone reorganisation requires
+Review findings are fixed in the same PR; there is no hand-over to a later issue or
+another developer. The only exception is a finding that is both unrelated to the
+milestone's scope and too large to fix in it (it needs its own design, tests and
+review). Such a finding is deferred to its own PR and must have a GitHub issue: search
+open issues first and add to one that covers the cause; otherwise create one. List each
+deferral in the PR body with the issue URL and why it is unrelated. Size or
+inconvenience alone never justifies a deferral. Use `issue-steward` to check a proposed
+deferral or for a tracker pass. New issue placement or milestone reorganisation requires
 owner confirmation.
 
 ## Conventions
