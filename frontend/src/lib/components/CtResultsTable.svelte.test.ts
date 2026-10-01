@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import CtResultsTable from './CtResultsTable.svelte';
-import { CT_PHASES, type CTStudySummary } from '$lib/types';
+import type { CTStudySummary } from '$lib/types';
+import { gridControls } from '$lib/repository-registry';
 import type { DataTableOperations } from './data-table/types';
 
 const studies: CTStudySummary[] = [
@@ -59,7 +60,7 @@ describe('CtResultsTable', () => {
 		await fireEvent.click(screen.getByRole('button', { name: 'Filter Phase' }));
 		const phaseGroup = screen.getByRole('group', { name: 'Filter trial phases' });
 
-		for (const phase of CT_PHASES) expect(within(phaseGroup).getByRole('checkbox', { name: phase.replace('_', ' ') })).toBeInTheDocument();
+		for (const phase of gridControls('clinicaltrials').filters.phase) expect(within(phaseGroup).getByRole('checkbox', { name: phase.replace('_', ' ') })).toBeInTheDocument();
 		expect(within(phaseGroup).queryByRole('checkbox', { name: 'NA' })).not.toBeInTheDocument();
 	});
 

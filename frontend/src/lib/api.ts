@@ -137,7 +137,7 @@ export async function postJsonBody<T>(
 function appendColumnText(params: Record<string, string | number | readonly string[]>, repository: RepositoryId, values: Partial<Record<string, string>> = {}, dataset?: string): void {
 	for (const [column, value] of Object.entries(values)) {
 		const filter = gridCapabilities(repository, dataset).filters[column];
-		if (!filter) throw new Error(`Unknown ${repository} text column: ${column}`);
+		if (!filter?.text_parameter) throw new Error(`Unknown ${repository} text column: ${column}`);
 		if (value === undefined) continue;
 		params[filter.text_parameter] = value;
 	}

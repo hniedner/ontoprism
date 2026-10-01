@@ -1,8 +1,9 @@
 import { error } from '@sveltejs/kit';
 import { searchClinicalTrials } from '$lib/api.clinicaltrials';
+import { gridControls } from '$lib/repository-registry';
 import { loadRemoteSearch } from '$lib/server/remote-search-load';
 import { parseCursorGridUrl } from '$lib/server/repository-load';
-import { CT_PHASES, CT_STATUSES, type CTStudySearchPage } from '$lib/types';
+import type { CTFilterPhase, CTStatus, CTStudySearchPage } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 function sameValues(left: readonly string[], right: readonly string[] | undefined): boolean {
@@ -10,10 +11,11 @@ function sameValues(left: readonly string[], right: readonly string[] | undefine
 }
 
 export const load: PageServerLoad = async ({ fetch, url }) => {
+	const filters = gridControls('clinicaltrials').filters;
 	const state = parseCursorGridUrl(url, {
 		filters: {
-			status: CT_STATUSES,
-			phase: CT_PHASES
+			status: filters.status as CTStatus[],
+			phase: filters.phase as CTFilterPhase[]
 		}
 	});
 	const cursor = state.cursors.at(-1) ?? null;

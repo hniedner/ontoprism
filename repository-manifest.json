@@ -94,12 +94,27 @@
 		"id": "clinicaltrials",
 		"label": "ClinicalTrials.gov",
 		"path": "/repositories/clinicaltrials",
-		"kind": "remote-live-service"
+		"kind": "remote-live-service",
+		"capabilities": {
+			"sorts": { "list": ["relevance"], "search": ["relevance"] },
+			"filters": {
+				"status": { "kind": "categorical", "multiple": true, "values": { "ACTIVE_NOT_RECRUITING": "ACTIVE NOT RECRUITING", "APPROVED_FOR_MARKETING": "APPROVED FOR MARKETING", "AVAILABLE": "AVAILABLE", "COMPLETED": "COMPLETED", "ENROLLING_BY_INVITATION": "ENROLLING BY INVITATION", "NOT_YET_RECRUITING": "NOT YET RECRUITING", "NO_LONGER_AVAILABLE": "NO LONGER AVAILABLE", "RECRUITING": "RECRUITING", "SUSPENDED": "SUSPENDED", "TEMPORARILY_NOT_AVAILABLE": "TEMPORARILY NOT AVAILABLE", "TERMINATED": "TERMINATED", "UNKNOWN": "UNKNOWN", "WITHDRAWN": "WITHDRAWN", "WITHHELD": "WITHHELD" } },
+				"phase": { "kind": "categorical", "multiple": true, "values": { "EARLY_PHASE1": "EARLY PHASE1", "PHASE1": "PHASE1", "PHASE2": "PHASE2", "PHASE3": "PHASE3", "PHASE4": "PHASE4" } }
+			},
+			"pagination": "cursor", "query_before_results": true,
+			"metadata": "remote", "graph": "none", "links": "references"
+		}
 	},
 	{
 		"id": "pubmed",
 		"label": "PubMed",
 		"path": "/repositories/pubmed",
-		"kind": "remote-live-service"
+		"kind": "remote-live-service",
+		"capabilities": {
+			"sorts": { "list": ["relevance", "pub_date"], "search": ["relevance", "pub_date"] },
+			"filters": {},
+			"pagination": "offset", "query_before_results": true,
+			"metadata": "remote", "graph": "none", "links": "references"
+		}
 	}
 ]
