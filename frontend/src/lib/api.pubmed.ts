@@ -3,12 +3,14 @@
 import { apiUrl, getJson, postJsonBody } from './api';
 import type { PubMedArticleDetail, PubMedSearchResult, RelatedArticlesResult } from './types';
 
+export type PubMedSort = 'relevance' | 'pub_date';
+
 /** Search PubMed and return resolved article summaries. */
 export function searchPubmed(
 	query: string,
 	retmax = 25,
 	retstart = 0,
-	sort: 'relevance' | 'pub_date' = 'relevance',
+	sort: PubMedSort = 'relevance',
 	fetchImpl?: typeof fetch
 ): Promise<PubMedSearchResult> {
 	return postJsonBody<PubMedSearchResult>(

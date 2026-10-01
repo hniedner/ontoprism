@@ -20,7 +20,7 @@ class CapabilityModel(BaseModel):
 
 class GridFilter(CapabilityModel):
     kind: Literal["text", "categorical"]
-    text_parameter: str = Field(pattern=r"^[a-z_]+$")
+    text_parameter: str | None = Field(default=None, pattern=r"^[a-z_]+$")
     values: dict[str, str]
     multiple: bool = False
     source_domain: str | None = None
@@ -36,6 +36,8 @@ class GridFilter(CapabilityModel):
     def valid_domain(self):
         has_domain = bool(self.values) or self.source_domain is not None
         if self.kind == "text":
+            if self.text_parameter is None:
+                raise ValueError("text filters require a text parameter")
             if has_domain:
                 raise ValueError("text filters forbid a value domain")
             return self
@@ -71,7 +73,11 @@ class GridCapabilities(CapabilityModel):
 
     @model_validator(mode="after")
     def valid_controls(self):
-        parameters = [f.text_parameter for f in self.filters.values()]
+        parameters = [
+            f.text_parameter
+            for f in self.filters.values()
+            if f.text_parameter is not None
+        ]
         if len(set(parameters)) != len(parameters) or any(not k for k in self.filters):
             raise ValueError("filter names and text parameters must be distinct")
         return self

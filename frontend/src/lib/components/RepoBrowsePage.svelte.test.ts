@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CursorPagination from './CursorPagination.svelte';
@@ -8,6 +8,11 @@ import RepoBrowsePageIntentFixture from './RepoBrowsePage-intent-fixture.svelte'
 const goto = vi.fn().mockResolvedValue(undefined);
 vi.mock('$app/navigation', () => ({ goto: (target: string) => goto(target) }));
 vi.mock('$app/paths', () => ({ resolve: (target: string) => target }));
+const appState = vi.hoisted(() => ({
+	page: { url: new URL('https://example.test/repositories/ncit') },
+	navigating: { to: null }
+}));
+vi.mock('$app/state', () => appState);
 
 interface Hit {
 	id: string;
@@ -16,11 +21,12 @@ interface Hit {
 const helpText = createRawSnippet(() => ({
 	render: () => `<span data-testid="help">help copy</span>`
 }));
+const instruction = createRawSnippet(() => ({ render: () => '<p>Enter a remote query</p>' }));
 const results = createRawSnippet<[Hit[], unknown, string]>((getHits, _getOperations, getEmptyMessage) => ({
 	render: () => `<div data-testid="results">${getHits().length} rows${getHits().length ? '' : `: ${getEmptyMessage()}`}</div>`
 }));
 
-function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit', filters: Record<string, string[]> = {}) {
+function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit', filters: Record<string, string[]> = {}, navigationTotal?: number) {
 	return render(RepoBrowsePage, {
 		title: 'NCIt Browser',
 		description: 'Browse concepts',
@@ -35,12 +41,16 @@ function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit',
 		initial: { result: { total, hits: total === 0 ? [] : [{ id: 'a' }] }, query, offset, size: 25, sort: 'source', filters },
 		defaultSort: 'source',
 		sortKeys: {},
-		filterKeys: Object.fromEntries(Object.keys(filters).map((key) => [key, key]))
+		filterKeys: Object.fromEntries(Object.keys(filters).map((key) => [key, key])),
+		navigationTotal
 	});
 }
 
 describe('RepoBrowsePage', () => {
-	beforeEach(() => goto.mockClear());
+	beforeEach(() => {
+		goto.mockClear();
+		appState.page.url = new URL('https://example.test/repositories/ncit');
+	});
 
 	it('renders server-loaded browse data and a progressively functional GET form', () => {
 		setup();
@@ -62,6 +72,13 @@ describe('RepoBrowsePage', () => {
 		expect(screen.getByText('100 (search)')).toBeInTheDocument();
 		expect(screen.getByText('Page 2 of 4')).toBeInTheDocument();
 		expect(screen.getAllByRole('navigation', { name: 'Pagination' })).toHaveLength(1);
+	});
+
+	it('keeps offset navigation within an upstream result window while reporting the full total', () => {
+		setup('melanoma', 9975, 25_000, '/repositories/pubmed', {}, 10_000);
+		expect(screen.getByText('Page 400 of 400')).toBeInTheDocument();
+		expect(within(screen.getByRole('navigation', { name: 'Pagination' })).getByText('25,000')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
 	});
 
 	it('enhances search and pagination as URL navigation', async () => {
@@ -163,6 +180,52 @@ describe('RepoBrowsePage', () => {
 		await fireEvent.click(screen.getByRole('button', { name: 'Send table intent' }));
 		expect(screen.getByRole('alert')).toHaveTextContent('No server sort mapping for unknown:asc');
 		expect(goto).not.toHaveBeenCalled();
+	});
+
+	it('hosts remote instruction and typed 429 states without rendering a false empty result', () => {
+		const common = {
+			title: 'PubMed', description: 'Literature', route: '/repositories/pubmed', helpText,
+			placeholder: 'Search…', ariaLabel: 'Search PubMed', suggestions: [], browseTitle: 'Articles',
+			countLabel: (count: number) => `${count} articles`, results: results as never,
+			initial: { result: { total: 0, hits: [] }, query: '', offset: 0, size: 25, sort: 'relevance', filters: {} },
+			defaultSort: 'relevance', sortKeys: {}, filterKeys: {}, instruction
+		};
+		const empty = render(RepoBrowsePage, {
+			...common,
+			remote: { service: 'NCBI PubMed', state: 'empty', error: null }
+		} as never);
+		expect(screen.getByText('Remote live service')).toBeVisible();
+		expect(screen.getByText('Enter a remote query')).toBeVisible();
+		expect(screen.queryByTestId('results')).not.toBeInTheDocument();
+		empty.unmount();
+
+		render(RepoBrowsePage, {
+			...common,
+			remote: {
+				service: 'NCBI PubMed',
+				state: 'error',
+				error: { remoteState: 'rate-limited', message: 'PubMed rate limit reached.' }
+			}
+		} as never);
+		expect(screen.getByRole('alert')).toHaveAttribute('data-remote-state', 'rate-limited');
+	});
+
+	it('owns cursor navigation for a remote page', async () => {
+		appState.page.url = new URL('https://example.test/repositories/clinicaltrials?q=melanoma&cursor=opaque');
+		render(RepoBrowsePage, {
+			title: 'ClinicalTrials.gov', description: 'Trials', route: '/repositories/clinicaltrials', helpText,
+			placeholder: 'Search…', ariaLabel: 'Search trials', suggestions: [], browseTitle: 'Trials',
+			countLabel: (count: number) => `${count} trials`, results: results as never,
+			initial: { result: { total: 42, hits: [{ id: 'trial' }] }, query: 'melanoma', offset: 0, size: 25, sort: 'relevance', filters: {} },
+			defaultSort: 'relevance', sortKeys: {}, filterKeys: {}, instruction,
+			remote: { service: 'ClinicalTrials.gov', state: 'ready', error: null },
+			cursor: { trail: ['opaque'], next: 'next' }
+		} as never);
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
+		expect(goto).toHaveBeenLastCalledWith('/repositories/clinicaltrials?q=melanoma');
+		await fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+		expect(goto).toHaveBeenLastCalledWith('/repositories/clinicaltrials?q=melanoma&cursor=opaque&cursor=next');
 	});
 });
 

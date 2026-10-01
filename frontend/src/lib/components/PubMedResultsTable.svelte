@@ -3,14 +3,16 @@
 	import type { PubMedArticleSummary } from '$lib/types';
 	import DataTable from '$lib/components/data-table/DataTable.svelte';
 	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
+	import { gridCapabilities } from '$lib/repository-registry';
 
 	let { articles, operations = { kind: 'none' }, emptyMessage = 'No articles.' }: { articles: readonly PubMedArticleSummary[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
 	const interactive = $derived(operations.kind === 'server');
+	const dateSort = gridCapabilities('pubmed').sorts.search.includes('pub_date');
 	let columns = $derived.by((): readonly DataTableColumn<PubMedArticleSummary>[] => [
 		{ id: 'pmid', label: 'PMID', cell: pmidCell, sticky: { side: 'left', offset: 0 } },
 		{ id: 'title', label: 'Title', cell: titleCell },
 		{ id: 'journal', label: 'Journal', cell: journalCell },
-		{ id: 'date', label: 'Date', cell: dateCell, sortable: interactive ? ['desc'] : undefined }
+		{ id: 'date', label: 'Date', cell: dateCell, sortable: interactive && dateSort ? ['desc'] : undefined }
 	]);
 </script>
 

@@ -8,7 +8,7 @@ export type RepositoryId = LocalRepositoryId | RemoteRepositoryId;
 
 export interface GridFilter {
 	readonly kind: 'text' | 'categorical';
-	readonly text_parameter: string;
+	readonly text_parameter?: string;
 	readonly values: Record<string, string>;
 	readonly multiple?: boolean;
 	readonly source_domain?: string;
@@ -33,24 +33,32 @@ function validateSorts(value: unknown): void {
 	for (const values of Object.values(sorts)) if (!Array.isArray(values) || !values.length || values.some((v) => typeof v !== 'string' || !v) || new Set(values).size !== values.length) throw new TypeError('Invalid sort domain');
 }
 
-function validateFilter(key: string, value: unknown): string {
-	const f = object(value, ['kind', 'text_parameter', 'values'], ['multiple', 'source_domain']);
-	const values = object(f.values);
-	if (!key || !['text', 'categorical'].includes(String(f.kind)) || (f.kind === 'categorical') !== Boolean(Object.keys(values).length || f.source_domain)) throw new TypeError('Invalid filter domain');
+function validateFilterDomain(key: string, f: Record<string, unknown>, values: Record<string, unknown>): void {
+	const hasDomain = Boolean(Object.keys(values).length || f.source_domain);
+	if (!key || !['text', 'categorical'].includes(String(f.kind)) || (f.kind === 'categorical') !== hasDomain) throw new TypeError('Invalid filter domain');
+	if (f.source_domain !== undefined && Object.keys(values).length) throw new TypeError('Filter values and source domain are mutually exclusive');
+	if (Object.entries(values).some(([name, label]) => !name || typeof label !== 'string' || !label)) throw new TypeError('Invalid filter value');
+}
+
+function validateFilterMetadata(f: Record<string, unknown>): string {
 	if (f.multiple !== undefined && typeof f.multiple !== 'boolean') throw new TypeError('Invalid multiplicity');
 	if (f.source_domain !== undefined && (typeof f.source_domain !== 'string' || !f.source_domain)) throw new TypeError('Invalid source domain');
-	if (f.source_domain !== undefined && Object.keys(values).length) throw new TypeError('Filter values and source domain are mutually exclusive');
-	if (Object.entries(values).some(([k, v]) => !k || typeof v !== 'string' || !v)) throw new TypeError('Invalid filter value');
-	if (typeof f.text_parameter !== 'string' || !/^[a-z_]+$/.test(f.text_parameter)) throw new TypeError('Invalid text parameter');
-	return f.text_parameter;
+	if ((f.kind === 'text' && f.text_parameter === undefined) || (f.text_parameter !== undefined && (typeof f.text_parameter !== 'string' || !/^[a-z_]+$/.test(f.text_parameter)))) throw new TypeError('Invalid text parameter');
+	return String(f.text_parameter ?? '');
+}
+
+function validateFilter(key: string, value: unknown): string {
+	const f = object(value, ['kind', 'values'], ['text_parameter', 'multiple', 'source_domain']);
+	validateFilterDomain(key, f, object(f.values));
+	return validateFilterMetadata(f);
 }
 
 function validateFilters(value: unknown): void {
 	const parameters = new Set<string>();
 	for (const [key, filter] of Object.entries(object(value))) {
 		const parameter = validateFilter(key, filter);
-		if (parameters.has(parameter)) throw new TypeError('Duplicate text parameter');
-		parameters.add(parameter);
+		if (parameter && parameters.has(parameter)) throw new TypeError('Duplicate text parameter');
+		if (parameter) parameters.add(parameter);
 	}
 }
 
@@ -142,9 +150,9 @@ export function gridControls(id: RepositoryId, domains: Record<string, string[]>
 	return {
 		sortKeys,
 		filterKeys: Object.fromEntries(categorical.map(([key]) => [key, key])),
-		textKeys: Object.fromEntries(Object.keys(c.filters).map((key) => [key, key])),
+		textKeys: Object.fromEntries(Object.entries(c.filters).filter(([, f]) => f.text_parameter).map(([key]) => [key, key])),
 		filters: Object.fromEntries(categorical.map(([key, f]) => [key, f.source_domain ? domains[key] ?? [] : Object.keys(f.values)])),
-		textFilters: Object.keys(c.filters)
+		textFilters: Object.entries(c.filters).filter(([, f]) => f.text_parameter).map(([key]) => key)
 	};
 }
 
@@ -152,7 +160,7 @@ export function columnFilter(id: RepositoryId, column: string, ariaLabel: string
 	const f = gridCapabilities(id, dataset).filters[column];
 	if (!f) return undefined;
 	return f.kind === 'text' ? { kind: 'text', ariaLabel } : {
-		kind: 'categorical', ariaLabel, textFilter: true,
+		kind: 'categorical', ariaLabel, textFilter: Boolean(f.text_parameter),
 		options: f.source_domain ? domain.map((value) => ({ value, label: value })) : Object.entries(f.values).map(([value, label]) => ({ value, label }))
 	};
 }

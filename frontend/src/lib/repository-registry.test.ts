@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import manifest from '../../../repository-manifest.json';
-import { repositories, gridCapabilities } from './repository-registry';
+import { columnFilter, gridCapabilities, gridControls, repositories } from './repository-registry';
 
 describe('repository registry', () => {
 	it('derives declared controls and rejects rendering or contradictory capabilities', async () => {
@@ -25,6 +25,18 @@ describe('repository registry', () => {
 		expect(Object.keys(gridCapabilities('icdo', '3.2/morphology').filters)).toEqual(['code', 'preferred', 'behaviour']);
 		expect(Object.keys(gridCapabilities('icdo', '4.0/topography').filters)).toEqual(['code', 'preferred', 'level']);
 		expect(() => gridCapabilities('icdo', '3.2/topography')).toThrow('no grid declaration');
+	});
+	it('declares remote pagination and only upstream-supported controls', () => {
+		expect(gridCapabilities('pubmed')).toMatchObject({ pagination: 'offset', query_before_results: true, metadata: 'remote', filters: {} });
+		expect(gridCapabilities('clinicaltrials')).toMatchObject({ pagination: 'cursor', query_before_results: true, metadata: 'remote' });
+		expect(gridControls('clinicaltrials').filters).toEqual({
+			status: expect.arrayContaining(['RECRUITING', 'COMPLETED']),
+			phase: expect.arrayContaining(['PHASE1', 'PHASE4'])
+		});
+		expect(columnFilter('clinicaltrials', 'status', 'Filter trial statuses')).toMatchObject({
+			kind: 'categorical',
+			textFilter: false
+		});
 	});
 	it('loads the tracked local-certified and remote-live descriptors', () => {
 		expect(repositories).toEqual(manifest);

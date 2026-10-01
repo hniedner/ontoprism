@@ -99,6 +99,25 @@ def test_declared_uberon_controls_include_ontology_and_two_source_filter() -> No
     assert source.values == {"uberon": "Uberon", "cl": "Cell Ontology"}
 
 
+def test_declared_remote_controls_match_upstream_search_contracts() -> None:
+    registry = load_repository_registry(_MANIFEST)
+    pubmed = next(entry for entry in registry if entry.id == "pubmed").capabilities
+    trials = next(
+        entry for entry in registry if entry.id == "clinicaltrials"
+    ).capabilities
+
+    assert pubmed is not None
+    assert pubmed.query_before_results is True
+    assert pubmed.pagination == "offset"
+    assert pubmed.sorts["search"] == ["relevance", "pub_date"]
+    assert trials is not None
+    assert trials.query_before_results is True
+    assert trials.pagination == "cursor"
+    assert set(trials.filters) == {"status", "phase"}
+    assert trials.filters["status"].multiple is True
+    assert trials.filters["status"].text_parameter is None
+
+
 def test_declared_icdo_controls_are_bounded_to_each_served_dataset() -> None:
     icdo = next(
         entry for entry in load_repository_registry(_MANIFEST) if entry.id == "icdo"

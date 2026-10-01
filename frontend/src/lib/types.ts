@@ -599,10 +599,22 @@ export interface RefreshReport {
 // ClinicalTrials.gov v2 read models (backend ontolib.repositories.clinicaltrials.models).
 
 export type CTPageSize = PageSize;
-export const CT_STATUSES = ['ACTIVE_NOT_RECRUITING', 'APPROVED_FOR_MARKETING', 'AVAILABLE', 'COMPLETED', 'ENROLLING_BY_INVITATION', 'NOT_YET_RECRUITING', 'NO_LONGER_AVAILABLE', 'RECRUITING', 'SUSPENDED', 'TEMPORARILY_NOT_AVAILABLE', 'TERMINATED', 'UNKNOWN', 'WITHDRAWN', 'WITHHELD'] as const;
-export type CTStatus = (typeof CT_STATUSES)[number];
-export const CT_PHASES = ['EARLY_PHASE1', 'PHASE1', 'PHASE2', 'PHASE3', 'PHASE4'] as const;
-export type CTFilterPhase = (typeof CT_PHASES)[number];
+export type CTStatus =
+	| 'ACTIVE_NOT_RECRUITING'
+	| 'APPROVED_FOR_MARKETING'
+	| 'AVAILABLE'
+	| 'COMPLETED'
+	| 'ENROLLING_BY_INVITATION'
+	| 'NOT_YET_RECRUITING'
+	| 'NO_LONGER_AVAILABLE'
+	| 'RECRUITING'
+	| 'SUSPENDED'
+	| 'TEMPORARILY_NOT_AVAILABLE'
+	| 'TERMINATED'
+	| 'UNKNOWN'
+	| 'WITHDRAWN'
+	| 'WITHHELD';
+export type CTFilterPhase = 'EARLY_PHASE1' | 'PHASE1' | 'PHASE2' | 'PHASE3' | 'PHASE4';
 export type CTStudyPhase = 'NA' | CTFilterPhase;
 
 export interface CTInterventionDetail {

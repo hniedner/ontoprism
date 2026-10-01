@@ -1,11 +1,12 @@
 import { error, redirect } from '@sveltejs/kit';
-import { searchPubmed } from '$lib/api.pubmed';
+import { searchPubmed, type PubMedSort } from '$lib/api.pubmed';
+import { gridCapabilities } from '$lib/repository-registry';
 import { loadRemoteSearch } from '$lib/server/remote-search-load';
 import { canonicalOffsetGridSearch, parseOffsetGridUrl } from '$lib/server/repository-load';
 import type { PubMedSearchResult } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
-const spec = { defaultSort: 'relevance', sorts: ['relevance', 'pub_date'], filters: {}, resultWindow: 10_000 } as const;
+const spec = { defaultSort: 'relevance', sorts: gridCapabilities('pubmed').sorts.search as readonly PubMedSort[], filters: {}, resultWindow: 10_000 } as const;
 export const load: PageServerLoad = async ({ fetch, url }) => {
 	const { query, state } = parseOffsetGridUrl(url, spec);
 	const result = await loadRemoteSearch<PubMedSearchResult>(query, () => searchPubmed(query, state.size, state.offset, state.sort, fetch));

@@ -101,6 +101,7 @@ async function declaredControls(page: Page, repository: RepositoryId, regionName
 			textValue = rendered;
 			await page.keyboard.press('Escape');
 		}
+		if (!control.text_parameter) continue;
 		await button.click();
 		const input = page.getByRole('textbox', { name: `Filter ${label} text` });
 		await input.fill(textValue);
@@ -168,15 +169,27 @@ test('read-only configured repository smoke', async ({ page }) => {
 
 	await open('/repositories/pubmed');
 	await search(page, 'melanoma', 'PubMed repository results');
-	await sort(page, 'PubMed repository results', 'Date', 'pub_date', 'date');
+	const pubmedDeclaration = gridCapabilities('pubmed');
+	expect(pubmedDeclaration.pagination).toBe('offset');
+	expect(pubmedDeclaration.query_before_results).toBe(true);
+	if (pubmedDeclaration.sorts.search.includes('pub_date')) await sort(page, 'PubMed repository results', 'Date', 'pub_date', 'date');
+	const pubmedScreenshot = test.info().outputPath('pubmed-text-search.png');
+	await page.screenshot({ path: pubmedScreenshot, fullPage: true });
+	console.log(`PubMed text-search screenshot: ${pubmedScreenshot}`);
 	const pmid = await region(page, 'PubMed repository results').locator('tbody a').first().textContent();
 	await detail(page, 'PubMed repository results', pmid!.trim());
-	passed('PubMed search/publication-date sort/detail: PASS; initial list and filter: not applicable (#487)');
+	passed('PubMed declaration-driven search/publication-date sort/detail: PASS; initial list and filter: not applicable');
 
 	await open('/repositories/clinicaltrials');
 	await search(page, 'melanoma', 'ClinicalTrials.gov repository results');
-	await filter(page, 'ClinicalTrials.gov repository results', 'Status', 'RECRUITING', 'status', 'RECRUITING', 'RECRUITING');
+	expect(gridCapabilities('clinicaltrials').pagination).toBe('cursor');
+	await declaredControls(page, 'clinicaltrials', 'ClinicalTrials.gov repository results');
+	await page.getByRole('button', { name: /^Filter Status/ }).click();
+	const trialsScreenshot = test.info().outputPath('clinicaltrials-multi-select.png');
+	await page.screenshot({ path: trialsScreenshot, fullPage: true });
+	console.log(`ClinicalTrials.gov multi-select screenshot: ${trialsScreenshot}`);
+	await page.keyboard.press('Escape');
 	const nct = await region(page, 'ClinicalTrials.gov repository results').locator('tbody a').first().textContent();
 	await detail(page, 'ClinicalTrials.gov repository results', nct!.trim());
-	passed('ClinicalTrials.gov search/status filter/detail: PASS; initial list and sort: not applicable (#487)');
+	passed('ClinicalTrials.gov declaration-driven search/status/phase/detail: PASS; initial list and sort: not applicable');
 });
