@@ -40,16 +40,30 @@ def test_manifest_rejects_identity_fields_on_remote_descriptors(tmp_path: Path) 
         load_repository_registry(invalid)
 
 
-@pytest.mark.parametrize("change", ["mismatched-path", "empty-datasets"])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "mismatched-path",
+        "empty-datasets",
+        "missing-capabilities",
+        "empty-dataset-key",
+    ],
+)
 def test_manifest_rejects_invalid_descriptor_identity_or_dataset_domain(
     tmp_path: Path, change: str
 ) -> None:
     payload = json.loads(_MANIFEST.read_text())
     if change == "mismatched-path":
         payload[0]["path"] = "/repositories/not-ncit"
-    else:
+    elif change == "empty-datasets":
         icdo = next(entry for entry in payload if entry["id"] == "icdo")
         icdo["capabilities_by_dataset"] = {}
+    elif change == "missing-capabilities":
+        payload[0].pop("capabilities")
+    else:
+        icdo = next(entry for entry in payload if entry["id"] == "icdo")
+        first = next(iter(icdo["capabilities_by_dataset"].values()))
+        icdo["capabilities_by_dataset"] = {"": first}
     invalid = tmp_path / "repositories.json"
     invalid.write_text(json.dumps(payload))
 

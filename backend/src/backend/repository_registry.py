@@ -93,11 +93,15 @@ class _RepositoryDescriptor(BaseModel):
         Annotated[dict[str, GridCapabilities], Field(min_length=1)] | None
     ) = None
 
+    @field_validator("capabilities_by_dataset")
+    @classmethod
+    def valid_dataset_names(cls, datasets):
+        if datasets is not None and any(not name for name in datasets):
+            raise ValueError("dataset capability names must be nonempty")
+        return datasets
+
     @model_validator(mode="after")
     def consistent_metadata(self):
-        repository_id = getattr(self, "id", None)
-        if self.path != f"/repositories/{repository_id}":
-            raise ValueError("repository path must match its id")
         return _consistent_metadata(self, isinstance(self, LocalRepositoryDescriptor))
 
 
@@ -107,6 +111,7 @@ class LocalRepositoryDescriptor(_RepositoryDescriptor):
 
     @model_validator(mode="after")
     def dataset_capabilities_belong_to_icdo(self):
+        _require_matching_path(self.path, self.id)
         if self.capabilities_by_dataset and self.id != "icdo":
             raise ValueError("dataset capabilities are only supported for ICD-O")
         return self
@@ -118,6 +123,7 @@ class RemoteRepositoryDescriptor(_RepositoryDescriptor):
 
     @model_validator(mode="after")
     def no_dataset_capabilities(self):
+        _require_matching_path(self.path, self.id)
         if self.capabilities_by_dataset:
             raise ValueError("remote repositories cannot declare dataset capabilities")
         return self
@@ -133,9 +139,16 @@ def _consistent_metadata(
         (capability.metadata == "certified") != local for capability in capabilities
     ):
         raise ValueError("metadata capability contradicts repository kind")
-    if descriptor.capabilities and descriptor.capabilities_by_dataset:
-        raise ValueError("default and dataset capabilities are mutually exclusive")
+    if (descriptor.capabilities is None) == (
+        descriptor.capabilities_by_dataset is None
+    ):
+        raise ValueError("exactly one capability declaration is required")
     return descriptor
+
+
+def _require_matching_path(path: str, repository_id: str) -> None:
+    if path != f"/repositories/{repository_id}":
+        raise ValueError("repository path must match its id")
 
 
 RepositoryDescriptor = Annotated[
