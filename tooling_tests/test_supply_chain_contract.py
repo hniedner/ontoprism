@@ -849,9 +849,9 @@ def test_frontend_transitive_security_and_install_script_policy() -> None:
     )
 
     assert package["allowScripts"] == {"fsevents": False}
-    assert package["overrides"]["brace-expansion"] == "^5.0.9"
+    assert package["overrides"]["brace-expansion"] == "^5.0.12"
     assert package["overrides"]["nanoid"] == "^3.3.18"
-    assert lock["packages"]["node_modules/brace-expansion"]["version"] == "5.0.9"
+    assert lock["packages"]["node_modules/brace-expansion"]["version"] == "5.0.12"
     assert lock["packages"]["node_modules/nanoid"]["version"] == "3.3.18"
 
 
