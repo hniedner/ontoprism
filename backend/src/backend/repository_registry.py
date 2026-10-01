@@ -89,10 +89,15 @@ class _RepositoryDescriptor(BaseModel):
     label: str
     path: str
     capabilities: GridCapabilities | None = None
-    capabilities_by_dataset: dict[str, GridCapabilities] | None = None
+    capabilities_by_dataset: (
+        Annotated[dict[str, GridCapabilities], Field(min_length=1)] | None
+    ) = None
 
     @model_validator(mode="after")
     def consistent_metadata(self):
+        repository_id = getattr(self, "id", None)
+        if self.path != f"/repositories/{repository_id}":
+            raise ValueError("repository path must match its id")
         return _consistent_metadata(self, isinstance(self, LocalRepositoryDescriptor))
 
 
