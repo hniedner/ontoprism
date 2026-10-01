@@ -70,8 +70,14 @@ _SEARCH_ORDERS: dict[RepositorySearchSort, str] = {
     "code:desc": "code DESC",
     "label:asc": "label NULLS LAST, code",
     "label:desc": "label DESC NULLS LAST, code",
-    "semantic_type:asc": 'semantic_types[1] COLLATE "C" NULLS LAST, code',
-    "semantic_type:desc": 'semantic_types[1] COLLATE "C" DESC NULLS LAST, code',
+    "semantic_type:asc": (
+        "NULLIF(array_to_string(semantic_types, ', '), '') COLLATE \"C\" "
+        "NULLS LAST, code"
+    ),
+    "semantic_type:desc": (
+        "NULLIF(array_to_string(semantic_types, ', '), '') COLLATE \"C\" DESC "
+        "NULLS LAST, code"
+    ),
 }
 _SEARCH_TEXT_EXPRESSIONS = {
     "code": "code",

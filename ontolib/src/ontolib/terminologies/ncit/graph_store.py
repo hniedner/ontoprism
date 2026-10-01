@@ -479,8 +479,8 @@ class NcitGraphStore:
             "code:desc": "DESC(?concept)",
             "label:asc": "?label ?concept",
             "label:desc": "DESC(?label) ?concept",
-            "semantic_type:asc": "DESC(BOUND(?semtype)) ?semtype ?concept",
-            "semantic_type:desc": "DESC(BOUND(?semtype)) DESC(?semtype) ?concept",
+            "semantic_type:asc": "DESC(BOUND(?semtype)) ?semtypeText ?concept",
+            "semantic_type:desc": ("DESC(BOUND(?semtype)) DESC(?semtypeText) ?concept"),
         }[sort]
         page_status = _representation_status_pattern(
             "?concept", representation_status, include_unfiltered=True

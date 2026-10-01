@@ -33,8 +33,10 @@ def semantic_type_cases(
     triples = (
         'ncit:C3262 ncit:P106 "Disease or Syndrome" . '
         'ncit:C999991 a owl:Class ; rdfs:label "Parity Growth Typed" ; '
-        'ncit:P106 "Neoplastic Process" . '
-        'ncit:C999992 a owl:Class ; rdfs:label "Parity Growth Untyped" .'
+        'ncit:P106 "Alpha Type", "Zulu Type" . '
+        'ncit:C999992 a owl:Class ; rdfs:label "Parity Growth Typed Second" ; '
+        'ncit:P106 "Alpha Type", "Beta Type" . '
+        'ncit:C999993 a owl:Class ; rdfs:label "Parity Growth Untyped" .'
     )
     asyncio.run(update(f"{prefixes} INSERT DATA {{ {triples} }}"))
     try:
@@ -116,8 +118,9 @@ def test_semantic_types_any_of_and_deterministic_projection(
         response = isolated_api_client.get(f"/api/v1/ncit/{endpoint}", params=params)
         assert response.status_code == 200, response.text
         assert [row["code"] for row in response.json()["hits"]] == [
-            "C999991",
             "C999992",
+            "C999991",
+            "C999993",
         ]
         sort_pages.append(response.json()["hits"])
     assert sort_pages[0] == sort_pages[1]

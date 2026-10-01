@@ -199,7 +199,10 @@ async def test_semantic_type_sort_and_text_filter_use_the_display_projection() -
 
     sql = sf.executed[1][0]
     assert "COALESCE(array_to_string(semantic_types, ', '), '') ILIKE" in sql
-    assert 'semantic_types[1] COLLATE "C" NULLS LAST, code' in sql
+    assert (
+        "NULLIF(array_to_string(semantic_types, ', '), '') "
+        'COLLATE "C" NULLS LAST, code'
+    ) in sql
 
 
 async def _batches(
