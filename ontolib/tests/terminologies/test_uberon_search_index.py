@@ -96,6 +96,14 @@ async def test_ready_requires_matching_identity_and_complete_nonempty_rows() -> 
 
 
 @pytest.mark.unit
+async def test_hash_bound_publication_requires_a_source_hash() -> None:
+    index = UberonSearchIndex(_Factory({}))  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="source_hash is required"):
+        await index.is_populated("a" * 64)
+
+
+@pytest.mark.unit
 async def test_search_filters_source_before_pagination() -> None:
     factory = _Factory(
         {

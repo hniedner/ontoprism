@@ -49,14 +49,14 @@ def test_categorical_predicate_supports_declared_scalar_and_array_columns() -> N
         "status",
         ["legacy"],
         expression="representation_status",
-        multiple=False,
+        array_column=False,
         dialect="sql",
     )
     array, array_params = categorical_predicate(
         "semantic_type",
         ["Disease", "Neoplasm"],
         expression="semantic_types",
-        multiple=True,
+        array_column=True,
         dialect="sql",
     )
 
@@ -73,7 +73,7 @@ def test_categorical_sparql_membership_escapes_values_and_empty_is_noop() -> Non
         "semantic_type",
         ['Disease "type"'],
         expression="?type",
-        multiple=True,
+        array_column=True,
         dialect="sparql",
     )
 
@@ -83,6 +83,6 @@ def test_categorical_sparql_membership_escapes_values_and_empty_is_noop() -> Non
         "semantic_type",
         [],
         expression="?type",
-        multiple=True,
+        array_column=True,
         dialect="sparql",
     ) == ("", {})

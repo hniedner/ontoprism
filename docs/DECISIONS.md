@@ -202,9 +202,10 @@ cloud ("M1.10 · Cloud deployment for multi-user expert access"). The rules in A
 every test covers a Done-when behaviour or owner-approved policy, amended 2026-09-27); owner approval
 before new persistence; an estimate and a demo in every issue (when the body lacks one,
 the agent posts its own estimate and demo plan before starting, and proceeds); two corrective owner
-comments mean asking the owner to split; no process work unless something is blocked; only
-unverified hardening suggestions wait in "Hardening (when touched)", and every verified
-finding follows "Review". AGENTS.md "Review"
+comments mean asking the owner to split; no process work unless something is blocked. The
+former "Hardening (when touched)" queue was superseded on 2026-10-01: unverified
+suggestions are dropped with a reason, while every verified finding follows "Review" in
+the same PR unless its exceptional deferral rule applies. AGENTS.md "Review"
 adds a ceiling: after a dimension's third round its remaining suggestions are dropped with
 a reason, while verified findings always continue. Removal work waits in "Deferred cleanup
 (when touched)".

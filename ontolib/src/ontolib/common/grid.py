@@ -76,7 +76,7 @@ def categorical_predicate(
     selected: Sequence[str],
     *,
     expression: str,
-    multiple: bool,
+    array_column: bool,
     dialect: Literal["sql", "sparql"],
 ) -> tuple[str, dict[str, list[str]]]:
     """Any-of membership over an expression evaluated for each source row.
@@ -90,7 +90,9 @@ def categorical_predicate(
         parameter = f"{column}_selected"
         values = f"CAST(:{parameter} AS text[])"
         predicate = (
-            f"{expression} && {values}" if multiple else f"{expression} = ANY({values})"
+            f"{expression} && {values}"
+            if array_column
+            else f"{expression} = ANY({values})"
         )
         return f" AND {predicate}", {parameter: list(selected)}
     values = ", ".join(json.dumps(value, ensure_ascii=True) for value in selected)

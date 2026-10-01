@@ -32,6 +32,7 @@ from backend.uberon_search_publication import (
     publish_uberon_search,
 )
 from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.common.search_publication import SearchPublicationError
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
@@ -203,7 +204,12 @@ async def rebuild_ncit_search_index(
         source_after = await ncit_source_fingerprint(store)
         if source_after != source_before:
             raise StorageError("NCIt source changed during search-index rebuild")
-    except (RepositoryMetadataError, StorageError, SQLAlchemyError) as exc:
+    except (
+        RepositoryMetadataError,
+        SearchPublicationError,
+        StorageError,
+        SQLAlchemyError,
+    ) as exc:
         logger.exception("NCIt search-index rebuild failed")
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, "NCIt search-index rebuild failed."

@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
-from backend.api.v1.ncit import _xref_expected
+from backend.api.v1.ncit import _semantic_type_cache, _xref_expected
 from backend.api.v1.ncit import router as ncit_router
 from backend.config import get_settings
 from backend.dependencies import (
@@ -332,6 +332,26 @@ def test_semantic_type_domain_comes_from_certified_source(
 
 
 @pytest.mark.api
+def test_semantic_type_domain_reuses_the_certified_source_cache() -> None:
+    class CountingStore(_FakeStore):
+        domain_reads = 0
+
+        async def semantic_type_values(self) -> list[str]:
+            self.domain_reads += 1
+            return await super().semantic_type_values()
+
+    _semantic_type_cache.clear()
+    store = CountingStore()
+    client = next(_client(store=store))
+    try:
+        assert client.get("/api/v1/ncit/semantic-types").status_code == 200
+        assert client.get("/api/v1/ncit/semantic-types").status_code == 200
+        assert store.domain_reads == 1
+    finally:
+        _semantic_type_cache.clear()
+
+
+@pytest.mark.api
 def test_search_fails_closed_when_certified_cache_is_empty() -> None:
     store = _FakeStore()
     gen = _client(store=store, index=_FakeIndex(populated=False))
@@ -399,6 +419,26 @@ def test_semantic_type_any_of_selection_is_echoed(path: str) -> None:
         "Disease or Syndrome",
         "Neoplastic Process",
     ]
+
+
+@pytest.mark.api
+def test_semantic_type_selection_and_read_share_one_certification() -> None:
+    class CountingMetadata(_Metadata):
+        reads = 0
+
+        async def ncit(self) -> SimpleNamespace:
+            type(self).reads += 1
+            return await super().ncit()
+
+    _semantic_type_cache.clear()
+    try:
+        response = next(_client(metadata=CountingMetadata)).get(
+            "/api/v1/ncit/list", params={"semantic_type": "Neoplastic Process"}
+        )
+        assert response.status_code == 200
+        assert CountingMetadata.reads == 1
+    finally:
+        _semantic_type_cache.clear()
 
 
 @pytest.mark.api

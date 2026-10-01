@@ -67,7 +67,7 @@ def _search_filters(
         "source",
         sources,
         expression="source",
-        multiple=False,
+        array_column=False,
         dialect="sql",
     )
     return predicates + source_predicate, {**text_params, **source_params}

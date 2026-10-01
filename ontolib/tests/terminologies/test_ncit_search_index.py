@@ -1,7 +1,7 @@
 """Hermetic tests for the NCIt FTS cache (fake async session, no real Postgres).
 
 The live-Postgres variants are in ``backend`` integration tests; here we pin the
-SQL contract and behaviour: counts/probes coerce correctly, search binds q/limit/
+SQL contract and behaviour: probes coerce correctly, search binds q/limit/
 offset and maps rows to hits, and rebuild is a single DELETE+insert transaction that
 skips empty batches. ``populate_from_store`` is checked to page the store and feed
 rebuild.
@@ -99,6 +99,14 @@ async def test_is_populated_reflects_existence_probe() -> None:
 
 
 @pytest.mark.unit
+async def test_identity_only_publication_rejects_a_source_hash() -> None:
+    index = NcitSearchIndex(_SessionFactory({}))  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="does not bind a source hash"):
+        await index.is_populated("a" * 64, "b" * 64)
+
+
+@pytest.mark.unit
 async def test_search_maps_rows_and_binds_params() -> None:
     rows = [
         SimpleNamespace(
@@ -174,6 +182,23 @@ async def test_search_empty_result_is_zero_total() -> None:
     assert page.total == 0
     assert page.representation_status is None
     assert page.hits == []
+
+
+@pytest.mark.unit
+async def test_semantic_type_sort_and_text_filter_use_the_display_projection() -> None:
+    sf = _SessionFactory(
+        {"SELECT COUNT(*)": _Result(scalar=0), "SELECT code": _Result(rows=[])}
+    )
+
+    await NcitSearchIndex(sf).search(  # type: ignore[arg-type]
+        "neoplasm",
+        sort="semantic_type:asc",
+        column_text={"semantic_type": "Syndrome, Neo"},
+    )
+
+    sql = sf.executed[1][0]
+    assert "COALESCE(array_to_string(semantic_types, ', '), '') ILIKE" in sql
+    assert 'semantic_types[1] COLLATE "C" NULLS LAST, code' in sql
 
 
 async def _batches(

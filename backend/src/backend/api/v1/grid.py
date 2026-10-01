@@ -2,7 +2,7 @@
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from functools import cache
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from fastapi import HTTPException
 from pydantic import BeforeValidator, ValidationError
@@ -20,6 +20,7 @@ from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 
 logger = get_logger(__name__)
+_UNCERTIFIED = object()
 
 
 def _parse_page_size(value: object) -> object:
@@ -62,6 +63,7 @@ class GridService[Ready]:
     ) -> None:
         self.label, self.capabilities, self.certify = label, capabilities, certify
         self.source_domains = source_domains or {}
+        self._certified: Ready | RepositoryUnhealthy | object = _UNCERTIFIED
 
     async def validate(
         self,
@@ -105,10 +107,12 @@ class GridService[Ready]:
         return await resolver(await self.ready())
 
     async def ready(self) -> Ready:
-        repository = await self.certify()
+        if self._certified is _UNCERTIFIED:
+            self._certified = await self.certify()
+        repository = self._certified
         if isinstance(repository, RepositoryUnhealthy):
             raise HTTPException(503, repository.model_dump(mode="json"))
-        return repository
+        return cast("Ready", repository)
 
     async def read[Result](
         self,
@@ -120,18 +124,18 @@ class GridService[Ready]:
         try:
             result = await self._execute(repository, query, available)
         except SQLAlchemyError as exc:
-            logger.warning("%s repository read unavailable: %s", self.label, exc)
+            logger.exception("%s repository read unavailable", self.label)
             raise HTTPException(
                 503, f"{self.label} certified search index is unavailable."
             ) from exc
         except StorageError as exc:
-            logger.warning("%s repository read failed: %s", self.label, exc)
+            logger.exception("%s repository read failed", self.label)
             raise HTTPException(
                 502,
                 f"{self.label} repository returned an invalid or unavailable response.",
             ) from exc
         except ValidationError as exc:
-            logger.warning("%s repository response is invalid: %s", self.label, exc)
+            logger.exception("%s repository response is invalid", self.label)
             raise HTTPException(
                 502,
                 f"{self.label} repository returned an invalid or unavailable response.",

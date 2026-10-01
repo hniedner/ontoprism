@@ -70,17 +70,13 @@ _SEARCH_ORDERS: dict[RepositorySearchSort, str] = {
     "code:desc": "code DESC",
     "label:asc": "label NULLS LAST, code",
     "label:desc": "label DESC NULLS LAST, code",
-    "semantic_type:asc": (
-        "array_to_string(semantic_types, ', ') COLLATE \"C\" NULLS LAST, code"
-    ),
-    "semantic_type:desc": (
-        "array_to_string(semantic_types, ', ') COLLATE \"C\" DESC NULLS LAST, code"
-    ),
+    "semantic_type:asc": 'semantic_types[1] COLLATE "C" NULLS LAST, code',
+    "semantic_type:desc": 'semantic_types[1] COLLATE "C" DESC NULLS LAST, code',
 }
 _SEARCH_TEXT_EXPRESSIONS = {
     "code": "code",
     "label": "label",
-    "semantic_type": "array_to_string(semantic_types, ' ')",
+    "semantic_type": "array_to_string(semantic_types, ', ')",
     "representation_status": (
         "CASE WHEN representation_status = 'legacy-precoordinated' "
         "THEN 'Legacy pre-coordinated' ELSE '' END"
@@ -119,12 +115,12 @@ def _search_filters(
         ),
         ("semantic_types", semantic_types or [], True),
     )
-    for column, selected, multiple in selections:
+    for column, selected, array_column in selections:
         predicate, bindings = categorical_predicate(
             column,
             selected,
             expression=column,
-            multiple=multiple,
+            array_column=array_column,
             dialect="sql",
         )
         predicates += predicate

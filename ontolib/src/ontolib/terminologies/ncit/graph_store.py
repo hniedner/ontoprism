@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ontolib.repositories.embeddings.generate import NcitEmbeddingRecord
 
 from ontolib.common.grid import categorical_predicate, sparql_text_filters
+from ontolib.core.exceptions import StorageError
 from ontolib.decomposition import vocab as decomp_vocab
 from ontolib.decomposition.label_validation import ConceptLabelError
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
@@ -44,6 +45,7 @@ _PREFIXES = (
     f"PREFIX rdf: <{RDF_NS}>\nPREFIX ncit: <{NCIT_NS}>"
 )
 _LIST_SEP = "||"
+_DISPLAY_LIST_SEP = ", "
 _DEFAULT_EDGE_LIMIT = 200
 # Upper bound on nodes returned by a multi-hop neighborhood expansion, so a deep
 # request cannot pull an unbounded closure out of the store.
@@ -53,7 +55,7 @@ MAX_NEIGHBORHOOD_CENTERS = 12
 _BROWSE_TEXT_EXPRESSIONS = {
     "code": "STRAFTER(STR(?concept), '#')",
     "label": "STR(?label)",
-    "semantic_type": "STR(?semtypes)",
+    "semantic_type": "STR(?semtypeText)",
     "representation_status": (
         'IF(BOUND(?representationStatusValue), "Legacy pre-coordinated", "")'
     ),
@@ -77,7 +79,7 @@ def _representation_status_pattern(
             "representation_status",
             [representation_status],
             expression="?representationStatusValue",
-            multiple=False,
+            array_column=False,
             dialect="sparql",
         )
         return f"{graph} {predicate}"
@@ -142,7 +144,7 @@ def _browse_filters(column_text: Mapping[str, str], semantic_types: list[str]) -
         "semantic_type",
         semantic_types,
         expression="?selectedType",
-        multiple=True,
+        array_column=True,
         dialect="sparql",
     )
     if semantic_types:
@@ -170,10 +172,15 @@ def _browse_hits(rows: Iterable[Mapping[str, str | None]]) -> list[SearchHit]:
 
 
 def _count_value(rows: list[dict[str, str]]) -> int:
-    if not rows:
-        return 0
-    value = rows[0].get("count")
-    return int(value) if value is not None else 0
+    if len(rows) != 1 or (value := rows[0].get("count")) is None:
+        raise StorageError("NCIt list count was not a single bound row")
+    try:
+        count = int(value)
+    except (TypeError, ValueError) as exc:
+        raise StorageError("NCIt list count was not an integer") from exc
+    if count < 0:
+        raise StorageError("NCIt list count was negative")
+    return count
 
 
 def _published_representation_statuses(
@@ -463,8 +470,8 @@ class NcitGraphStore:
     ) -> BrowsePage:
         """List matching named concepts in the requested deterministic browse order.
 
-        Counts without text predicates are memoized per status between reloads;
-        text-filtered totals are counted on each request.
+        Counts without text predicates or a semantic-type selection are memoized per
+        status between reloads; filtered totals are counted on each request.
         """
         order = {
             "source": "?concept",
@@ -472,10 +479,8 @@ class NcitGraphStore:
             "code:desc": "DESC(?concept)",
             "label:asc": "?label ?concept",
             "label:desc": "DESC(?label) ?concept",
-            "semantic_type:asc": ("DESC(BOUND(?semtype)) ?semtype ?semtypes ?concept"),
-            "semantic_type:desc": (
-                "DESC(BOUND(?semtype)) DESC(?semtype) DESC(?semtypes) ?concept"
-            ),
+            "semantic_type:asc": "DESC(BOUND(?semtype)) ?semtype ?concept",
+            "semantic_type:desc": "DESC(BOUND(?semtype)) DESC(?semtype) ?concept",
         }[sort]
         page_status = _representation_status_pattern(
             "?concept", representation_status, include_unfiltered=True
@@ -484,20 +489,22 @@ class NcitGraphStore:
         base = f"""{{ SELECT ?concept ?label (MIN(STR(?semtypeValue)) AS ?semtype)
                 (GROUP_CONCAT(DISTINCT STR(?semtypeValue);
                     separator="{_LIST_SEP}") AS ?semtypes)
+                (GROUP_CONCAT(DISTINCT STR(?semtypeValue);
+                    separator="{_DISPLAY_LIST_SEP}") AS ?semtypeText)
             WHERE {{ ?concept a owl:Class ; rdfs:label ?label .
                 OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtypeValue }}
                 FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
             }} GROUP BY ?concept ?label }}"""
         rows = await self._client.select(
             f"""{_PREFIXES}
-            SELECT ?concept ?label ?semtype ?semtypes
+            SELECT ?concept ?label ?semtype ?semtypes ?semtypeText
                    (SAMPLE(?representationStatusValue) AS ?representationStatus)
             WHERE {{
                 {base}
                 {page_status}
                 {filters}
             }}
-            GROUP BY ?concept ?label ?semtype ?semtypes
+            GROUP BY ?concept ?label ?semtype ?semtypes ?semtypeText
             ORDER BY {order} LIMIT {limit} OFFSET {offset}
             """
         )

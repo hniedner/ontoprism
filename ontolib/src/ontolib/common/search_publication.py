@@ -32,11 +32,13 @@ class SearchIndexPublication:
         table: str,
         subject: str,
         upsert_sql: str,
+        record_key: str,
         bind_source_hash: bool = False,
-        record_key: str | None = None,
     ) -> None:
         if re.fullmatch(r"[a-z_]+", table) is None:
             raise ValueError("search publication table must be a SQL identifier")
+        if re.fullmatch(r"[a-z_]+", record_key) is None:
+            raise ValueError("search publication record key must be an identifier")
         self._sf = session_factory
         self._table = table
         self._subject = subject
@@ -106,8 +108,6 @@ class SearchIndexPublication:
     def _validate_record_keys(
         self, records: Sequence[Mapping[str, object]], seen: set[object]
     ) -> None:
-        if self._record_key is None:
-            return
         keys = [record.get(self._record_key) for record in records]
         if None in keys or len(set(keys)) != len(keys) or not seen.isdisjoint(keys):
             raise SearchPublicationError(
@@ -130,8 +130,6 @@ class SearchIndexPublication:
             raise SearchPublicationError(
                 f"{self._subject} search row count differs from certified class count"
             )
-        if self._record_key is None:
-            return
         count_sql = text(f"SELECT COUNT(*) FROM {self._table}")  # noqa: S608
         stored = int((await session.execute(count_sql)).scalar_one())
         if stored != total:

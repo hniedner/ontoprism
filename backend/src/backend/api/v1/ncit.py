@@ -327,7 +327,8 @@ async def concept_detail(store: NcitStore, grid: NcitGrid, code: str) -> Concept
 
 @router.get("/semantic-types", response_model=list[str])
 async def semantic_type_domain(store: NcitStore, grid: NcitGrid) -> list[str]:
-    return await grid.read(lambda _: store.semantic_type_values())
+    values = await grid.read(lambda repository: _semantic_types_for(repository, store))
+    return list(values)
 
 
 @router.get("/concepts/{code}/similar", response_model=list[SimilarConcept])

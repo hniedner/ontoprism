@@ -85,7 +85,7 @@ def _browse_filters(column_text: Mapping[str, str], sources: list[UberonSource])
         "source",
         sources,
         expression=(f'IF(STRSTARTS(STR(?concept), "{_OBO}CL_"), "cl", "uberon")'),
-        multiple=False,
+        array_column=False,
         dialect="sparql",
     )
     return "\n".join(

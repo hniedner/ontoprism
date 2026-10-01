@@ -20,14 +20,19 @@ pytestmark = [
 def test_semantic_types_any_of_and_deterministic_projection(
     isolated_api_client: TestClient, isolated_qlever_url: str
 ) -> None:
-    async def add_second_type():
+    async def add_semantic_type_cases():
         async with SparqlHttpClient.for_qlever(isolated_qlever_url) as client:
             await client.update(
                 "PREFIX ncit: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#> "
-                'INSERT DATA { ncit:C3262 ncit:P106 "Disease or Syndrome" }'
+                "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
+                "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> "
+                'INSERT DATA { ncit:C3262 ncit:P106 "Disease or Syndrome" . '
+                'ncit:C999991 a owl:Class ; rdfs:label "Parity Growth Typed" ; '
+                'ncit:P106 "Neoplastic Process" . '
+                'ncit:C999992 a owl:Class ; rdfs:label "Parity Growth Untyped" . }'
             )
 
-    asyncio.run(add_second_type())
+    asyncio.run(add_semantic_type_cases())
     domain = isolated_api_client.get("/api/v1/ncit/semantic-types")
     assert domain.status_code == 200, domain.text
     assert domain.json() == sorted(set(domain.json()))
@@ -67,6 +72,37 @@ def test_semantic_types_any_of_and_deterministic_projection(
     )
     assert response.status_code == 200, response.text
     assert [row["code"] for row in response.json()["hits"]] == ["C3262"]
+
+    text_pages = []
+    for endpoint in ["list", "search"]:
+        params = {
+            "semantic_type_text": "Syndrome, Neo",
+            "label_text": "Neoplasm",
+        }
+        if endpoint == "search":
+            params["q"] = "neoplasm"
+        response = isolated_api_client.get(f"/api/v1/ncit/{endpoint}", params=params)
+        assert response.status_code == 200, response.text
+        assert [row["code"] for row in response.json()["hits"]] == ["C3262"]
+        text_pages.append(response.json()["hits"])
+    assert text_pages[0] == text_pages[1]
+
+    sort_pages = []
+    for endpoint in ["list", "search"]:
+        params = {
+            "sort": "semantic_type:asc",
+            "label_text": "Parity Growth",
+        }
+        if endpoint == "search":
+            params["q"] = "parity growth"
+        response = isolated_api_client.get(f"/api/v1/ncit/{endpoint}", params=params)
+        assert response.status_code == 200, response.text
+        assert [row["code"] for row in response.json()["hits"]] == [
+            "C999991",
+            "C999992",
+        ]
+        sort_pages.append(response.json()["hits"])
+    assert sort_pages[0] == sort_pages[1]
 
 
 @pytest.mark.integration

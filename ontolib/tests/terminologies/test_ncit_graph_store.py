@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.ncit.graph_store import (
     _MAX_NEIGHBORHOOD_NODES,
     NcitGraphStore,
@@ -27,6 +28,8 @@ class _RecordingClient:
 
     async def select(self, query: str) -> list[dict[str, str]]:
         self.queries.append(query)
+        if "COUNT(DISTINCT ?concept)" in query:
+            return [{"count": "0"}]
         if self._metadata and "GROUP_CONCAT" in query:
             self._metadata = False
             return [{"label": "Center"}]
@@ -677,6 +680,20 @@ async def test_list_concepts_memoizes_total(ncit_stub_url: str) -> None:
         assert page1.total == 2
         page2 = await store.list_concepts(limit=25, offset=1)
         assert page2.total == 2  # memoized after first call
+
+
+@pytest.mark.unit
+async def test_list_concepts_rejects_a_missing_count_binding() -> None:
+    class MissingCountClient:
+        async def select(self, query: str) -> list[dict[str, str]]:
+            if "COUNT(DISTINCT ?concept)" in query:
+                return []
+            return []
+
+    store = NcitGraphStore(MissingCountClient())  # type: ignore[arg-type]
+
+    with pytest.raises(StorageError, match="NCIt list count"):
+        await store.list_concepts()
 
 
 @pytest.mark.unit
