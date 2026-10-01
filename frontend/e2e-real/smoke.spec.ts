@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { gridCapabilities } from '../src/lib/repository-registry';
+import { gridCapabilities, type RepositoryId } from '../src/lib/repository-registry';
 
 const region = (page: Page, name: string) => page.getByRole('region', { name, exact: true });
 
@@ -78,6 +78,38 @@ async function filter(page: Page, regionName: string, column: string, option: st
 	if (displayMatchesSelection) for (const text of await cells.allTextContents()) expect(text.trim()).toBe(rendered);
 }
 
+async function declaredControls(page: Page, repository: RepositoryId, regionName: string): Promise<void> {
+	const declaration = gridCapabilities(repository);
+	const table = region(page, regionName);
+	for (const sortValue of declaration.sorts.search.filter((value) => value.endsWith(':asc'))) {
+		const column = sortValue.split(':')[0];
+		const header = table.locator(`th[data-column-id="${column}"]`);
+		const name = (await header.getByRole('button', { name: /^Sort by / }).getAttribute('aria-label'))!.replace(/^Sort by /, '');
+		await sort(page, regionName, name, sortValue, column === 'label' ? 'label' : 'text');
+	}
+	for (const [column, control] of Object.entries(declaration.filters).sort(([, a], [, b]) => Number(b.kind === 'categorical') - Number(a.kind === 'categorical'))) {
+		const header = table.locator(`th[data-column-id="${column}"]`);
+		const button = header.getByRole('button', { name: /^Filter / });
+		const label = (await button.getAttribute('aria-label'))!.replace(/^Filter /, '');
+		const columnIndex = await header.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element));
+		const current = (await table.locator('tbody tr').first().locator('td').nth(columnIndex).textContent())!.trim();
+		let textValue = current;
+		if (control.kind === 'categorical') {
+			const [value, rendered] = control.source_domain ? [current, current] : Object.entries(control.values)[0]!;
+			await filter(page, regionName, label, rendered, column, value, rendered, !control.multiple);
+			textValue = rendered;
+			await page.keyboard.press('Escape');
+		}
+		await button.click();
+		const input = page.getByRole('textbox', { name: `Filter ${label} text` });
+		await input.fill(textValue);
+		await input.press('Enter');
+		await expect(page).toHaveURL((url) => url.searchParams.get(`text_${column}`) === textValue);
+		await rows(page, regionName);
+		await input.press('Escape');
+	}
+}
+
 test('read-only configured repository smoke', async ({ page }) => {
 	const errors: string[] = [];
 	page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
@@ -94,36 +126,8 @@ test('read-only configured repository smoke', async ({ page }) => {
 	await open('/repositories/ncit');
 	await rows(page, 'NCIt repository results');
 	await search(page, 'melanoma', 'NCIt repository results');
-	const ncit = gridCapabilities('ncit');
+	await declaredControls(page, 'ncit', 'NCIt repository results');
 	const table = region(page, 'NCIt repository results');
-	for (const sortValue of ncit.sorts.search.filter((value) => value.endsWith(':asc'))) {
-		const column = sortValue.split(':')[0];
-		const header = table.locator(`th[data-column-id="${column}"]`);
-		const name = (await header.getByRole('button', { name: /^Sort by / }).getAttribute('aria-label'))!.replace(/^Sort by /, '');
-		await sort(page, 'NCIt repository results', name, sortValue, column === 'label' ? 'label' : 'text');
-	}
-	await sort(page, 'NCIt repository results', 'Code', ncit.sorts.search.find((value) => value === 'code:asc')!);
-	for (const [column, control] of Object.entries(ncit.filters).sort(([, a], [, b]) => Number(b.kind === 'categorical') - Number(a.kind === 'categorical'))) {
-		const header = table.locator(`th[data-column-id="${column}"]`);
-		const button = header.getByRole('button', { name: /^Filter / });
-		const label = (await button.getAttribute('aria-label'))!.replace(/^Filter /, '');
-		const columnIndex = await header.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element));
-		const current = (await table.locator('tbody tr').first().locator('td').nth(columnIndex).textContent())!.trim();
-		let textValue = current;
-		if (control.kind === 'categorical') {
-			const [value, rendered] = control.source_domain ? [current, current] : Object.entries(control.values)[0];
-			await filter(page, 'NCIt repository results', label, rendered, column, value, rendered, !control.multiple);
-			textValue = rendered;
-			await page.keyboard.press('Escape');
-		}
-		await button.click();
-		const input = page.getByRole('textbox', { name: `Filter ${label} text` });
-		await input.fill(textValue);
-		await input.press('Enter');
-		await expect(page).toHaveURL((url) => url.searchParams.get(`text_${column}`) === textValue);
-		await rows(page, 'NCIt repository results');
-		await input.press('Escape');
-	}
 	const ncitCode = (await table.locator('tbody a').first().textContent())!.trim();
 	await detail(page, 'NCIt repository results', ncitCode);
 	await expect(page.getByRole('heading', { name: 'Concept graph' })).toBeVisible();
@@ -134,8 +138,7 @@ test('read-only configured repository smoke', async ({ page }) => {
 	await open('/repositories/uberon');
 	await rows(page, 'Uberon and Cell Ontology repository results');
 	await search(page, 'lung', 'Uberon and Cell Ontology repository results');
-	await sort(page, 'Uberon and Cell Ontology repository results', 'Code', 'code:asc');
-	await filter(page, 'Uberon and Cell Ontology repository results', 'Source', 'Uberon', 'source', 'uberon', 'Uberon');
+	await declaredControls(page, 'uberon', 'Uberon and Cell Ontology repository results');
 	await detail(page, 'Uberon and Cell Ontology repository results', 'UBERON:');
 	passed('Uberon list/search/sort/filter/detail: PASS');
 

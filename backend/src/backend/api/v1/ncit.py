@@ -10,7 +10,7 @@ from pydantic import Field, computed_field, model_validator
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.v1.alignment import mapping_relative_to
-from backend.api.v1.grid import GridService, PageSize
+from backend.api.v1.grid import GridService, PageSize, declared_grid, present_text
 from backend.config import get_settings
 from backend.dependencies import (
     DecompositionReads,
@@ -22,10 +22,6 @@ from backend.dependencies import (
 )
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import NcitRepositoryReady, RepositoryUnhealthy
-from backend.repository_registry import (
-    REPOSITORY_MANIFEST_PATH,
-    load_repository_registry,
-)
 from backend.security import has_icdo_entitlement
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.common.grid import ColumnText
@@ -204,30 +200,19 @@ def _column_text(
     status_text: ColumnText | None = None,
     semantic_type_text: ColumnText | None = None,
 ) -> dict[str, str]:
-    return {
-        key: value
-        for key, value in (
-            ("code", code_text),
-            ("label", label_text),
-            ("representation_status", status_text),
-            ("semantic_type", semantic_type_text),
-        )
-        if value is not None
-    }
+    return present_text(
+        code=code_text,
+        label=label_text,
+        representation_status=status_text,
+        semantic_type=semantic_type_text,
+    )
 
 
 NcitColumnText = Annotated[dict[str, str], Depends(_column_text)]
 
 
 def _grid(metadata: RepositoryMetadataReads) -> GridService[NcitRepositoryReady]:
-    descriptor = next(
-        entry
-        for entry in load_repository_registry(REPOSITORY_MANIFEST_PATH)
-        if entry.id == "ncit"
-    )
-    if descriptor.capabilities is None:
-        raise RuntimeError("NCIt grid capabilities are missing")
-    return GridService(descriptor.label, descriptor.capabilities, metadata.ncit)
+    return declared_grid("ncit", metadata.ncit)
 
 
 NcitGrid = Annotated[GridService[NcitRepositoryReady], Depends(_grid)]

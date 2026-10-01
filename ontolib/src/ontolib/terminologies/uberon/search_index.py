@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
 from sqlalchemy import text
 
+from ontolib.common import search_publication
+from ontolib.common.grid import categorical_predicate, sql_text_filters
 from ontolib.terminologies.uberon.models import (
     UberonSearchHit,
     UberonSearchPage,
@@ -14,30 +15,23 @@ from ontolib.terminologies.uberon.models import (
     UberonSource,
 )
 
+UberonSearchPublicationError = search_publication.SearchPublicationError
+populate_from_store = search_publication.populate_search_index
+
 if TYPE_CHECKING:
-    from collections.abc import (
-        AsyncIterable,
-        AsyncIterator,
-        Awaitable,
-        Callable,
-        Sequence,
-    )
-
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-    from ontolib.terminologies.uberon.graph_store import UberonGraphStore
 
 _SEARCH_SQL = r"""
 SELECT code, source, label
 FROM uberon_search, websearch_to_tsquery('english', :q) AS q
 WHERE tsv @@ q
-  AND (CAST(:source AS text) IS NULL OR source = CAST(:source AS text))
+  {column_filters}
 """
 _SEARCH_COUNT_SQL = """
 SELECT COUNT(*)
 FROM uberon_search, websearch_to_tsquery('english', :q) AS q
 WHERE tsv @@ q
-  AND (CAST(:source AS text) IS NULL OR source = CAST(:source AS text))
+  {column_filters}
 """
 # Relevance prioritizes an exact normalized label, then weighted term rank, then
 # shorter labels, and finally label/code as a deterministic identity tie-break.
@@ -52,86 +46,43 @@ _SEARCH_ORDERS: dict[UberonSearchSort, str] = {
     "label:asc": "label NULLS LAST, code",
     "label:desc": "label DESC NULLS LAST, code",
 }
-_READY_SQL = """
-SELECT EXISTS(
-  SELECT 1 FROM uberon_search_manifest manifest
-  WHERE manifest.singleton = true
-    AND manifest.source_identity = :source_identity
-    AND manifest.source_hash = :source_hash
-    AND manifest.row_count > 0
-    AND manifest.row_count = (SELECT COUNT(*) FROM uberon_search)
-)
-"""
+_SEARCH_TEXT_EXPRESSIONS = {
+    "code": "code",
+    "label": "label",
+    "source": "CASE source WHEN 'cl' THEN 'Cell Ontology' ELSE 'Uberon' END",
+}
 _UPSERT_SQL = """
 INSERT INTO uberon_search (code, source, label, synonyms)
 VALUES (:code, :source, :label, :synonyms)
 ON CONFLICT (code) DO UPDATE SET source = EXCLUDED.source, label = EXCLUDED.label,
   synonyms = EXCLUDED.synonyms
 """
-_PUBLISH_SQL = """
-INSERT INTO uberon_search_manifest
-  (singleton, source_identity, source_hash, row_count, built_at)
-VALUES (true, :source_identity, :source_hash, :row_count, now())
-"""
-_STORED_COUNT_SQL = "SELECT COUNT(*) FROM uberon_search"
-_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
-class UberonSearchPublicationError(RuntimeError):
-    """A source batch cannot be published as a complete certified search cache."""
+def _search_filters(
+    column_text: dict[str, str], source: UberonSource | None
+) -> tuple[str, dict[str, str | list[str]]]:
+    predicates, text_params = sql_text_filters(column_text, _SEARCH_TEXT_EXPRESSIONS)
+    source_predicate, source_params = categorical_predicate(
+        "source",
+        [source] if source else [],
+        expression="source",
+        multiple=False,
+        dialect="sql",
+    )
+    return predicates + source_predicate, {**text_params, **source_params}
 
 
-def _require_digest(name: str, value: str) -> None:
-    if _SHA256.fullmatch(value) is None:
-        raise ValueError(f"{name} must be a lowercase SHA-256 digest")
-
-
-def _require_new_codes(
-    records: Sequence[dict[str, str | None]], seen_codes: set[str]
-) -> None:
-    codes = [record.get("code") for record in records]
-    present_codes = [code for code in codes if code is not None]
-    if (
-        len(present_codes) != len(codes)
-        or len(set(present_codes)) != len(present_codes)
-        or not seen_codes.isdisjoint(present_codes)
-    ):
-        raise UberonSearchPublicationError(
-            "Uberon/CL search source contains a missing or duplicate code"
-        )
-    seen_codes.update(present_codes)
-
-
-def _require_publication_counts(
-    total: int, stored: int, expected_row_count: int | None
-) -> None:
-    if total <= 0:
-        raise UberonSearchPublicationError(
-            "Uberon/CL search source produced no records"
-        )
-    if expected_row_count is not None and total != expected_row_count:
-        raise UberonSearchPublicationError(
-            "Uberon/CL search row count differs from certified class count"
-        )
-    if stored != total:
-        raise UberonSearchPublicationError(
-            "Uberon/CL stored search row count differs from source rows"
-        )
-
-
-class UberonSearchIndex:
+class UberonSearchIndex(search_publication.SearchIndexPublication):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._sf = session_factory
-
-    async def is_populated(self, source_identity: str, source_hash: str) -> bool:
-        _require_digest("source_identity", source_identity)
-        _require_digest("source_hash", source_hash)
-        async with self._sf() as session:
-            result = await session.execute(
-                text(_READY_SQL),
-                {"source_identity": source_identity, "source_hash": source_hash},
-            )
-            return bool(result.scalar_one())
+        super().__init__(
+            session_factory,
+            table="uberon_search",
+            subject="Uberon/CL",
+            upsert_sql=_UPSERT_SQL,
+            bind_source_hash=True,
+            record_key="code",
+        )
 
     async def search(
         self,
@@ -141,14 +92,22 @@ class UberonSearchIndex:
         limit: int = 25,
         offset: int = 0,
         sort: UberonSearchSort = "relevance",
+        column_text: dict[str, str] | None = None,
     ) -> UberonSearchPage:
         async with self._sf() as session:
-            params = {"q": query, "source": source, "limit": limit, "offset": offset}
+            params: dict[str, str | int | list[str]] = {
+                "q": query,
+                "limit": limit,
+                "offset": offset,
+            }
+            predicates, bindings = _search_filters(column_text or {}, source)
+            params.update(bindings)
             count_result = await session.execute(
-                text(_SEARCH_COUNT_SQL), {"q": query, "source": source}
+                text(_SEARCH_COUNT_SQL.format(column_filters=predicates)), params
             )
             sql = (
-                f"{_SEARCH_SQL}\nORDER BY {_SEARCH_ORDERS[sort]} "
+                f"{_SEARCH_SQL.format(column_filters=predicates)}\n"
+                f"ORDER BY {_SEARCH_ORDERS[sort]} "
                 "LIMIT :limit OFFSET :offset"
             )
             result = await session.execute(
@@ -163,73 +122,9 @@ class UberonSearchIndex:
             offset=offset,
             sort=sort,
             source=source,
+            column_text=column_text or {},
             hits=[
                 UberonSearchHit(code=row.code, source=row.source, label=row.label)
                 for row in rows
             ],
         )
-
-    async def rebuild(
-        self,
-        batches: AsyncIterable[Sequence[dict[str, str | None]]],
-        *,
-        source_identity: str,
-        source_hash: str,
-        validate_source: Callable[[], Awaitable[None]] | None = None,
-        expected_row_count: int | None = None,
-    ) -> int:
-        _require_digest("source_identity", source_identity)
-        _require_digest("source_hash", source_hash)
-        total = 0
-        seen_codes: set[str] = set()
-        async with self._sf() as session, session.begin():
-            await session.execute(text("DELETE FROM uberon_search_manifest"))
-            await session.execute(text("DELETE FROM uberon_search"))
-            async for records in batches:
-                if records:
-                    _require_new_codes(records, seen_codes)
-                    await session.execute(text(_UPSERT_SQL), list(records))
-                    total += len(records)
-            stored = int((await session.execute(text(_STORED_COUNT_SQL))).scalar_one())
-            _require_publication_counts(total, stored, expected_row_count)
-            if validate_source is not None:
-                await validate_source()
-            await session.execute(
-                text(_PUBLISH_SQL),
-                {
-                    "source_identity": source_identity,
-                    "source_hash": source_hash,
-                    "row_count": total,
-                },
-            )
-        return total
-
-
-async def populate_from_store(
-    store: UberonGraphStore,
-    index: UberonSearchIndex,
-    *,
-    source_identity: str,
-    source_hash: str,
-    batch_size: int = 5000,
-    validate_source: Callable[[], Awaitable[None]] | None = None,
-    expected_row_count: int | None = None,
-) -> int:
-    """Atomically rebuild the FTS cache from deterministic QLever pages."""
-
-    async def pages() -> AsyncIterator[Sequence[dict[str, str | None]]]:
-        offset = 0
-        while True:
-            records = await store.search_records(limit=batch_size, offset=offset)
-            if not records:
-                return
-            yield records
-            offset += batch_size
-
-    return await index.rebuild(
-        pages(),
-        source_identity=source_identity,
-        source_hash=source_hash,
-        validate_source=validate_source,
-        expected_row_count=expected_row_count,
-    )

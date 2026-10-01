@@ -1,7 +1,7 @@
 // Typed same-origin client for the SvelteKit `/api` BFF. The BFF is the only frontend
 // transport to FastAPI in development and in the built adapter-node server.
 
-import { gridCapabilities } from './repository-registry';
+import { gridCapabilities, type RepositoryId } from './repository-registry';
 import type {
 	CdeDetail,
 	CdeRepositorySort,
@@ -31,6 +31,7 @@ import type {
 	, UberonNeighborhood
 	, UberonBrowsePage
 	, UberonBrowseSort
+	, UberonColumnText
 	, UberonSearchPage
 	, UberonSearchSort
 	, UberonSource
@@ -132,10 +133,11 @@ export async function postJsonBody<T>(
 	return (await resp.json()) as T;
 }
 
-function appendNcitColumnText(params: Record<string, string | number>, values: NcitColumnText = {}): void {
+function appendColumnText(params: Record<string, string | number>, repository: RepositoryId, values: Partial<Record<string, string>> = {}): void {
 	for (const [column, value] of Object.entries(values)) {
-		const filter = gridCapabilities('ncit').filters[column];
-		if (!filter) throw new Error(`Unknown NCIt text column: ${column}`);
+		const filter = gridCapabilities(repository).filters[column];
+		if (!filter) throw new Error(`Unknown ${repository} text column: ${column}`);
+		if (value === undefined) continue;
 		params[filter.text_parameter] = value;
 	}
 }
@@ -160,7 +162,7 @@ function ncitGridParams(opts: { limit?: number; offset?: number; representationS
 	const params: Record<string, string | number> = { limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
 	if (opts.representationStatus) params.representation_status = opts.representationStatus;
 	if (opts.sort) params.sort = opts.sort;
-	appendNcitColumnText(params, opts.columnText);
+	appendColumnText(params, 'ncit', opts.columnText);
 	return params;
 }
 
@@ -208,7 +210,7 @@ export function getNeighborhood(
 
 export function searchUberon(
 	q: string,
-	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: UberonSearchSort; fetch?: typeof fetch } = {}
+	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: UberonSearchSort; columnText?: UberonColumnText; fetch?: typeof fetch } = {}
 ): Promise<UberonSearchPage> {
 	const params: Record<string, string | number> = {
 		q,
@@ -217,11 +219,12 @@ export function searchUberon(
 	};
 	if (opts.source) params.source = opts.source;
 	if (opts.sort) params.sort = opts.sort;
+	appendColumnText(params, 'uberon', opts.columnText);
 	return getJson<UberonSearchPage>(apiUrl('/api/v1/uberon/search', params), opts.fetch);
 }
 
 export function listUberon(
-	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: UberonBrowseSort; fetch?: typeof fetch } = {}
+	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: UberonBrowseSort; columnText?: UberonColumnText; fetch?: typeof fetch } = {}
 ): Promise<UberonBrowsePage> {
 	const params: Record<string, string | number> = {
 		limit: opts.limit ?? 25,
@@ -229,6 +232,7 @@ export function listUberon(
 	};
 	if (opts.source) params.source = opts.source;
 	if (opts.sort) params.sort = opts.sort;
+	appendColumnText(params, 'uberon', opts.columnText);
 	return getJson<UberonBrowsePage>(apiUrl('/api/v1/uberon/list', params), opts.fetch);
 }
 

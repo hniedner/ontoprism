@@ -120,6 +120,37 @@ async def test_list_filters_source_before_page_and_memoizes_total() -> None:
     assert len([q for q in client.queries if "COUNT(DISTINCT ?concept)" in q]) == 1
 
 
+@pytest.mark.asyncio
+async def test_list_applies_displayed_code_label_and_source_text_before_page() -> None:
+    class _ListClient:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def select(self, query: str) -> list[dict[str, str]]:
+            self.queries.append(query)
+            if "COUNT(DISTINCT ?concept)" in query:
+                return [{"count": "0"}]
+            return []
+
+    client = _ListClient()
+    page = await UberonGraphStore(client).list_concepts(  # type: ignore[arg-type]
+        source="cl",
+        column_text={"code": "CL:", "label": "cell", "source": "Cell Ontology"},
+    )
+
+    assert page.column_text == {
+        "code": "CL:",
+        "label": "cell",
+        "source": "Cell Ontology",
+    }
+    query = next(value for value in client.queries if "LIMIT 25 OFFSET 0" in value)
+    assert '"cl"' in query
+    assert '"Cell Ontology"' in query
+    assert 'LCASE("CL:")' in query
+    assert "LCASE(STR(?label))" in query
+    assert query.index("FILTER") < query.index("LIMIT 25")
+
+
 def test_browse_page_requires_an_explicit_applied_source_echo() -> None:
     with pytest.raises(ValidationError, match="source"):
         UberonBrowsePage(total=0, limit=25, offset=0)  # type: ignore[call-arg]

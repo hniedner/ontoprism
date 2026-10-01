@@ -1,18 +1,12 @@
-"""Materialized full-text search over NCIt concepts (Postgres tsvector + GIN).
-
-Serves NCIt search from an index rather than a live SPARQL ``CONTAINS`` scan
-over ~204k classes per request. The QLever store stays the source of truth: this
-cache is (re)populated from it via :func:`populate_from_store`. The search endpoint
-fails closed when the source-bound certified publication is unavailable.
-"""
+"""Materialized full-text search over NCIt concepts (Postgres tsvector + GIN)."""
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
 from sqlalchemy import text
 
+from ontolib.common import search_publication
 from ontolib.common.grid import categorical_predicate, sql_text_filters
 from ontolib.terminologies.ncit.models import (
     RepositorySearchSort,
@@ -21,12 +15,10 @@ from ontolib.terminologies.ncit.models import (
     SearchPage,
 )
 
+populate_from_store = search_publication.populate_search_index
+
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterable, AsyncIterator, Sequence
-
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-    from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 
 # websearch_to_tsquery gives users familiar query syntax (quoted phrases, OR, -term)
 # while being injection-safe. Relevance ordering has four load-bearing tiers:
@@ -105,29 +97,6 @@ _UPSERT_SQL = """
         representation_status = EXCLUDED.representation_status
 """
 
-_READY_SQL = """
-    SELECT EXISTS(
-        SELECT 1 FROM ncit_search_manifest manifest
-        WHERE manifest.singleton = true
-          AND manifest.source_identity = :source_identity
-          AND manifest.row_count > 0
-          AND manifest.row_count = (SELECT COUNT(*) FROM ncit_search)
-    )
-"""
-
-_PUBLISH_MANIFEST_SQL = """
-    INSERT INTO ncit_search_manifest (
-        singleton, source_identity, source_hash, row_count, built_at
-    ) VALUES (true, :source_identity, :source_hash, :row_count, now())
-"""
-
-_SHA256 = re.compile(r"[0-9a-f]{64}")
-
-
-def _require_source_digest(name: str, value: str) -> None:
-    if _SHA256.fullmatch(value) is None:
-        raise ValueError(f"{name} must be a lowercase SHA-256 digest")
-
 
 def _search_filters(
     column_text: dict[str, str] | None,
@@ -159,27 +128,14 @@ def _search_filters(
     return predicates, params
 
 
-class NcitSearchIndex:
-    """Read/write access to the ``ncit_search`` FTS cache."""
-
+class NcitSearchIndex(search_publication.SearchIndexPublication):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        """Wrap an async session factory bound to the Postgres database."""
-        self._sf = session_factory
-
-    async def count(self) -> int:
-        """Return the number of concepts in the materialized FTS index."""
-        async with self._sf() as session:
-            result = await session.execute(text("SELECT COUNT(*) FROM ncit_search"))
-            return int(result.scalar_one())
-
-    async def is_populated(self, source_identity: str) -> bool:
-        """True only for a complete cache bound to the active proxy identity."""
-        _require_source_digest("source_identity", source_identity)
-        async with self._sf() as session:
-            result = await session.execute(
-                text(_READY_SQL), {"source_identity": source_identity}
-            )
-            return bool(result.scalar_one())
+        super().__init__(
+            session_factory,
+            table="ncit_search",
+            subject="NCIt",
+            upsert_sql=_UPSERT_SQL,
+        )
 
     async def search(
         self,
@@ -238,68 +194,3 @@ class NcitSearchIndex:
             semantic_types=semantic_types or [],
             hits=hits,
         )
-
-    async def rebuild(
-        self,
-        batches: AsyncIterable[Sequence[dict[str, str | list[str] | None]]],
-        *,
-        source_identity: str,
-        source_hash: str,
-    ) -> int:
-        """Atomically replace the whole cache from an async stream of record batches.
-
-        DELETE + all inserts run in ONE transaction: concurrent readers keep seeing the
-        previous complete snapshot (MVCC) until commit, and a mid-rebuild failure rolls
-        back to it. This preserves the certified-readiness invariant: a published,
-        source-bound index is complete, and reads fail closed when it is not ready.
-        DELETE (not TRUNCATE) so readers aren't blocked.
-        """
-        _require_source_digest("source_identity", source_identity)
-        _require_source_digest("source_hash", source_hash)
-        total = 0
-        async with self._sf() as session, session.begin():
-            await session.execute(text("DELETE FROM ncit_search_manifest"))
-            await session.execute(text("DELETE FROM ncit_search"))
-            async for records in batches:
-                if records:
-                    await session.execute(text(_UPSERT_SQL), list(records))
-                    total += len(records)
-            if total <= 0:
-                raise ValueError("NCIt search source produced no records")
-            await session.execute(
-                text(_PUBLISH_MANIFEST_SQL),
-                {
-                    "source_identity": source_identity,
-                    "source_hash": source_hash,
-                    "row_count": total,
-                },
-            )
-        return total
-
-
-async def populate_from_store(
-    store: NcitGraphStore,
-    index: NcitSearchIndex,
-    *,
-    source_identity: str,
-    source_hash: str,
-    batch_size: int = 5000,
-) -> int:
-    """Rebuild the FTS cache from the live store; returns the number of concepts cached.
-
-    Pages the store's search records and hands them to :meth:`NcitSearchIndex.rebuild`,
-    which applies them atomically.
-    """
-
-    async def _pages() -> AsyncIterator[Sequence[dict[str, str | list[str] | None]]]:
-        offset = 0
-        while True:
-            records = await store.search_records(limit=batch_size, offset=offset)
-            if not records:
-                return
-            yield records
-            offset += batch_size
-
-    return await index.rebuild(
-        _pages(), source_identity=source_identity, source_hash=source_hash
-    )

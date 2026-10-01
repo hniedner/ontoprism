@@ -77,12 +77,6 @@ class _SessionFactory:
 
 
 @pytest.mark.unit
-async def test_count_coerces_scalar_to_int() -> None:
-    sf = _SessionFactory({"COUNT(*)": _Result(scalar=42)})
-    assert await NcitSearchIndex(sf).count() == 42  # type: ignore[arg-type]
-
-
-@pytest.mark.unit
 async def test_is_populated_reflects_existence_probe() -> None:
     identity = "a" * 64
     ready = _SessionFactory({"EXISTS": _Result(scalar=True)})

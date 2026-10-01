@@ -103,16 +103,30 @@ async def test_search_filters_source_before_pagination() -> None:
     )
 
     page = await UberonSearchIndex(factory).search(  # type: ignore[arg-type]
-        "cell", source="cl", limit=10, offset=20, sort="label:desc"
+        "cell",
+        source="cl",
+        limit=10,
+        offset=20,
+        sort="label:desc",
+        column_text={"code": "CL:", "source": "Cell Ontology"},
     )
 
     assert page.hits[0].source == "cl"
     assert page.source == "cl"
+    assert page.column_text == {"code": "CL:", "source": "Cell Ontology"}
     sql, params = factory.executed[1]
-    assert sql.index("source = CAST(:source AS text)") < sql.index("LIMIT :limit")
+    assert sql.index("source = ANY") < sql.index("LIMIT :limit")
+    assert "CASE source WHEN 'cl' THEN 'Cell Ontology' ELSE 'Uberon' END" in sql
     assert "ORDER BY label DESC NULLS LAST, code" in sql
     assert "COUNT(*) OVER" not in sql
-    assert params == {"q": "cell", "source": "cl", "limit": 10, "offset": 20}
+    assert params == {
+        "q": "cell",
+        "limit": 10,
+        "offset": 20,
+        "code_text": "%CL:%",
+        "source_text": "%Cell Ontology%",
+        "source_selected": ["cl"],
+    }
 
 
 @pytest.mark.unit

@@ -54,9 +54,16 @@ def _source_arg(kwargs: dict[str, object]) -> UberonSource | None:
     return cast("UberonSource | None", value)
 
 
+def _column_text_arg(kwargs: dict[str, object]) -> dict[str, str]:
+    value = kwargs.get("column_text", {})
+    assert isinstance(value, dict)
+    return cast("dict[str, str]", value)
+
+
 class _Store:
     def __init__(self) -> None:
         self.search_calls: list[tuple[str, str | None]] = []
+        self.list_calls: list[dict[str, object]] = []
 
     async def search(self, query: str, **kwargs: object) -> UberonSearchPage:
         source = _source_arg(kwargs)
@@ -67,12 +74,14 @@ class _Store:
             limit=_int_arg(kwargs, "limit"),
             offset=_int_arg(kwargs, "offset"),
             source=source,
+            column_text=_column_text_arg(kwargs),
             hits=[
                 UberonSearchHit(code="UBERON:0002048", source="uberon", label="lung")
             ],
         )
 
     async def list_concepts(self, **kwargs: object) -> UberonBrowsePage:
+        self.list_calls.append(kwargs)
         source = _source_arg(kwargs)
         selected_source = source or "uberon"
         return UberonBrowsePage(
@@ -80,6 +89,7 @@ class _Store:
             limit=_int_arg(kwargs, "limit"),
             offset=_int_arg(kwargs, "offset"),
             source=source,
+            column_text=_column_text_arg(kwargs),
             hits=[
                 UberonSearchHit(
                     code="CL:0000000" if selected_source == "cl" else "UBERON:0002048",
@@ -124,6 +134,7 @@ class _Index:
             limit=_int_arg(kwargs, "limit"),
             offset=_int_arg(kwargs, "offset"),
             source=_source_arg(kwargs),
+            column_text=_column_text_arg(kwargs),
             hits=[UberonSearchHit(code="CL:0000000", source="cl", label="cached cell")],
         )
 
@@ -198,6 +209,50 @@ def test_search_uses_source_bound_cache_and_serializes_source_facet() -> None:
 
 
 @pytest.mark.api
+def test_list_and_search_apply_declared_text_and_source_filters() -> None:
+    store = _Store()
+    index = _Index(True)
+    client = next(_client(store, index))
+    params = {
+        "source": "cl",
+        "code_text": "CL:",
+        "label_text": "cell",
+        "source_text": "Cell Ontology",
+    }
+
+    listed = client.get("/api/v1/uberon/list", params=params)
+    searched = client.get("/api/v1/uberon/search", params={"q": "cell", **params})
+
+    assert listed.status_code == searched.status_code == 200
+    expected_text = {
+        "code": "CL:",
+        "label": "cell",
+        "source": "Cell Ontology",
+    }
+    assert store.list_calls == [
+        {
+            "source": "cl",
+            "limit": 25,
+            "offset": 0,
+            "sort": "source",
+            "column_text": expected_text,
+        }
+    ]
+    assert index.search_calls == [
+        {
+            "query": "cell",
+            "source": "cl",
+            "limit": 25,
+            "offset": 0,
+            "sort": "relevance",
+            "column_text": expected_text,
+        }
+    ]
+    assert listed.json()["column_text"] == expected_text
+    assert searched.json()["column_text"] == expected_text
+
+
+@pytest.mark.api
 def test_search_defaults_to_and_echoes_relevance_sort() -> None:
     index = _Index(True)
 
@@ -207,7 +262,14 @@ def test_search_defaults_to_and_echoes_relevance_sort() -> None:
 
     assert response.status_code == 200
     assert index.search_calls == [
-        {"query": "cell", "source": None, "limit": 25, "offset": 0, "sort": "relevance"}
+        {
+            "query": "cell",
+            "source": None,
+            "limit": 25,
+            "offset": 0,
+            "sort": "relevance",
+            "column_text": {},
+        }
     ]
     assert response.json()["sort"] == "relevance"
     assert response.json()["source"] is None
@@ -234,7 +296,7 @@ def test_search_database_failure_returns_explicit_unavailable_response() -> None
     )
 
     assert response.status_code == 503
-    assert "cache is unavailable" in response.json()["detail"]
+    assert "search index is unavailable" in response.json()["detail"]
     assert store.search_calls == []
 
 

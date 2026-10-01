@@ -26,7 +26,17 @@
 		"id": "uberon",
 		"label": "Uberon/CL",
 		"path": "/repositories/uberon",
-		"kind": "local-certified-proxy"
+		"kind": "local-certified-proxy",
+		"capabilities": {
+			"sorts": { "list": ["source", "code:asc", "code:desc", "label:asc", "label:desc"], "search": ["relevance", "source", "code:asc", "code:desc", "label:asc", "label:desc"] },
+			"filters": {
+				"code": { "kind": "text", "text_parameter": "code_text", "values": {} },
+				"label": { "kind": "text", "text_parameter": "label_text", "values": {} },
+				"source": { "kind": "categorical", "text_parameter": "source_text", "multiple": true, "values": { "uberon": "Uberon", "cl": "Cell Ontology" } }
+			},
+			"pagination": "offset", "query_before_results": false,
+			"metadata": "certified", "graph": "ontology", "links": "mapping"
+		}
 	},
 	{
 		"id": "icdo",
