@@ -1,6 +1,6 @@
 """Certified Uberon/CL list, search, detail, and neighborhood endpoints."""
 
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
@@ -74,16 +74,17 @@ async def search(
     grid: UberonGrid,
     q: Annotated[str, Query(min_length=1)],
     column_text: UberonColumnText,
-    source: UberonSource | None = None,
+    source: Annotated[list[UberonSource] | None, Query()] = None,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: UberonSearchSort = "relevance",
 ) -> UberonSearchPage:
-    grid.validate("search", sort, column_text, {"source": source})
+    sources = source or []
+    await grid.validate("search", sort, column_text, {"source": sources})
     return await grid.read(
         lambda _: index.search(
             q,
-            source=source,
+            sources=sources,
             limit=limit,
             offset=offset,
             sort=sort,
@@ -100,15 +101,16 @@ async def list_concepts(
     store: UberonStore,
     grid: UberonGrid,
     column_text: UberonColumnText,
-    source: UberonSource | None = None,
+    source: Annotated[list[UberonSource] | None, Query()] = None,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: UberonBrowseSort = "source",
 ) -> UberonBrowsePage:
-    grid.validate("list", sort, column_text, {"source": source})
+    sources = source or []
+    await grid.validate("list", sort, column_text, {"source": sources})
     return await grid.read(
         lambda _: store.list_concepts(
-            source=source,
+            sources=sources,
             limit=limit,
             offset=offset,
             sort=sort,
@@ -123,8 +125,7 @@ async def concept_detail(
     grid: UberonGrid,
     code: Annotated[str, Path(pattern=r"^(UBERON|CL):[0-9]+$")],
 ) -> UberonConceptDetail:
-    detail = await grid.read(lambda _: store.get_concept_detail(code), detail=code)
-    return cast("UberonConceptDetail", detail)
+    return await grid.read_detail(lambda _: store.get_concept_detail(code), detail=code)
 
 
 @router.get("/concepts/{code}/neighborhood", response_model=UberonNeighborhood)
@@ -134,9 +135,10 @@ async def neighborhood(
     code: Annotated[str, Path(pattern=r"^(UBERON|CL):[0-9]+$")],
     depth: Annotated[int, Query(ge=1, le=1)] = 1,
 ) -> UberonNeighborhood:
-    return await grid.read(
-        lambda _: store.get_neighborhood(code, depth=depth), detail=code
-    )
+    try:
+        return await grid.read(lambda _: store.get_neighborhood(code, depth=depth))
+    except LookupError as exc:
+        raise HTTPException(404, f"Concept not found: {code}") from exc
 
 
 @router.get("/concepts/{code}/alignments", response_model=UberonAlignments)

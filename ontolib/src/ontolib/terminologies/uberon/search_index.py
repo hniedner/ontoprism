@@ -60,12 +60,12 @@ ON CONFLICT (code) DO UPDATE SET source = EXCLUDED.source, label = EXCLUDED.labe
 
 
 def _search_filters(
-    column_text: dict[str, str], source: UberonSource | None
+    column_text: dict[str, str], sources: list[UberonSource]
 ) -> tuple[str, dict[str, str | list[str]]]:
     predicates, text_params = sql_text_filters(column_text, _SEARCH_TEXT_EXPRESSIONS)
     source_predicate, source_params = categorical_predicate(
         "source",
-        [source] if source else [],
+        sources,
         expression="source",
         multiple=False,
         dialect="sql",
@@ -88,7 +88,7 @@ class UberonSearchIndex(search_publication.SearchIndexPublication):
         self,
         query: str,
         *,
-        source: UberonSource | None = None,
+        sources: list[UberonSource] | None = None,
         limit: int = 25,
         offset: int = 0,
         sort: UberonSearchSort = "relevance",
@@ -100,7 +100,8 @@ class UberonSearchIndex(search_publication.SearchIndexPublication):
                 "limit": limit,
                 "offset": offset,
             }
-            predicates, bindings = _search_filters(column_text or {}, source)
+            resolved_sources = sources or []
+            predicates, bindings = _search_filters(column_text or {}, resolved_sources)
             params.update(bindings)
             count_result = await session.execute(
                 text(_SEARCH_COUNT_SQL.format(column_filters=predicates)), params
@@ -121,7 +122,7 @@ class UberonSearchIndex(search_publication.SearchIndexPublication):
             limit=limit,
             offset=offset,
             sort=sort,
-            source=source,
+            sources=resolved_sources,
             column_text=column_text or {},
             hits=[
                 UberonSearchHit(code=row.code, source=row.source, label=row.label)

@@ -53,7 +53,7 @@ MAX_NEIGHBORHOOD_CENTERS = 12
 _BROWSE_TEXT_EXPRESSIONS = {
     "code": "STRAFTER(STR(?concept), '#')",
     "label": "STR(?label)",
-    "semantic_type": "STR(?semtype)",
+    "semantic_type": "STR(?semtypes)",
     "representation_status": (
         'IF(BOUND(?representationStatusValue), "Legacy pre-coordinated", "")'
     ),
@@ -158,7 +158,9 @@ def _browse_hits(rows: Iterable[Mapping[str, str | None]]) -> list[SearchHit]:
         SearchHit(
             code=_code_of(concept),
             label=row.get("label"),
-            semantic_type=row.get("semtype"),
+            semantic_types=sorted(
+                set(filter(None, (row.get("semtypes") or "").split(_LIST_SEP)))
+            ),
             matched_synonym=None,
             representation_status=row.get("representationStatus"),  # type: ignore[arg-type]
         )
@@ -470,28 +472,32 @@ class NcitGraphStore:
             "code:desc": "DESC(?concept)",
             "label:asc": "?label ?concept",
             "label:desc": "DESC(?label) ?concept",
-            "semantic_type:asc": "DESC(BOUND(?semtype)) ?semtype ?concept",
-            "semantic_type:desc": "DESC(BOUND(?semtype)) DESC(?semtype) ?concept",
+            "semantic_type:asc": ("DESC(BOUND(?semtype)) ?semtype ?semtypes ?concept"),
+            "semantic_type:desc": (
+                "DESC(BOUND(?semtype)) DESC(?semtype) DESC(?semtypes) ?concept"
+            ),
         }[sort]
         page_status = _representation_status_pattern(
             "?concept", representation_status, include_unfiltered=True
         )
         filters = _browse_filters(column_text or {}, semantic_types or [])
         base = f"""{{ SELECT ?concept ?label (MIN(STR(?semtypeValue)) AS ?semtype)
+                (GROUP_CONCAT(DISTINCT STR(?semtypeValue);
+                    separator="{_LIST_SEP}") AS ?semtypes)
             WHERE {{ ?concept a owl:Class ; rdfs:label ?label .
                 OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtypeValue }}
                 FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
             }} GROUP BY ?concept ?label }}"""
         rows = await self._client.select(
             f"""{_PREFIXES}
-            SELECT ?concept ?label ?semtype
+            SELECT ?concept ?label ?semtype ?semtypes
                    (SAMPLE(?representationStatusValue) AS ?representationStatus)
             WHERE {{
                 {base}
                 {page_status}
                 {filters}
             }}
-            GROUP BY ?concept ?label ?semtype
+            GROUP BY ?concept ?label ?semtype ?semtypes
             ORDER BY {order} LIMIT {limit} OFFSET {offset}
             """
         )
@@ -608,7 +614,7 @@ class NcitGraphStore:
     # ------------------------------------------------------------- neighborhood
 
     async def semantic_type_values(self) -> list[str]:
-        """The closed filter domain comes from current source P106 assertions."""
+        """Publish current source P106 values for the controlled filter domain."""
         rows = await self._client.select(f"""{_PREFIXES}
             SELECT DISTINCT ?value WHERE {{
                 ?concept a owl:Class ; ncit:{pc.SEMANTIC_TYPE} ?value .

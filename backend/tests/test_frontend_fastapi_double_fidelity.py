@@ -80,7 +80,7 @@ pytestmark = pytest.mark.unit
                 "limit": 50,
                 "offset": 100,
                 "sort": "label:desc",
-                "source": "cl",
+                "sources": ["cl"],
             },
         ),
         (
@@ -91,7 +91,7 @@ pytestmark = pytest.mark.unit
                 "limit": 10,
                 "offset": 20,
                 "sort": "code:asc",
-                "source": "cl",
+                "sources": ["cl"],
             },
         ),
     ],

@@ -43,7 +43,7 @@ export interface ConceptDetail {
 export interface SearchHit {
 	code: string;
 	label: string | null;
-	semantic_type: string | null;
+	semantic_types: string[];
 	matched_synonym: string | null;
 	representation_status: RepresentationStatus | null;
 }
@@ -173,7 +173,7 @@ interface UberonPageBase {
 	total: number;
 	limit: number;
 	offset: number;
-	source: UberonSource | null;
+	sources: UberonSource[];
 	column_text: UberonColumnText;
 	hits: UberonSearchHit[];
 }

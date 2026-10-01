@@ -51,7 +51,10 @@ def test_semantic_types_any_of_and_deterministic_projection(
             page = response.json()
             assert [row["code"] for row in page["hits"]] == codes
             assert page["total"] == len(codes)
-            assert page["hits"][0]["semantic_type"] == "Disease or Syndrome"
+            assert page["hits"][0]["semantic_types"] == [
+                "Disease or Syndrome",
+                "Neoplastic Process",
+            ]
             pages.append(page["hits"])
         assert pages[0] == pages[1]
     response = isolated_api_client.get(

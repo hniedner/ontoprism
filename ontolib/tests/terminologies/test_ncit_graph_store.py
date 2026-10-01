@@ -633,7 +633,10 @@ async def test_list_concepts_returns_ordered_page(ncit_stub_url: str) -> None:
 
     assert page.total == 2
     assert [h.code for h in page.hits] == ["C3262", "C9305"]
-    assert page.hits[0].semantic_type == "Neoplastic Process"
+    assert page.hits[0].semantic_types == [
+        "Disease or Syndrome",
+        "Neoplastic Process",
+    ]
     assert page.hits[0].matched_synonym is None
 
 

@@ -1,7 +1,7 @@
 """Shared closed product vocabulary and source-safe repository text predicates."""
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Literal, get_args
 
 from pydantic import StringConstraints
@@ -73,13 +73,13 @@ def sparql_text_filters(
 
 def categorical_predicate(
     column: str,
-    selected: list[str],
+    selected: Sequence[str],
     *,
     expression: str,
     multiple: bool,
     dialect: Literal["sql", "sparql"],
 ) -> tuple[str, dict[str, list[str]]]:
-    """Any-of membership; SPARQL expression is a natively bound value per source row.
+    """Any-of membership over an expression evaluated for each source row.
 
     SQL multiple columns are text arrays; scalar columns are text. Column and
     expression are trusted repository declarations, never user-supplied query text.
@@ -92,6 +92,6 @@ def categorical_predicate(
         predicate = (
             f"{expression} && {values}" if multiple else f"{expression} = ANY({values})"
         )
-        return f" AND {predicate}", {parameter: selected}
+        return f" AND {predicate}", {parameter: list(selected)}
     values = ", ".join(json.dumps(value, ensure_ascii=True) for value in selected)
     return f"FILTER({expression} IN ({values}))", {}

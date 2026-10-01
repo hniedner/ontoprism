@@ -403,6 +403,17 @@ def test_semantic_type_any_of_selection_is_echoed(path: str) -> None:
 
 @pytest.mark.api
 @pytest.mark.parametrize("path", ["/api/v1/ncit/search?q=x", "/api/v1/ncit/list"])
+def test_semantic_type_selection_rejects_values_outside_certified_domain(
+    path: str,
+) -> None:
+    separator = "&" if "?" in path else "?"
+    response = next(_client()).get(f"{path}{separator}semantic_type=Not+A+Type")
+
+    assert response.status_code == 422
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("path", ["/api/v1/ncit/search?q=x", "/api/v1/ncit/list"])
 def test_status_filter_rejects_unknown_values(path: str) -> None:
     client = next(_client())
 
@@ -521,6 +532,20 @@ def test_concept_detail_malformed_code_is_404(ncit_client: TestClient) -> None:
     resp = ncit_client.get("/api/v1/ncit/concepts/bad code")
     assert resp.status_code == 404
     assert "Invalid code" in resp.json()["detail"]
+
+
+@pytest.mark.api
+def test_concept_detail_malformed_store_row_is_502() -> None:
+    class MalformedStore(_FakeStore):
+        async def get_concept_detail(self, code: str) -> ConceptDetail | None:
+            return ConceptDetail.model_validate({"code": code, "semantic_types": "bad"})
+
+    response = next(_client(store=MalformedStore())).get("/api/v1/ncit/concepts/C3262")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "NCIt repository returned an invalid or unavailable response."
+    )
 
 
 @pytest.mark.api

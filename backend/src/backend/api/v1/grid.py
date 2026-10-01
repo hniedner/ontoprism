@@ -1,16 +1,18 @@
 """Shared closed query vocabulary for repository grids."""
 
-from collections.abc import Awaitable, Callable, Mapping
-from typing import Annotated, Literal, Never
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from functools import cache
+from typing import Annotated, Literal
 
 from fastapi import HTTPException
-from pydantic import BeforeValidator
+from pydantic import BeforeValidator, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.repository_metadata import RepositoryUnhealthy
 from backend.repository_registry import (
     REPOSITORY_MANIFEST_PATH,
     GridCapabilities,
+    GridFilter,
     load_repository_registry,
 )
 from ontolib.common.grid import ProductPageSize
@@ -35,12 +37,10 @@ PageSize = Annotated[
 ]
 
 
-def _selection_values(value: str | list[str] | None) -> list[str]:
-    if isinstance(value, list):
-        return value
+def _selection_values(value: str | Sequence[str] | None) -> list[str]:
     if value is None:
         return []
-    return [value]
+    return [value] if isinstance(value, str) else list(value)
 
 
 def present_text(**values: str | None) -> dict[str, str]:
@@ -56,32 +56,53 @@ class GridService[Ready]:
         label: str,
         capabilities: GridCapabilities,
         certify: Callable[[], Awaitable[Ready | RepositoryUnhealthy]],
+        source_domains: (
+            Mapping[str, Callable[[Ready], Awaitable[Sequence[str]]]] | None
+        ) = None,
     ) -> None:
         self.label, self.capabilities, self.certify = label, capabilities, certify
+        self.source_domains = source_domains or {}
 
-    def validate(
+    async def validate(
         self,
         operation: Literal["list", "search"],
         sort: str,
         text: Mapping[str, str],
-        selected: Mapping[str, str | list[str] | None],
+        selected: Mapping[str, str | Sequence[str] | None],
     ) -> None:
         if sort not in self.capabilities.sorts[operation]:
             raise HTTPException(422, "Undeclared repository sort")
         if any(key not in self.capabilities.filters for key in text):
             raise HTTPException(422, "Undeclared repository text filter")
         for key, value in selected.items():
-            self._validate_selection(key, value)
+            await self._validate_selection(key, value)
 
-    def _validate_selection(self, key: str, value: str | list[str] | None) -> None:
+    async def _validate_selection(
+        self, key: str, value: str | Sequence[str] | None
+    ) -> None:
         definition = self.capabilities.filters.get(key)
         if definition is None or definition.kind != "categorical":
             raise HTTPException(422, "Undeclared repository categorical filter")
         values = _selection_values(value)
-        if not definition.source_domain and any(
-            v not in definition.values for v in values
-        ):
+        if not definition.multiple and len(values) > 1:
+            raise HTTPException(
+                422, "Repository filter does not accept multiple values"
+            )
+        domain = await self._selection_domain(definition, bool(values))
+        if any(v not in domain for v in values):
             raise HTTPException(422, "Undeclared repository filter value")
+
+    async def _selection_domain(
+        self, definition: GridFilter, selected: bool
+    ) -> Mapping[str, object] | Sequence[str]:
+        if not definition.source_domain or not selected:
+            return definition.values
+        resolver = self.source_domains.get(definition.source_domain)
+        if resolver is None:
+            raise RuntimeError(
+                f"{self.label} source domain {definition.source_domain!r} is missing"
+            )
+        return await resolver(await self.ready())
 
     async def ready(self) -> Ready:
         repository = await self.certify()
@@ -93,7 +114,6 @@ class GridService[Ready]:
         self,
         query: Callable[[Ready], Awaitable[Result]],
         *,
-        detail: str | None = None,
         available: Callable[[Ready], Awaitable[bool]] | None = None,
     ) -> Result:
         repository = await self.ready()
@@ -110,11 +130,24 @@ class GridService[Ready]:
                 502,
                 f"{self.label} repository returned an invalid or unavailable response.",
             ) from exc
-        except LookupError as exc:
-            self._raise_detail_error(detail, "Concept not found", exc)
-        except ValueError as exc:
-            self._raise_detail_error(detail, "Invalid code", exc)
-        return self._require_detail(result, detail)
+        except ValidationError as exc:
+            logger.warning("%s repository response is invalid: %s", self.label, exc)
+            raise HTTPException(
+                502,
+                f"{self.label} repository returned an invalid or unavailable response.",
+            ) from exc
+        return result
+
+    async def read_detail[Result](
+        self,
+        query: Callable[[Ready], Awaitable[Result | None]],
+        *,
+        detail: str,
+    ) -> Result:
+        result = await self.read(query)
+        if result is None:
+            raise HTTPException(404, f"Concept not found: {detail}")
+        return result
 
     async def _execute[Result](
         self,
@@ -128,31 +161,33 @@ class GridService[Ready]:
             )
         return await query(repository)
 
-    @staticmethod
-    def _raise_detail_error(
-        detail: str | None, message: str, cause: Exception
-    ) -> Never:
-        if detail is None:
-            raise cause
-        raise HTTPException(404, f"{message}: {detail}") from cause
 
-    @staticmethod
-    def _require_detail[Result](result: Result, detail: str | None) -> Result:
-        if detail is not None and result is None:
-            raise HTTPException(404, f"Concept not found: {detail}")
-        return result
+@cache
+def _declared(repository_id: str):
+    descriptor = next(
+        (
+            entry
+            for entry in load_repository_registry(REPOSITORY_MANIFEST_PATH)
+            if entry.id == repository_id
+        ),
+        None,
+    )
+    if descriptor is None:
+        raise RuntimeError(f"Repository {repository_id!r} is not declared")
+    return descriptor
 
 
 def declared_grid[Ready](
     repository_id: str,
     certify: Callable[[], Awaitable[Ready | RepositoryUnhealthy]],
+    source_domains: (
+        Mapping[str, Callable[[Ready], Awaitable[Sequence[str]]]] | None
+    ) = None,
 ) -> GridService[Ready]:
     """Build one grid guard from the tracked capability declaration."""
-    descriptor = next(
-        entry
-        for entry in load_repository_registry(REPOSITORY_MANIFEST_PATH)
-        if entry.id == repository_id
-    )
+    descriptor = _declared(repository_id)
     if descriptor.capabilities is None:
         raise RuntimeError(f"{descriptor.label} grid capabilities are missing")
-    return GridService(descriptor.label, descriptor.capabilities, certify)
+    return GridService(
+        descriptor.label, descriptor.capabilities, certify, source_domains
+    )

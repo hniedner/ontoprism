@@ -307,7 +307,7 @@ describe('Uberon/CL endpoints', () => {
 		const fetchImpl = vi.fn().mockResolvedValue(
 			jsonResponse({ query: 'cell', total: 0, limit: 25, offset: 0, hits: [] })
 		);
-		await searchUberon('cell', { source: 'cl', columnText: { code: 'CL:', source: 'Cell Ontology' }, fetch: fetchImpl });
+		await searchUberon('cell', { sources: ['cl'], columnText: { code: 'CL:', source: 'Cell Ontology' }, fetch: fetchImpl });
 		expect(fetchImpl.mock.calls[0][0]).toBe(
 			'/api/v1/uberon/search?q=cell&limit=25&offset=0&source=cl&code_text=CL%3A&source_text=Cell+Ontology'
 		);

@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 #    is underdetermined and a tied row can appear on two pages of a LIMIT/OFFSET walk,
 #    or on none.
 _SEARCH_SQL = r"""
-    SELECT code, label, semantic_types[1] AS semantic_type, representation_status
+    SELECT code, label, semantic_types, representation_status
     FROM ncit_search, websearch_to_tsquery('english', :q) AS q
     WHERE tsv @@ q
       {column_filters}
@@ -70,13 +70,17 @@ _SEARCH_ORDERS: dict[RepositorySearchSort, str] = {
     "code:desc": "code DESC",
     "label:asc": "label NULLS LAST, code",
     "label:desc": "label DESC NULLS LAST, code",
-    "semantic_type:asc": 'semantic_types[1] COLLATE "C" NULLS LAST, code',
-    "semantic_type:desc": 'semantic_types[1] COLLATE "C" DESC NULLS LAST, code',
+    "semantic_type:asc": (
+        "array_to_string(semantic_types, ', ') COLLATE \"C\" NULLS LAST, code"
+    ),
+    "semantic_type:desc": (
+        "array_to_string(semantic_types, ', ') COLLATE \"C\" DESC NULLS LAST, code"
+    ),
 }
 _SEARCH_TEXT_EXPRESSIONS = {
     "code": "code",
     "label": "label",
-    "semantic_type": "semantic_types[1]",
+    "semantic_type": "array_to_string(semantic_types, ' ')",
     "representation_status": (
         "CASE WHEN representation_status = 'legacy-precoordinated' "
         "THEN 'Legacy pre-coordinated' ELSE '' END"
@@ -135,6 +139,7 @@ class NcitSearchIndex(search_publication.SearchIndexPublication):
             table="ncit_search",
             subject="NCIt",
             upsert_sql=_UPSERT_SQL,
+            record_key="code",
         )
 
     async def search(
@@ -177,7 +182,7 @@ class NcitSearchIndex(search_publication.SearchIndexPublication):
             SearchHit(
                 code=row.code,
                 label=row.label,
-                semantic_type=row.semantic_type,
+                semantic_types=row.semantic_types,
                 matched_synonym=None,
                 representation_status=row.representation_status,
             )

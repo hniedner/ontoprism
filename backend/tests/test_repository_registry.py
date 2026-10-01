@@ -109,7 +109,7 @@ def test_declared_uberon_controls_include_ontology_and_two_source_filter() -> No
         ("source", {}, {"representation_status": "unknown"}),
     ],
 )
-def test_grid_refuses_controls_outside_declaration(sort, text, selected) -> None:
+async def test_grid_refuses_controls_outside_declaration(sort, text, selected) -> None:
     async def ready():
         return "ready"
 
@@ -117,5 +117,5 @@ def test_grid_refuses_controls_outside_declaration(sort, text, selected) -> None
     assert capabilities is not None
     grid = GridService("NCIt", capabilities, ready)
     with pytest.raises(HTTPException) as error:
-        grid.validate("list", sort, text, selected)
+        await grid.validate("list", sort, text, selected)
     assert error.value.status_code == 422

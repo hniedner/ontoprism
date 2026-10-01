@@ -39,6 +39,7 @@ function validateFilter(key: string, value: unknown): string {
 	if (!key || !['text', 'categorical'].includes(String(f.kind)) || (f.kind === 'categorical') !== Boolean(Object.keys(values).length || f.source_domain)) throw new TypeError('Invalid filter domain');
 	if (f.multiple !== undefined && typeof f.multiple !== 'boolean') throw new TypeError('Invalid multiplicity');
 	if (f.source_domain !== undefined && (typeof f.source_domain !== 'string' || !f.source_domain)) throw new TypeError('Invalid source domain');
+	if (f.source_domain !== undefined && Object.keys(values).length) throw new TypeError('Filter values and source domain are mutually exclusive');
 	if (Object.entries(values).some(([k, v]) => !k || typeof v !== 'string' || !v)) throw new TypeError('Invalid filter value');
 	if (typeof f.text_parameter !== 'string' || !/^[a-z_]+$/.test(f.text_parameter)) throw new TypeError('Invalid text parameter');
 	return f.text_parameter;

@@ -12,9 +12,9 @@
 	let { data }: PageProps = $props();
 	const controls = $derived(gridControls('ncit', data.domains));
 	const columns = $derived<readonly DataTableColumn<SearchHit>[]>([
-		{ id: 'code', label: 'Code', cell: codeCell, sortable: Object.keys(controls.sortKeys.code) as ('asc' | 'desc')[], filter: columnFilter('ncit', 'code', 'Filter NCIt codes'), sticky: { side: 'left', offset: 0 } },
-		{ id: 'label', label: 'Name', cell: labelCell, sortable: Object.keys(controls.sortKeys.label) as ('asc' | 'desc')[], filter: columnFilter('ncit', 'label', 'Filter NCIt names') },
-		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell, sortable: ['asc', 'desc'], filter: columnFilter('ncit', 'semantic_type', 'Filter NCIt semantic types', data.domains.semantic_type) },
+		{ id: 'code', label: 'Code', cell: codeCell, sortable: Object.keys(controls.sortKeys.code ?? {}) as ('asc' | 'desc')[], filter: columnFilter('ncit', 'code', 'Filter NCIt codes'), sticky: { side: 'left', offset: 0 } },
+		{ id: 'label', label: 'Name', cell: labelCell, sortable: Object.keys(controls.sortKeys.label ?? {}) as ('asc' | 'desc')[], filter: columnFilter('ncit', 'label', 'Filter NCIt names') },
+		{ id: 'semantic_type', label: 'Semantic type', cell: semanticTypeCell, sortable: Object.keys(controls.sortKeys.semantic_type ?? {}) as ('asc' | 'desc')[], filter: columnFilter('ncit', 'semantic_type', 'Filter NCIt semantic types', data.domains.semantic_type) },
 		{ id: 'representation_status', label: 'Status', cell: statusCell, filter: columnFilter('ncit', 'representation_status', 'Filter NCIt representation status') }
 	]);
 
@@ -27,7 +27,7 @@
 	<a href={resolve('/repositories/ncit/[code]', { code: hit.code })} class="font-medium text-default no-underline hover:text-primary-600">{hit.label ?? '—'}</a>
 {/snippet}
 {#snippet semanticTypeCell(hit: SearchHit)}
-	<span class="whitespace-nowrap text-muted">{hit.semantic_type ?? '—'}</span>
+	<span class="whitespace-nowrap text-muted">{hit.semantic_types.join(', ') || '—'}</span>
 {/snippet}
 {#snippet statusCell(hit: SearchHit)}
 	{#if hit.representation_status}<RepresentationStatusBadge status={hit.representation_status} />{:else}<span class="text-muted">—</span>{/if}

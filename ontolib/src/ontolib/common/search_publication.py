@@ -50,6 +50,8 @@ class SearchIndexPublication:
         require_digest("source_identity", source_identity)
         params = {"source_identity": source_identity}
         hash_clause = ""
+        if source_hash is not None and not self._bind_hash:
+            raise ValueError(f"{self._subject} publication does not bind a source hash")
         if self._bind_hash:
             if source_hash is None:
                 raise ValueError("source_hash is required")

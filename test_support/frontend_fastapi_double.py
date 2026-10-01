@@ -211,7 +211,7 @@ async def list_ncit(
             {
                 "code": "C3262",
                 "label": "SSR Neoplasm",
-                "semantic_type": "Neoplastic Process",
+                "semantic_types": ["Neoplastic Process"],
                 "matched_synonym": None,
                 "representation_status": "legacy-precoordinated",
             }
@@ -241,7 +241,7 @@ async def search_ncit(
             {
                 "code": code,
                 "label": f"SSR result for {q}",
-                "semantic_type": "Neoplastic Process",
+                "semantic_types": ["Neoplastic Process"],
                 "matched_synonym": None,
                 "representation_status": (
                     "legacy-precoordinated" if code == "C3262" else None
@@ -256,16 +256,17 @@ async def list_uberon(
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: UberonBrowseSort = "source",
-    source: UberonSource | None = None,
+    source: Annotated[list[UberonSource] | None, Query()] = None,
 ) -> dict[str, object]:
-    selected_source = source or "uberon"
+    sources = source or []
+    selected_source = sources[0] if len(sources) == 1 else "uberon"
     return {
         "query": "",
         "total": 1,
         "limit": limit,
         "offset": offset,
         "sort": sort,
-        "source": source,
+        "sources": sources,
         "hits": [
             {
                 "code": "CL:0000000" if selected_source == "cl" else "UBERON:0002048",
@@ -283,7 +284,7 @@ async def search_uberon(
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: UberonSearchSort = "relevance",
-    source: UberonSource | None = None,
+    source: Annotated[list[UberonSource] | None, Query()] = None,
 ) -> dict[str, object]:
     browse_sort: UberonBrowseSort = "source" if sort == "relevance" else sort
     result = await list_uberon(

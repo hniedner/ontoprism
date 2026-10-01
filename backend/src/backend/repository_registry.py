@@ -25,12 +25,28 @@ class GridFilter(CapabilityModel):
     multiple: bool = False
     source_domain: str | None = None
 
+    @field_validator("values")
+    @classmethod
+    def nonempty_values(cls, values: dict[str, str]) -> dict[str, str]:
+        if any(not key or not label for key, label in values.items()):
+            raise ValueError("filter values and labels must be nonempty")
+        return values
+
     @model_validator(mode="after")
     def valid_domain(self):
-        if (self.kind == "categorical") != bool(self.values or self.source_domain):
-            raise ValueError("only categorical filters require a value domain")
-        if any(not key or not label for key, label in self.values.items()):
-            raise ValueError("filter values and labels must be nonempty")
+        has_domain = bool(self.values) or self.source_domain is not None
+        if self.kind == "text":
+            if has_domain:
+                raise ValueError("text filters forbid a value domain")
+            return self
+        if not has_domain:
+            raise ValueError("categorical filters require a value domain")
+        return self
+
+    @model_validator(mode="after")
+    def exclusive_domain(self):
+        if self.values and self.source_domain:
+            raise ValueError("filter values and source_domain are mutually exclusive")
         return self
 
 

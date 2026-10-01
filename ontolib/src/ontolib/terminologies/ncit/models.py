@@ -82,7 +82,7 @@ class SearchHit(StrictBoundaryModel):
 
     code: str
     label: str | None = None
-    semantic_type: str | None = None
+    semantic_types: list[str] = Field(default_factory=list)
     matched_synonym: str | None = None
     representation_status: RepresentationStatus | None = None
 

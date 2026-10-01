@@ -3,7 +3,7 @@ mappings."""
 
 import asyncio
 from collections.abc import Mapping
-from typing import Annotated, cast
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import Field, computed_field, model_validator
@@ -211,8 +211,30 @@ def _column_text(
 NcitColumnText = Annotated[dict[str, str], Depends(_column_text)]
 
 
-def _grid(metadata: RepositoryMetadataReads) -> GridService[NcitRepositoryReady]:
-    return declared_grid("ncit", metadata.ncit)
+_semantic_type_cache: dict[str, tuple[str, ...]] = {}
+
+
+async def _semantic_types_for(
+    repository: NcitRepositoryReady, store: NcitStore
+) -> tuple[str, ...]:
+    source_identity = repository.source_identity
+    if source_identity not in _semantic_type_cache:
+        _semantic_type_cache.clear()
+        _semantic_type_cache[source_identity] = tuple(
+            await store.semantic_type_values()
+        )
+    return _semantic_type_cache[source_identity]
+
+
+def _grid(
+    metadata: RepositoryMetadataReads, store: NcitStore
+) -> GridService[NcitRepositoryReady]:
+    async def semantic_types(repository: NcitRepositoryReady) -> tuple[str, ...]:
+        return await _semantic_types_for(repository, store)
+
+    return declared_grid(
+        "ncit", metadata.ncit, source_domains={"semantic-types": semantic_types}
+    )
 
 
 NcitGrid = Annotated[GridService[NcitRepositoryReady], Depends(_grid)]
@@ -234,7 +256,7 @@ async def search(
     semantic_type: Annotated[list[ColumnText] | None, Query()] = None,
 ) -> SearchPage:
     """Search NCIt through the source-bound certified FTS publication."""
-    grid.validate(
+    await grid.validate(
         "search",
         sort,
         column_text,
@@ -272,7 +294,7 @@ async def list_concepts(
     semantic_type: Annotated[list[ColumnText] | None, Query()] = None,
 ) -> BrowsePage:
     """List concepts in the requested deterministic browse order."""
-    grid.validate(
+    await grid.validate(
         "list",
         sort,
         column_text,
@@ -296,8 +318,11 @@ async def list_concepts(
 @router.get("/concepts/{code}", response_model=ConceptDetail)
 async def concept_detail(store: NcitStore, grid: NcitGrid, code: str) -> ConceptDetail:
     """Return full concept detail — parents, roles, associations, incoming roles."""
-    detail = await grid.read(lambda _: store.get_concept_detail(code), detail=code)
-    return cast("ConceptDetail", detail)  # grid rejects missing details
+    try:
+        safe_iri(code, NCIT_NS)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
+    return await grid.read_detail(lambda _: store.get_concept_detail(code), detail=code)
 
 
 @router.get("/semantic-types", response_model=list[str])

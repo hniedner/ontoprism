@@ -17,14 +17,14 @@ const hits: SearchHit[] = [
 	{
 		code: 'C3',
 		label: 'Melanoma',
-		semantic_type: 'Neoplastic Process',
+		semantic_types: ['Neoplastic Process'],
 		matched_synonym: null,
 		representation_status: 'legacy-precoordinated'
 	},
 	{
 		code: 'C1',
 		label: 'Adenoma',
-		semantic_type: 'Neoplastic Process',
+		semantic_types: ['Neoplastic Process'],
 		matched_synonym: null,
 		representation_status: null
 	}
@@ -79,7 +79,7 @@ describe('NCIt page typed table snippets', () => {
 				{
 					code: 'C9',
 					label: null,
-					semantic_type: null,
+					semantic_types: [],
 					matched_synonym: null,
 					representation_status: null
 				}
@@ -100,7 +100,7 @@ describe('NCIt page typed table snippets', () => {
 
 	it('escapes every source-controlled NCIt field', () => {
 		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
-		const { container } = renderPage([{ ...hits[0], code: payload, label: payload, semantic_type: payload }]);
+		const { container } = renderPage([{ ...hits[0], code: payload, label: payload, semantic_types: [payload] }]);
 		expect(within(container).getAllByText(payload).length).toBeGreaterThanOrEqual(3);
 		expect(container.querySelector('tbody')!.querySelector('img,script,svg,[onerror],[onload]')).toBeNull();
 	});

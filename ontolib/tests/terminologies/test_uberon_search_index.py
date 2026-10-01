@@ -25,16 +25,22 @@ class _Result:
 
 
 class _Transaction:
+    def __init__(self, session: _Session) -> None:
+        self._session = session
+
     async def __aenter__(self) -> _Transaction:
+        self._session.in_transaction = True
         return self
 
     async def __aexit__(self, *_exc: object) -> bool:
+        self._session.in_transaction = False
         return False
 
 
 class _Session:
     def __init__(self, factory: _Factory) -> None:
         self.factory = factory
+        self.in_transaction = False
 
     async def __aenter__(self) -> _Session:
         return self
@@ -43,10 +49,12 @@ class _Session:
         return False
 
     def begin(self) -> _Transaction:
-        return _Transaction()
+        return _Transaction(self)
 
     async def execute(self, sql: Any, params: Any = None) -> _Result:
         statement = str(sql)
+        if statement.strip().startswith(("DELETE", "INSERT")):
+            assert self.in_transaction
         self.factory.executed.append((statement, params))
         if statement.strip() == "SELECT COUNT(*) FROM uberon_search":
             return _Result(scalar=self.factory.stored_rows)
@@ -104,7 +112,7 @@ async def test_search_filters_source_before_pagination() -> None:
 
     page = await UberonSearchIndex(factory).search(  # type: ignore[arg-type]
         "cell",
-        source="cl",
+        sources=["uberon", "cl"],
         limit=10,
         offset=20,
         sort="label:desc",
@@ -112,7 +120,7 @@ async def test_search_filters_source_before_pagination() -> None:
     )
 
     assert page.hits[0].source == "cl"
-    assert page.source == "cl"
+    assert page.sources == ["uberon", "cl"]
     assert page.column_text == {"code": "CL:", "source": "Cell Ontology"}
     sql, params = factory.executed[1]
     assert sql.index("source = ANY") < sql.index("LIMIT :limit")
@@ -125,7 +133,7 @@ async def test_search_filters_source_before_pagination() -> None:
         "offset": 20,
         "code_text": "%CL:%",
         "source_text": "%Cell Ontology%",
-        "source_selected": ["cl"],
+        "source_selected": ["uberon", "cl"],
     }
 
 
@@ -140,7 +148,7 @@ async def test_search_preserves_total_when_offset_page_is_empty() -> None:
     )
 
     assert page.total == 2
-    assert page.source is None
+    assert page.sources == []
     assert page.hits == []
 
 

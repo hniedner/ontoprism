@@ -48,10 +48,11 @@ def _int_arg(kwargs: dict[str, object], key: str) -> int:
     return value
 
 
-def _source_arg(kwargs: dict[str, object]) -> UberonSource | None:
-    value = kwargs.get("source")
-    assert value is None or value in ("uberon", "cl")
-    return cast("UberonSource | None", value)
+def _source_arg(kwargs: dict[str, object]) -> list[UberonSource]:
+    value = kwargs.get("sources", [])
+    assert isinstance(value, list)
+    assert all(source in ("uberon", "cl") for source in value)
+    return cast("list[UberonSource]", value)
 
 
 def _column_text_arg(kwargs: dict[str, object]) -> dict[str, str]:
@@ -62,18 +63,18 @@ def _column_text_arg(kwargs: dict[str, object]) -> dict[str, str]:
 
 class _Store:
     def __init__(self) -> None:
-        self.search_calls: list[tuple[str, str | None]] = []
+        self.search_calls: list[tuple[str, list[UberonSource]]] = []
         self.list_calls: list[dict[str, object]] = []
 
     async def search(self, query: str, **kwargs: object) -> UberonSearchPage:
-        source = _source_arg(kwargs)
-        self.search_calls.append((query, source))
+        sources = _source_arg(kwargs)
+        self.search_calls.append((query, sources))
         return UberonSearchPage(
             query=query,
             total=1,
             limit=_int_arg(kwargs, "limit"),
             offset=_int_arg(kwargs, "offset"),
-            source=source,
+            sources=sources,
             column_text=_column_text_arg(kwargs),
             hits=[
                 UberonSearchHit(code="UBERON:0002048", source="uberon", label="lung")
@@ -82,13 +83,13 @@ class _Store:
 
     async def list_concepts(self, **kwargs: object) -> UberonBrowsePage:
         self.list_calls.append(kwargs)
-        source = _source_arg(kwargs)
-        selected_source = source or "uberon"
+        sources = _source_arg(kwargs)
+        selected_source = sources[0] if len(sources) == 1 else "uberon"
         return UberonBrowsePage(
             total=1,
             limit=_int_arg(kwargs, "limit"),
             offset=_int_arg(kwargs, "offset"),
-            source=source,
+            sources=sources,
             column_text=_column_text_arg(kwargs),
             hits=[
                 UberonSearchHit(
@@ -133,7 +134,7 @@ class _Index:
             total=1,
             limit=_int_arg(kwargs, "limit"),
             offset=_int_arg(kwargs, "offset"),
-            source=_source_arg(kwargs),
+            sources=_source_arg(kwargs),
             column_text=_column_text_arg(kwargs),
             hits=[UberonSearchHit(code="CL:0000000", source="cl", label="cached cell")],
         )
@@ -199,7 +200,7 @@ def test_search_uses_source_bound_cache_and_serializes_source_facet() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["source"] == "cl"
+    assert response.json()["sources"] == ["cl"]
     assert response.json()["hits"][0] == {
         "code": "CL:0000000",
         "source": "cl",
@@ -231,7 +232,7 @@ def test_list_and_search_apply_declared_text_and_source_filters() -> None:
     }
     assert store.list_calls == [
         {
-            "source": "cl",
+            "sources": ["cl"],
             "limit": 25,
             "offset": 0,
             "sort": "source",
@@ -241,7 +242,7 @@ def test_list_and_search_apply_declared_text_and_source_filters() -> None:
     assert index.search_calls == [
         {
             "query": "cell",
-            "source": "cl",
+            "sources": ["cl"],
             "limit": 25,
             "offset": 0,
             "sort": "relevance",
@@ -250,6 +251,21 @@ def test_list_and_search_apply_declared_text_and_source_filters() -> None:
     ]
     assert listed.json()["column_text"] == expected_text
     assert searched.json()["column_text"] == expected_text
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("path", ["/api/v1/uberon/list", "/api/v1/uberon/search"])
+def test_source_multi_select_preserves_both_declared_values(path: str) -> None:
+    params = [("source", "uberon"), ("source", "cl")]
+    if path.endswith("search"):
+        params.append(("q", "cell"))
+    response = next(_client(_Store(), _Index(True))).get(
+        path,
+        params=params,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["sources"] == ["uberon", "cl"]
 
 
 @pytest.mark.api
@@ -264,7 +280,7 @@ def test_search_defaults_to_and_echoes_relevance_sort() -> None:
     assert index.search_calls == [
         {
             "query": "cell",
-            "source": None,
+            "sources": [],
             "limit": 25,
             "offset": 0,
             "sort": "relevance",
@@ -272,7 +288,7 @@ def test_search_defaults_to_and_echoes_relevance_sort() -> None:
         }
     ]
     assert response.json()["sort"] == "relevance"
-    assert response.json()["source"] is None
+    assert response.json()["sources"] == []
 
 
 @pytest.mark.api
@@ -358,7 +374,7 @@ def test_list_preserves_source_facet_and_detail_refuses_unknown_or_invalid() -> 
     invalid = client.get("/api/v1/uberon/concepts/bad")
 
     assert listed.status_code == 200
-    assert listed.json()["source"] == "cl"
+    assert listed.json()["sources"] == ["cl"]
     assert listed.json()["hits"][0]["source"] == "cl"
     assert unknown.status_code == 404
     assert "Concept not found" in unknown.json()["detail"]

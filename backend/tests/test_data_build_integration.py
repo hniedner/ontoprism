@@ -121,7 +121,7 @@ async def test_build_publishes_uberon_search_with_certified_source(
             text("SELECT source_identity FROM uberon_search_manifest WHERE singleton")
         )
     assert identity == "a" * 64
-    page = await UberonSearchIndex(session_factory).search("lung", source="uberon")
+    page = await UberonSearchIndex(session_factory).search("lung", sources=["uberon"])
     assert [(hit.code, hit.label) for hit in page.hits] == [("UBERON:0002048", "lung")]
 
 

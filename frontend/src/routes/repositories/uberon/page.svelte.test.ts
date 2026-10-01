@@ -20,6 +20,7 @@ const data = {
 			total: 26,
 			limit: 25,
 			offset: 25,
+			sources: ['uberon'],
 			column_text: {},
 			hits: [{ code: 'UBERON:0002048', label: 'lung', source: 'uberon', matched_synonym: null }]
 		},

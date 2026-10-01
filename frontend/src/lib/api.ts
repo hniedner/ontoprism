@@ -133,7 +133,7 @@ export async function postJsonBody<T>(
 	return (await resp.json()) as T;
 }
 
-function appendColumnText(params: Record<string, string | number>, repository: RepositoryId, values: Partial<Record<string, string>> = {}): void {
+function appendColumnText(params: Record<string, string | number | readonly string[]>, repository: RepositoryId, values: Partial<Record<string, string>> = {}): void {
 	for (const [column, value] of Object.entries(values)) {
 		const filter = gridCapabilities(repository).filters[column];
 		if (!filter) throw new Error(`Unknown ${repository} text column: ${column}`);
@@ -210,27 +210,27 @@ export function getNeighborhood(
 
 export function searchUberon(
 	q: string,
-	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: UberonSearchSort; columnText?: UberonColumnText; fetch?: typeof fetch } = {}
+	opts: { limit?: number; offset?: number; sources?: UberonSource[]; sort?: UberonSearchSort; columnText?: UberonColumnText; fetch?: typeof fetch } = {}
 ): Promise<UberonSearchPage> {
-	const params: Record<string, string | number> = {
+	const params: Record<string, string | number | readonly string[]> = {
 		q,
 		limit: opts.limit ?? 25,
 		offset: opts.offset ?? 0
 	};
-	if (opts.source) params.source = opts.source;
+	if (opts.sources?.length) params.source = opts.sources;
 	if (opts.sort) params.sort = opts.sort;
 	appendColumnText(params, 'uberon', opts.columnText);
 	return getJson<UberonSearchPage>(apiUrl('/api/v1/uberon/search', params), opts.fetch);
 }
 
 export function listUberon(
-	opts: { limit?: number; offset?: number; source?: UberonSource; sort?: UberonBrowseSort; columnText?: UberonColumnText; fetch?: typeof fetch } = {}
+	opts: { limit?: number; offset?: number; sources?: UberonSource[]; sort?: UberonBrowseSort; columnText?: UberonColumnText; fetch?: typeof fetch } = {}
 ): Promise<UberonBrowsePage> {
-	const params: Record<string, string | number> = {
+	const params: Record<string, string | number | readonly string[]> = {
 		limit: opts.limit ?? 25,
 		offset: opts.offset ?? 0
 	};
-	if (opts.source) params.source = opts.source;
+	if (opts.sources?.length) params.source = opts.sources;
 	if (opts.sort) params.sort = opts.sort;
 	appendColumnText(params, 'uberon', opts.columnText);
 	return getJson<UberonBrowsePage>(apiUrl('/api/v1/uberon/list', params), opts.fetch);

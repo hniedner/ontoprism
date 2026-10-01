@@ -34,16 +34,22 @@ class _Result:
 
 
 class _Begin:
+    def __init__(self, session: _Session) -> None:
+        self._session = session
+
     async def __aenter__(self) -> _Begin:
+        self._session.in_transaction = True
         return self
 
     async def __aexit__(self, *_exc: object) -> bool:
+        self._session.in_transaction = False
         return False
 
 
 class _Session:
     def __init__(self, factory: _SessionFactory) -> None:
         self._factory = factory
+        self.in_transaction = False
 
     async def __aenter__(self) -> _Session:
         return self
@@ -52,11 +58,14 @@ class _Session:
         return False
 
     def begin(self) -> _Begin:
-        return _Begin()
+        return _Begin(self)
 
     async def execute(self, sql: Any, params: Any = None) -> _Result:
-        self._factory.executed.append((str(sql).strip(), params))
-        return self._factory.result_for(str(sql))
+        statement = str(sql).strip()
+        if statement.startswith(("DELETE", "INSERT")):
+            assert self.in_transaction
+        self._factory.executed.append((statement, params))
+        return self._factory.result_for(statement)
 
 
 class _SessionFactory:
@@ -95,14 +104,14 @@ async def test_search_maps_rows_and_binds_params() -> None:
         SimpleNamespace(
             code="C3262",
             label="Neoplasm",
-            semantic_type="Neo",
+            semantic_types=["Disease or Syndrome", "Neoplastic Process"],
             representation_status="legacy-precoordinated",
             total=2,
         ),
         SimpleNamespace(
             code="C9305",
             label="Malignant",
-            semantic_type=None,
+            semantic_types=[],
             representation_status=None,
             total=2,
         ),
@@ -119,6 +128,8 @@ async def test_search_maps_rows_and_binds_params() -> None:
         offset=5,
         representation_status="legacy-precoordinated",
         sort="code:desc",
+        column_text={"semantic_type": "Neoplastic"},
+        semantic_types=["Disease or Syndrome", "Neoplastic Process"],
     )
 
     assert page.total == 2
@@ -128,6 +139,10 @@ async def test_search_maps_rows_and_binds_params() -> None:
         "legacy-precoordinated",
         None,
     ]
+    assert page.hits[0].semantic_types == [
+        "Disease or Syndrome",
+        "Neoplastic Process",
+    ]
     assert page.limit == 10
     _sql, params = sf.executed[1]
     assert params == {
@@ -135,12 +150,16 @@ async def test_search_maps_rows_and_binds_params() -> None:
         "limit": 10,
         "offset": 5,
         "representation_status_selected": ["legacy-precoordinated"],
+        "semantic_type_text": "%Neoplastic%",
+        "semantic_types_selected": ["Disease or Syndrome", "Neoplastic Process"],
     }
     sql = sf.executed[1][0]
     status_filter = (
         "representation_status = ANY(CAST(:representation_status_selected AS text[]))"
     )
     assert status_filter in sql
+    assert "semantic_types && CAST(:semantic_types_selected AS text[])" in sql
+    assert "array_to_string(semantic_types" in sql
     assert sql.index(status_filter) < sql.index("LIMIT :limit")
     assert "ORDER BY code DESC" in sql
     assert "COUNT(*) OVER" not in sql
@@ -166,7 +185,7 @@ async def _batches(
 
 @pytest.mark.unit
 async def test_rebuild_deletes_then_inserts_nonempty_batches() -> None:
-    sf = _SessionFactory({})
+    sf = _SessionFactory({"SELECT COUNT(*) FROM ncit_search": _Result(scalar=3)})
     index = NcitSearchIndex(sf)  # type: ignore[arg-type]
 
     total = await index.rebuild(
@@ -242,7 +261,7 @@ async def test_populate_from_store_pages_and_feeds_rebuild() -> None:
         for i in range(3)
     ]
     store = _FakeStore(records)
-    sf = _SessionFactory({})
+    sf = _SessionFactory({"SELECT COUNT(*) FROM ncit_search": _Result(scalar=3)})
     index = NcitSearchIndex(sf)  # type: ignore[arg-type]
 
     total = await populate_from_store(  # type: ignore[arg-type]

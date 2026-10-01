@@ -75,7 +75,7 @@ async def test_publication_is_identity_exact_and_failed_replacement_rolls_back()
         assert await index.is_populated(_SOURCE_IDENTITY, _SOURCE_HASH)
         assert not await index.is_populated("c" * 64, _SOURCE_HASH)
         assert not await index.is_populated(_SOURCE_IDENTITY, "d" * 64)
-        page = await index.search("lung", source="uberon")
+        page = await index.search("lung", sources=["uberon"])
         assert [(hit.code, hit.label) for hit in page.hits] == [
             ("UBERON:0002048", "lung")
         ]
@@ -90,7 +90,7 @@ async def test_publication_is_identity_exact_and_failed_replacement_rolls_back()
 
         assert await index.is_populated(_SOURCE_IDENTITY, _SOURCE_HASH)
         assert not await index.is_populated("e" * 64, "f" * 64)
-        preserved = await index.search("lung", source="uberon")
+        preserved = await index.search("lung", sources=["uberon"])
         assert [(hit.code, hit.label) for hit in preserved.hits] == [
             ("UBERON:0002048", "lung")
         ]
