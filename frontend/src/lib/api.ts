@@ -5,10 +5,12 @@ import { gridCapabilities, type RepositoryId } from './repository-registry';
 import type {
 	CdeDetail,
 	CadsrFilterDomains,
+	CadsrColumnText,
 	CdeRepositorySort,
 	CdeSearchPage,
 	CdeSummary,
 	IcdoBehaviour,
+	IcdoColumnText,
 	IcdoRecordLevel,
 	IcdoRepositorySort,
 	ConceptDecomposition,
@@ -291,7 +293,7 @@ interface IcdoGridOptions {
 	behaviour?: readonly IcdoBehaviour[];
 	level?: readonly IcdoRecordLevel[];
 	sort?: IcdoRepositorySort;
-	columnText?: Partial<Record<string, string>>;
+	columnText?: IcdoColumnText;
 	fetch?: typeof fetch;
 }
 
@@ -372,7 +374,7 @@ interface CadsrGridOptions {
 	offset?: number;
 	sort?: CdeRepositorySort;
 	filters?: Partial<Record<keyof CadsrFilterDomains, readonly string[]>>;
-	columnText?: Partial<Record<string, string>>;
+	columnText?: CadsrColumnText;
 	fetch?: typeof fetch;
 }
 

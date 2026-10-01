@@ -76,7 +76,11 @@ class GridService[Ready]:
     ) -> None:
         if sort not in self.capabilities.sorts[operation]:
             raise HTTPException(422, "Undeclared repository sort")
-        if any(key not in self.capabilities.filters for key in text):
+        if any(
+            key not in self.capabilities.filters
+            or self.capabilities.filters[key].text_parameter is None
+            for key in text
+        ):
             raise HTTPException(422, "Undeclared repository text filter")
         for key, value in selected.items():
             await self._validate_selection(key, value)
@@ -106,7 +110,8 @@ class GridService[Ready]:
             raise RuntimeError(
                 f"{self.label} source domain {definition.source_domain!r} is missing"
             )
-        return await resolver(await self.ready())
+        repository = await self.ready()
+        return await self._guarded_read(lambda: resolver(repository))
 
     async def ready(self) -> Ready:
         if self._certified is _UNCERTIFIED:
@@ -168,18 +173,23 @@ class GridService[Ready]:
         query: Callable[[Ready], Awaitable[Result | None]],
         *,
         detail: str,
+        noun: str = "Concept",
     ) -> Result:
         result = await self.read(query)
         if result is None:
-            raise HTTPException(404, f"Concept not found: {detail}")
+            raise HTTPException(404, f"{noun} not found: {detail}")
         return result
 
     async def read_detail_sync[Result](
-        self, query: Callable[[Ready], Result | None], *, detail: str
+        self,
+        query: Callable[[Ready], Result | None],
+        *,
+        detail: str,
+        noun: str = "Concept",
     ) -> Result:
         result = await self.read_sync(query)
         if result is None:
-            raise HTTPException(404, f"Concept not found: {detail}")
+            raise HTTPException(404, f"{noun} not found: {detail}")
         return result
 
     async def _execute[Result](

@@ -559,6 +559,38 @@ def test_list_refuses_a_typed_page_for_another_dataset(
 
 
 @pytest.mark.api
+def test_list_reports_invalid_response_shape_as_bad_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _InvalidResponse(_Store):
+        async def search(self, *args: object, **kwargs: object) -> IcdoSearchPage:
+            del args, kwargs
+            return IcdoSearchPage.model_construct(
+                edition="3.2",
+                axis="morphology",
+                query="",
+                total=1,
+                limit=25,
+                offset=0,
+                sort="source",
+                behaviour=(),
+                level=(),
+                column_text={},
+                hits=(SimpleNamespace(model_dump=lambda: {"code": "invalid"}),),
+            )
+
+    response = next(_client(_InvalidResponse(), monkeypatch)).get(
+        "/api/v1/icdo/3.2/morphology/list",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "ICD-O repository returned an invalid or unavailable response."
+    )
+
+
+@pytest.mark.api
 def test_detail_refuses_malformed_persisted_collection_field(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

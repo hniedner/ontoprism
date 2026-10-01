@@ -4,7 +4,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.dependencies import get_cadsr_repo, get_repository_metadata
+from backend.dependencies import (
+    get_cadsr_repo,
+    get_embedding_store,
+    get_repository_metadata,
+)
 from backend.repository_metadata import RepositoryUnhealthy
 
 
@@ -20,7 +24,9 @@ def test_cde_detail_renders_concepts_and_pvs(cadsr_client: TestClient) -> None:
 
 @pytest.mark.api
 def test_unknown_cde_is_404(cadsr_client: TestClient) -> None:
-    assert cadsr_client.get("/api/v1/cadsr/cdes/999999").status_code == 404
+    response = cadsr_client.get("/api/v1/cadsr/cdes/999999")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "CDE not found: 999999"
 
 
 @pytest.mark.api
@@ -83,6 +89,7 @@ def test_filter_domains_preserve_source_values(cadsr_client: TestClient) -> None
         "/api/v1/cadsr/list",
         "/api/v1/cadsr/search?q=neoplasm",
         "/api/v1/cadsr/cdes/100",
+        "/api/v1/cadsr/cdes/100/similar",
         "/api/v1/cadsr/filter-domains",
     ],
 )
@@ -113,6 +120,7 @@ def test_primary_reads_require_certification(
     assert isinstance(app, FastAPI)
     repository = UnreadableRepository()
     app.dependency_overrides[get_cadsr_repo] = lambda: repository
+    app.dependency_overrides[get_embedding_store] = object
     app.dependency_overrides[get_repository_metadata] = UnhealthyMetadata
 
     response = cadsr_client.get(path)

@@ -300,22 +300,24 @@ async def _grid_page(
     }
     await grid.validate(operation, sort, column_text, selected)
     ready = await grid.ready()
-    try:
-        result = await grid.read(
-            lambda _: repository.search(
-                dataset.edition,
-                dataset.axis,
-                query=query,
-                behaviour=tuple(behaviour or ()),
-                level=tuple(level or ()),
-                column_text=column_text,
-                limit=limit,
-                offset=offset,
-                generation_id=ready.activation_identity,
-                sort=sort,
-            )
+
+    async def read_page(_: IcdoRepositoryReady) -> IcdoPage:
+        result = await repository.search(
+            dataset.edition,
+            dataset.axis,
+            query=query,
+            behaviour=tuple(behaviour or ()),
+            level=tuple(level or ()),
+            column_text=column_text,
+            limit=limit,
+            offset=offset,
+            generation_id=ready.activation_identity,
+            sort=sort,
         )
         return _page_response(result, dataset, ready)
+
+    try:
+        return await grid.read(read_page)
     except IcdoRepositoryDataError as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O record data is invalid."

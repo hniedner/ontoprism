@@ -78,7 +78,10 @@ def sqlite_grid_filters(
     categorical_expressions: Mapping[str, str],
     text_expressions: Mapping[str, str],
 ) -> tuple[str, tuple[str, ...]]:
-    """Return SQLite predicates and positional bindings for declared grid fields."""
+    """Return SQLite predicates and positional bindings for declared grid fields.
+
+    SQLite ``lower`` is ASCII-only, so non-ASCII source text retains case sensitivity.
+    """
     unsupported = set(selected) - categorical_expressions.keys()
     unsupported |= set(text) - text_expressions.keys()
     if unsupported:

@@ -7,6 +7,7 @@ import sqlite3
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -48,8 +49,8 @@ _SUMMARY_COLS = (
     "public_id, version, short_name, long_name, context, datatype, "
     "workflow_status, registration_status, value_domain_type"
 )
-# Same columns qualified with the table name, for the FTS join (both cdes and cdes_fts
-# expose short_name/long_name/definition, so unqualified names are ambiguous there).
+# Same columns qualified with the table name for queries that join or append qualified
+# grid predicates; FTS also exposes short_name/long_name/definition.
 _SUMMARY_COLS_Q = ", ".join(f"cdes.{c}" for c in _SUMMARY_COLS.split(", "))
 # FTS5 special characters we strip from user tokens before quoting them (quoting each
 # token as a phrase both AND-combines them and neutralizes operator syntax).
@@ -119,6 +120,8 @@ class CdeRepository:
     def __init__(self, db_path: str | Path) -> None:
         """Wrap the caDSR SQLite DB at *db_path* (opened read-only per query)."""
         self._path = Path(db_path)
+        self._domain_lock = Lock()
+        self._domain_cache: tuple[str, dict[str, tuple[str, ...]]] | None = None
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -162,10 +165,10 @@ class CdeRepository:
         filters: Mapping[str, Sequence[str]] | None = None,
         column_text: Mapping[str, str] | None = None,
     ) -> CdeSearchPage:
-        """Search CDE short/long name and definition.
+        """Search CDE short/long name and definition with declared grid filters.
 
         Uses the ``cdes_fts`` FTS5 index when present and otherwise uses the table's
-        bounded ``LIKE`` search path.
+        bounded ``LIKE`` search path. Filters apply before pagination and the total.
         """
         applied_filters = filters or {}
         applied_text = column_text or {}
@@ -196,7 +199,8 @@ class CdeRepository:
         if not match:  # query was all punctuation/empty → no matches
             return _search_page(query, 0, limit, offset, sort, filters, column_text)
         # Count separately so pages beyond the final hit retain the authoritative total.
-        # Both bounded statements use the FTS index; the result order is deterministic.
+        # Both bounded statements use the FTS index; trusted expression maps supply
+        # grid_where while all source-query and filter values remain bound.
         grid_where, grid_params = _grid_filters(filters, column_text)
         count_source = (
             "cdes JOIN cdes_fts ON cdes_fts.rowid = cdes.rowid"
@@ -208,8 +212,8 @@ class CdeRepository:
             f"WHERE cdes_fts MATCH ?{grid_where}",
             (match, *grid_params),
         ).fetchone()["n"]
-        # S608: `_cde_order` selects a fixed SQL fragment from the closed
-        # CdeRepositorySort domain; the source query and page values remain bound.
+        # S608: `_cde_order` and the expression-map-backed predicates are fixed SQL;
+        # source-query, filter, and page values remain bound.
         rows = conn.execute(
             f"SELECT {_SUMMARY_COLS_Q} "  # noqa: S608
             "FROM cdes JOIN cdes_fts ON cdes_fts.rowid = cdes.rowid "
@@ -241,14 +245,14 @@ class CdeRepository:
             f"{grid_where}"
         )
         params = (like, like, like, *grid_params)
-        # S608 noqa: the interpolated parts (`where`, `_SUMMARY_COLS`) are module
-        # constants; all user values are bound parameters.
+        # S608: `where` combines fixed search SQL with predicates rendered from the
+        # trusted expression maps; all source-query and filter values are bound.
         total = conn.execute(
             f"SELECT COUNT(*) AS n FROM cdes WHERE {where}",  # noqa: S608
             params,
         ).fetchone()["n"]
-        # S608: `_cde_order` selects a fixed SQL fragment from the closed
-        # CdeRepositorySort domain; the source query and page values remain bound.
+        # S608: `_cde_order` and the expression-map-backed predicates are fixed SQL;
+        # source-query, filter, and page values remain bound.
         rows = conn.execute(
             f"SELECT {_SUMMARY_COLS_Q} FROM cdes WHERE {where} "  # noqa: S608
             f"ORDER BY {_cde_order(sort)} LIMIT ? OFFSET ?",
@@ -328,17 +332,18 @@ class CdeRepository:
         filters: Mapping[str, Sequence[str]] | None = None,
         column_text: Mapping[str, str] | None = None,
     ) -> CdeSearchPage:
-        """List all CDEs in the requested deterministic browse order."""
+        """List matching CDEs in the requested deterministic browse order."""
         applied_filters = filters or {}
         applied_text = column_text or {}
         with self._connect() as conn:
             grid_where, grid_params = _grid_filters(applied_filters, applied_text)
+            # S608: expression-map-backed predicates are fixed SQL; values are bound.
             total = conn.execute(
                 f"SELECT COUNT(*) AS n FROM cdes WHERE 1=1{grid_where}",  # noqa: S608
                 grid_params,
             ).fetchone()["n"]
-            # S608: `_cde_order` selects a fixed SQL fragment from the closed
-            # CdeRepositorySort domain; page values remain bound parameters.
+            # S608: `_cde_order` and expression-map-backed predicates are fixed SQL;
+            # filter and page values remain bound parameters.
             rows = conn.execute(
                 f"SELECT {_SUMMARY_COLS} FROM cdes WHERE 1=1{grid_where} "  # noqa: S608
                 f"ORDER BY {_cde_order(sort)} LIMIT ? OFFSET ?",
@@ -348,15 +353,28 @@ class CdeRepository:
             "", total, limit, offset, sort, applied_filters, applied_text, rows
         )
 
-    def filter_values(self, field: str) -> list[str]:
-        """Return the active source spellings for one declared categorical field."""
+    def filter_domains(self, generation: str) -> dict[str, list[str]]:
+        """Return all closed domains, cached for one certified serving generation."""
+        with self._domain_lock:
+            if self._domain_cache is None or self._domain_cache[0] != generation:
+                with self._connect() as conn:
+                    values = {
+                        field: tuple(self._filter_values(conn, field))
+                        for field in _CATEGORICAL_COLUMNS
+                    }
+                self._domain_cache = generation, values
+            return {
+                field: list(values) for field, values in self._domain_cache[1].items()
+            }
+
+    @staticmethod
+    def _filter_values(conn: sqlite3.Connection, field: str) -> list[str]:
         column = _CATEGORICAL_COLUMNS[field]
-        with self._connect() as conn:
-            rows = conn.execute(
-                f"SELECT DISTINCT {column} AS value FROM cdes "  # noqa: S608
-                f"WHERE {column} IS NOT NULL AND {column} != '' "
-                "ORDER BY value COLLATE NOCASE, value"
-            ).fetchall()
+        rows = conn.execute(
+            f"SELECT DISTINCT {column} AS value FROM cdes "  # noqa: S608
+            f"WHERE {column} IS NOT NULL AND {column} != '' "
+            "ORDER BY value COLLATE NOCASE, value"
+        ).fetchall()
         return [row["value"] for row in rows]
 
     def summaries_for(self, doc_ids: list[str]) -> dict[str, CdeSummary]:

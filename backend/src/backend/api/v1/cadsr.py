@@ -14,7 +14,7 @@ from backend.dependencies import (
     NcitStore,
     RepositoryMetadataReads,
 )
-from backend.repository_metadata import CadsrRepositoryReady, RepositoryUnhealthy
+from backend.repository_metadata import CadsrRepositoryReady
 from ontolib.common.grid import ColumnText
 from ontolib.repositories.cadsr.models import (
     CdeDetail,
@@ -88,8 +88,14 @@ CadsrFilters = Annotated[dict[str, list[str]], Depends(_filters)]
 def _grid(
     repo: CadsrRepo, metadata: RepositoryMetadataReads
 ) -> GridService[CadsrRepositoryReady]:
+    async def filter_domain(repository: CadsrRepositoryReady, field: str) -> list[str]:
+        domains = await run_in_threadpool(
+            repo.filter_domains, repository.manifest_identity
+        )
+        return domains[field]
+
     domains = {
-        domain: lambda _, field=field: run_in_threadpool(repo.filter_values, field)
+        domain: lambda repository, field=field: filter_domain(repository, field)
         for field, domain in _FILTER_DOMAINS.items()
     }
     return declared_grid("cadsr", metadata.cadsr, domains)
@@ -178,7 +184,7 @@ async def cde_detail(
 ) -> CdeDetail:
     """Return a CDE with its permissible values and NCIt concept links."""
     return await grid.read_detail_sync(
-        lambda _: repo.get_cde(public_id, version), detail=public_id
+        lambda _: repo.get_cde(public_id, version), detail=public_id, noun="CDE"
     )
 
 
@@ -186,21 +192,16 @@ async def cde_detail(
 async def similar_cdes(
     repo: CadsrRepo,
     embeddings: Embeddings,
-    metadata: RepositoryMetadataReads,
+    grid: CadsrGrid,
     public_id: str,
     version: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> list[SimilarCde]:
     """Semantically similar CDEs via 768-dim embeddings (pgvector cosine)."""
-    cde = repo.get_cde(public_id, version)  # resolve the concrete version
-    if cde is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"CDE not found: {public_id}")
-    repository = await metadata.cadsr()
-    if isinstance(repository, RepositoryUnhealthy):
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            repository.model_dump(mode="json"),
-        )
+    repository = await grid.ready()
+    cde = await grid.read_detail_sync(
+        lambda _: repo.get_cde(public_id, version), detail=public_id, noun="CDE"
+    )
     try:
         await embeddings.require_active_source(Corpus.CADSR, repository.source_identity)
         build_id = await embeddings.active_build_id(Corpus.CADSR)

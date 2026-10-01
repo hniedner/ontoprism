@@ -15,13 +15,11 @@
 
 	// Full browse/search page for a paginated local or remote repository. Each
 	// concrete repository supplies its copy and a `results` snippet for its table.
-	interface Props {
+	interface SharedProps {
 		title: string;
 		description: string;
 		route: string;
-		kind?: 'local-certified-proxy' | 'remote-live-service';
 		helpText: Snippet;
-		instruction?: Snippet;
 		placeholder: string;
 		ariaLabel: string;
 		suggestions: string[];
@@ -37,13 +35,27 @@
 		textKeys?: DataTableFilterKeyMap;
 		noMatchesLabel?: (query: string) => string;
 		navigationTotal?: number;
-		remote?: {
+	}
+
+	interface LocalProps {
+		kind?: 'local-certified-proxy';
+		instruction?: Snippet;
+		remote?: never;
+		cursor?: never;
+	}
+
+	interface RemoteProps {
+		kind: 'remote-live-service';
+		instruction: Snippet;
+		remote: {
 			service: 'NCBI PubMed' | 'ClinicalTrials.gov';
 			state: 'empty' | 'ready' | 'error';
 			error: { remoteState: 'unavailable' | 'rate-limited' | 'timeout'; message: string } | null;
 		};
 		cursor?: { trail: string[]; next: string | null };
 	}
+
+	type Props = SharedProps & (LocalProps | RemoteProps);
 
 	let {
 		title,
@@ -73,11 +85,8 @@
 
 	let queryValue = $derived(initial.query);
 	const mode = $derived(initial.query ? 'search' : 'browse');
-	const repositoryKind = $derived(kind ?? (remote ? 'remote-live-service' : 'local-certified-proxy'));
-	const remoteInstruction = $derived.by(() => {
-		if (remote && !instruction) throw new TypeError('Remote repository pages require an instruction.');
-		return instruction;
-	});
+	const repositoryKind = $derived(kind ?? 'local-certified-proxy');
+	const remoteInstruction = $derived(instruction);
 	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
 	const hasActiveFilters = $derived(Object.values(initial.filters).some((selected) => selected.length > 0) || Object.values(initial.textFilters ?? {}).some(Boolean));
 

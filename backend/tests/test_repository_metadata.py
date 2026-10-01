@@ -660,10 +660,9 @@ async def test_service_certifies_exact_active_ncit_manifest(
     settings = _Settings(
         ncit_store_dir=str(active), ncit_sparql_url="http://example.test:7888"
     )
-    cadsr = _CertifiedCadsr()
     service = RepositoryMetadataService(
         settings=settings,
-        cadsr=cadsr,
+        cadsr=_CertifiedCadsr(),
     )
 
     result = await service.ncit()
@@ -673,6 +672,20 @@ async def test_service_certifies_exact_active_ncit_manifest(
         result.manifest_identity
         == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     )
+
+
+async def test_cadsr_certification_is_cached_per_generation_input(
+    tmp_path: Path,
+) -> None:
+    cadsr = _CertifiedCadsr()
+    service = RepositoryMetadataService(
+        settings=_Settings(
+            ncit_store_dir=str(tmp_path / "ncit"),
+            ncit_sparql_url="http://ncit.test",
+        ),
+        cadsr=cadsr,
+    )
+
     assert (await service.cadsr()).state == "ready"
     assert (await service.cadsr()).state == "ready"
     assert cadsr.calls == 1

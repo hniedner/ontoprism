@@ -184,7 +184,7 @@ describe('RepoBrowsePage', () => {
 
 	it('hosts remote instruction and typed 429 states without rendering a false empty result', () => {
 		const common = {
-			title: 'PubMed', description: 'Literature', route: '/repositories/pubmed', helpText,
+			title: 'PubMed', description: 'Literature', route: '/repositories/pubmed', kind: 'remote-live-service' as const, helpText,
 			placeholder: 'Search…', ariaLabel: 'Search PubMed', suggestions: [], browseTitle: 'Articles',
 			countLabel: (count: number) => `${count} articles`, results: results as never,
 			initial: { result: { total: 0, hits: [] }, query: '', offset: 0, size: 25, sort: 'relevance', filters: {} },
@@ -213,7 +213,7 @@ describe('RepoBrowsePage', () => {
 	it('owns cursor navigation for a remote page', async () => {
 		appState.page.url = new URL('https://example.test/repositories/clinicaltrials?q=melanoma&cursor=opaque');
 		render(RepoBrowsePage, {
-			title: 'ClinicalTrials.gov', description: 'Trials', route: '/repositories/clinicaltrials', helpText,
+			title: 'ClinicalTrials.gov', description: 'Trials', route: '/repositories/clinicaltrials', kind: 'remote-live-service', helpText,
 			placeholder: 'Search…', ariaLabel: 'Search trials', suggestions: [], browseTitle: 'Trials',
 			countLabel: (count: number) => `${count} trials`, results: results as never,
 			initial: { result: { total: 42, hits: [{ id: 'trial' }] }, query: 'melanoma', offset: 0, size: 25, sort: 'relevance', filters: {} },

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections import Counter
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal, cast
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
@@ -61,6 +61,36 @@ app.state.pubmed_client = PubMedClient(
 )
 _requests: Counter[str] = Counter()
 _NEIGHBORHOOD_NODE_CAP = 400
+_CADSR_DOMAINS = {
+    "value_domain_type": ["Enumerated"],
+    "workflow_status": ["RELEASED"],
+    "registration_status": ["Standard", "Superceded", "Superseded"],
+    "context": ["NCIP"],
+    "datatype": ["CHARACTER"],
+}
+
+
+def _cadsr_grid():
+    async def ready() -> Literal["ready"]:
+        return "ready"
+
+    async def domain(_: str, field: str) -> list[str]:
+        return _CADSR_DOMAINS[field]
+
+    return declared_grid(
+        "cadsr",
+        ready,
+        {
+            source: lambda repository, field=field: domain(repository, field)
+            for field, source in {
+                "value_domain_type": "value-domain-types",
+                "workflow_status": "workflow-statuses",
+                "registration_status": "registration-statuses",
+                "context": "contexts",
+                "datatype": "datatypes",
+            }.items()
+        },
+    )
 
 
 def _synthetic_neighborhood(
@@ -791,13 +821,13 @@ async def list_cadsr(
     registration_status: Annotated[list[str] | None, Query()] = None,
     context: Annotated[list[str] | None, Query()] = None,
     datatype: Annotated[list[str] | None, Query()] = None,
-    public_id_text: str | None = None,
-    name_text: str | None = None,
-    value_domain_type_text: str | None = None,
-    workflow_status_text: str | None = None,
-    registration_status_text: str | None = None,
-    context_text: str | None = None,
-    datatype_text: str | None = None,
+    public_id_text: ColumnText | None = None,
+    name_text: ColumnText | None = None,
+    value_domain_type_text: ColumnText | None = None,
+    workflow_status_text: ColumnText | None = None,
+    registration_status_text: ColumnText | None = None,
+    context_text: ColumnText | None = None,
+    datatype_text: ColumnText | None = None,
 ) -> dict[str, object]:
     selected = {
         key: value
@@ -823,6 +853,7 @@ async def list_cadsr(
         }.items()
         if value is not None
     }
+    await _cadsr_grid().validate("list", sort, column_text, selected)
     return {
         "query": "",
         "total": 1,
@@ -858,13 +889,13 @@ async def search_cadsr(
     registration_status: Annotated[list[str] | None, Query()] = None,
     context: Annotated[list[str] | None, Query()] = None,
     datatype: Annotated[list[str] | None, Query()] = None,
-    public_id_text: str | None = None,
-    name_text: str | None = None,
-    value_domain_type_text: str | None = None,
-    workflow_status_text: str | None = None,
-    registration_status_text: str | None = None,
-    context_text: str | None = None,
-    datatype_text: str | None = None,
+    public_id_text: ColumnText | None = None,
+    name_text: ColumnText | None = None,
+    value_domain_type_text: ColumnText | None = None,
+    workflow_status_text: ColumnText | None = None,
+    registration_status_text: ColumnText | None = None,
+    context_text: ColumnText | None = None,
+    datatype_text: ColumnText | None = None,
 ) -> dict[str, object]:
     result = await list_cadsr(
         limit,
@@ -883,19 +914,19 @@ async def search_cadsr(
         context_text,
         datatype_text,
     )
+    await _cadsr_grid().validate(
+        "search",
+        sort,
+        cast("dict[str, str]", result["column_text"]),
+        cast("dict[str, list[str]]", result["filters"]),
+    )
     result["query"] = q
     return result
 
 
 @app.get("/api/v1/cadsr/filter-domains")
 async def cadsr_filter_domains() -> dict[str, list[str]]:
-    return {
-        "value_domain_type": ["Enumerated"],
-        "workflow_status": ["RELEASED"],
-        "registration_status": ["Standard", "Superceded", "Superseded"],
-        "context": ["NCIP"],
-        "datatype": ["CHARACTER"],
-    }
+    return _CADSR_DOMAINS
 
 
 @app.get("/api/v1/cadsr/cdes/{public_id}")

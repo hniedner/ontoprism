@@ -43,6 +43,9 @@ class _BrokenRepo:
     def find_cdes_by_concept(self, *_a: Any, **_k: Any) -> list[CdeSummary]:
         raise self._boom
 
+    def filter_domains(self, *_a: Any, **_k: Any) -> dict[str, list[str]]:
+        raise self._boom
+
 
 class _UnusedNcitStore:
     def __getattr__(self, name: str) -> None:
@@ -54,6 +57,17 @@ def broken_client() -> Iterator[TestClient]:
     app = create_app()
     app.dependency_overrides[get_cadsr_repo] = _BrokenRepo
     app.dependency_overrides[get_ncit_store] = _UnusedNcitStore
+
+    async def cadsr(*, force: bool = False) -> SimpleNamespace:
+        del force
+        return SimpleNamespace(
+            source_identity="f" * 64,
+            manifest_identity="e" * 64,
+        )
+
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        cadsr=cadsr
+    )
     with TestClient(app) as client:
         yield client
 
@@ -67,6 +81,8 @@ def broken_client() -> Iterator[TestClient]:
         "/api/v1/cadsr/cdes/100",
         "/api/v1/cadsr/concepts/C3262/cdes",
         "/api/v1/cadsr/cdes/100/neighborhood",
+        "/api/v1/cadsr/filter-domains",
+        "/api/v1/cadsr/list?workflow_status=RELEASED",
     ],
 )
 def test_sqlite_failure_maps_to_503(broken_client: TestClient, path: str) -> None:

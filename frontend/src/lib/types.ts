@@ -206,6 +206,8 @@ export type IcdoAccessStatus =
 	| 'ready-and-entitled'
 	| 'entitlement-required'
 	| 'unavailable';
+export type IcdoTextColumn = 'code' | 'preferred' | 'behaviour' | 'level';
+export type IcdoColumnText = Partial<Record<IcdoTextColumn, string>>;
 interface IcdoRecordBase {
 	code: string;
 	preferred: string | null;
@@ -279,7 +281,7 @@ interface IcdoPageBase {
 	sort: IcdoRepositorySort;
 	behaviour: IcdoBehaviour[];
 	level: IcdoRecordLevel[];
-	column_text: Record<string, string>;
+	column_text: IcdoColumnText;
 }
 
 export type IcdoPage =
@@ -303,6 +305,16 @@ export interface IcdoCongruenceReport {
 }
 
 // caDSR CDE read models (backend ontolib.repositories.cadsr.models).
+
+export type CadsrTextColumn =
+	| 'public_id'
+	| 'name'
+	| 'value_domain_type'
+	| 'workflow_status'
+	| 'registration_status'
+	| 'context'
+	| 'datatype';
+export type CadsrColumnText = Partial<Record<CadsrTextColumn, string>>;
 
 export interface ConceptLink {
 	concept_code: string;
@@ -342,7 +354,7 @@ export interface CdeSearchPage {
 	offset: number;
 	sort: CdeRepositorySort;
 	filters: Record<string, string[]>;
-	column_text: Record<string, string>;
+	column_text: CadsrColumnText;
 	hits: CdeSummary[];
 }
 

@@ -42,6 +42,23 @@ def test_search_matches_name(cadsr_db_path) -> None:
 
 
 @pytest.mark.unit
+def test_non_fts_search_applies_category_and_text_before_total_and_pagination(
+    cadsr_db_path,
+) -> None:
+    page = CdeRepository(cadsr_db_path).search(
+        "Definition",
+        limit=1,
+        filters={"context": ["caDSR"]},
+        column_text={"name": "neoplasm"},
+    )
+
+    assert page.total == 1
+    assert [hit.public_id for hit in page.hits] == ["100"]
+    assert page.filters == {"context": ["caDSR"]}
+    assert page.column_text == {"name": "neoplasm"}
+
+
+@pytest.mark.unit
 def test_find_cdes_by_concept_is_the_ncit_join(cadsr_db_path) -> None:
     hits = CdeRepository(cadsr_db_path).find_cdes_by_concept("C3262")
     assert [h.public_id for h in hits] == ["100"]
@@ -130,7 +147,7 @@ def test_each_displayed_filter_text_matches_before_pagination_and_total(
 
 
 @pytest.mark.unit
-def test_filter_values_preserve_distinct_source_spellings(cadsr_db_path) -> None:
+def test_filter_domains_preserve_distinct_source_spellings(cadsr_db_path) -> None:
     with sqlite3.connect(cadsr_db_path) as connection:
         connection.execute(
             "UPDATE cdes SET registration_status = 'Superceded' WHERE public_id = '100'"
@@ -140,9 +157,27 @@ def test_filter_values_preserve_distinct_source_spellings(cadsr_db_path) -> None
             "WHERE public_id = '2003771'"
         )
 
-    values = CdeRepository(cadsr_db_path).filter_values("registration_status")
+    values = CdeRepository(cadsr_db_path).filter_domains("generation")[
+        "registration_status"
+    ]
 
     assert values == ["Superceded", "Superseded"]
+
+
+@pytest.mark.unit
+def test_filter_domains_are_cached_for_one_certified_generation(cadsr_db_path) -> None:
+    repository = CdeRepository(cadsr_db_path)
+    initial = repository.filter_domains("generation-1")
+    with sqlite3.connect(cadsr_db_path) as connection:
+        connection.execute(
+            "UPDATE cdes SET workflow_status = 'DRAFT NEW' WHERE public_id = '2003771'"
+        )
+
+    assert repository.filter_domains("generation-1") == initial
+    assert repository.filter_domains("generation-2")["workflow_status"] == [
+        "DRAFT NEW",
+        "RELEASED",
+    ]
 
 
 @pytest.mark.unit
