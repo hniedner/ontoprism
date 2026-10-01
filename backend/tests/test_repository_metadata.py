@@ -603,7 +603,15 @@ async def test_live_uberon_observation_requires_serving_content_proof(
 
 
 class _CertifiedCadsr:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.generation = "same-generation"
+
+    def certification_inputs(self) -> str:
+        return self.generation
+
     def certification(self) -> tuple[CadsrSource, int, str]:
+        self.calls += 1
         return (
             CadsrSource(
                 url="https://example.test/released.zip",
@@ -652,9 +660,10 @@ async def test_service_certifies_exact_active_ncit_manifest(
     settings = _Settings(
         ncit_store_dir=str(active), ncit_sparql_url="http://example.test:7888"
     )
+    cadsr = _CertifiedCadsr()
     service = RepositoryMetadataService(
         settings=settings,
-        cadsr=_CertifiedCadsr(),
+        cadsr=cadsr,
     )
 
     result = await service.ncit()
@@ -664,7 +673,12 @@ async def test_service_certifies_exact_active_ncit_manifest(
         result.manifest_identity
         == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     )
-    assert service.cadsr().state == "ready"
+    assert (await service.cadsr()).state == "ready"
+    assert (await service.cadsr()).state == "ready"
+    assert cadsr.calls == 1
+    cadsr.generation = "replacement-generation"
+    assert (await service.cadsr()).state == "ready"
+    assert cadsr.calls == 2
 
 
 async def test_ncit_cache_expires_without_sliding_and_force_evicts_failure(

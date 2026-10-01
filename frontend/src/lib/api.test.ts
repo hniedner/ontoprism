@@ -16,6 +16,7 @@ import {
 	getCdeNeighborhood,
 	searchCadsr,
 	listCadsr,
+	getCadsrFilterDomains,
 	getCde,
 	cdesForConcept,
 	similarConcepts,
@@ -367,6 +368,24 @@ describe('caDSR endpoints', () => {
 			.mockResolvedValue(jsonResponse({ query: '', total: 0, limit: 25, offset: 0, hits: [] }));
 		await listCadsr({ fetch: fetchImpl });
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/list?limit=25&offset=0&sort=source');
+	});
+
+	it('listCadsr forwards repeated categorical and declared text filters', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ hits: [] }));
+		await listCadsr({
+			filters: { registration_status: ['Superceded', 'Superseded'] },
+			columnText: { datatype: 'char' },
+			fetch: fetchImpl
+		});
+		expect(fetchImpl.mock.calls[0][0]).toBe(
+			'/api/v1/cadsr/list?limit=25&offset=0&sort=source&registration_status=Superceded&registration_status=Superseded&datatype_text=char'
+		);
+	});
+
+	it('gets caDSR filter domains through the BFF', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}));
+		await getCadsrFilterDomains(fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/filter-domains');
 	});
 
 	it('getCde omits the version param when not given', async () => {

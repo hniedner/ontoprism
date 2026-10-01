@@ -4,6 +4,7 @@
 import { gridCapabilities, type RepositoryId } from './repository-registry';
 import type {
 	CdeDetail,
+	CadsrFilterDomains,
 	CdeRepositorySort,
 	CdeSearchPage,
 	CdeSummary,
@@ -366,29 +367,44 @@ export function getCdeNeighborhood(
 
 // --- caDSR ---
 
-export function searchCadsr(
-	q: string,
-	opts: { limit?: number; offset?: number; sort?: CdeRepositorySort; fetch?: typeof fetch } = {}
-): Promise<CdeSearchPage> {
-	const url = apiUrl('/api/v1/cadsr/search', {
-		q,
+interface CadsrGridOptions {
+	limit?: number;
+	offset?: number;
+	sort?: CdeRepositorySort;
+	filters?: Partial<Record<keyof CadsrFilterDomains, readonly string[]>>;
+	columnText?: Partial<Record<string, string>>;
+	fetch?: typeof fetch;
+}
+
+function cadsrGridParams(opts: CadsrGridOptions): Record<string, string | number | readonly string[]> {
+	const params: Record<string, string | number | readonly string[]> = {
 		limit: opts.limit ?? 25,
 		offset: opts.offset ?? 0,
 		sort: opts.sort ?? 'source'
-	});
+	};
+	for (const [key, values] of Object.entries(opts.filters ?? {})) if (values?.length) params[key] = values;
+	appendColumnText(params, 'cadsr', opts.columnText);
+	return params;
+}
+
+export function searchCadsr(
+	q: string,
+	opts: CadsrGridOptions = {}
+): Promise<CdeSearchPage> {
+	const url = apiUrl('/api/v1/cadsr/search', { q, ...cadsrGridParams(opts) });
 	return getJson<CdeSearchPage>(url, opts.fetch);
 }
 
 /** List caDSR CDEs in the requested deterministic browse order. */
 export function listCadsr(
-	opts: { limit?: number; offset?: number; sort?: CdeRepositorySort; fetch?: typeof fetch } = {}
+	opts: CadsrGridOptions = {}
 ): Promise<CdeSearchPage> {
-	const url = apiUrl('/api/v1/cadsr/list', {
-		limit: opts.limit ?? 25,
-		offset: opts.offset ?? 0,
-		sort: opts.sort ?? 'source'
-	});
+	const url = apiUrl('/api/v1/cadsr/list', cadsrGridParams(opts));
 	return getJson<CdeSearchPage>(url, opts.fetch);
+}
+
+export function getCadsrFilterDomains(fetchImpl?: typeof fetch): Promise<CadsrFilterDomains> {
+	return getJson<CadsrFilterDomains>(apiUrl('/api/v1/cadsr/filter-domains'), fetchImpl);
 }
 
 export function getCde(

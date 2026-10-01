@@ -36,6 +36,7 @@ _APP_OPERATIONS = {
     ("POST", "/api/v1/mappings/$translate"),
     ("GET", "/api/v1/cadsr/search"),
     ("GET", "/api/v1/cadsr/list"),
+    ("GET", "/api/v1/cadsr/filter-domains"),
     ("GET", "/api/v1/cadsr/cdes/{public_id}"),
     ("GET", "/api/v1/cadsr/cdes/{public_id}/similar"),
     ("GET", "/api/v1/cadsr/concepts/{concept_code}/cdes"),

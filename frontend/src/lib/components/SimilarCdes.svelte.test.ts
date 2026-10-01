@@ -16,6 +16,9 @@ const items: SimilarCde[] = [
 		long_name: 'Patient Age',
 		context: 'caDSR',
 		datatype: 'NUMBER',
+		workflow_status: 'RELEASED',
+		registration_status: 'Standard',
+		value_domain_type: 'NonEnumerated',
 		score: 0.88
 	}
 ];

@@ -124,7 +124,10 @@ class _Metadata:
     ) -> NcitRepositoryReady | RepositoryUnhealthy:
         return self._ncit
 
-    def cadsr(self) -> CadsrRepositoryReady | RepositoryUnhealthy:
+    async def cadsr(
+        self, *, force: bool = False
+    ) -> CadsrRepositoryReady | RepositoryUnhealthy:
+        del force
         return self._cadsr
 
     async def uberon(

@@ -102,9 +102,13 @@ class _FakeEmbeddings:
 
 
 def _with_embeddings(client: TestClient, emb: _FakeEmbeddings) -> None:
+    async def cadsr(*, force: bool = False) -> SimpleNamespace:
+        del force
+        return SimpleNamespace(source_identity="f" * 64)
+
     client.app.dependency_overrides[get_embedding_store] = lambda: emb  # type: ignore[attr-defined]
     client.app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(  # type: ignore[attr-defined]
-        cadsr=lambda: SimpleNamespace(source_identity="f" * 64)
+        cadsr=cadsr
     )
 
 

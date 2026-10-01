@@ -70,7 +70,7 @@ async def refresh(
     icdo = await metadata.icdo_access(force=True)
     repositories: list[RepositoryMetadata] = [
         await metadata.ncit(force=True),
-        metadata.cadsr(),
+        await metadata.cadsr(force=True),
         await metadata.uberon(force=True),
         *icdo.values(),
     ]

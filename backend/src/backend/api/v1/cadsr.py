@@ -3,17 +3,19 @@
 import sqlite3
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 
-from backend.api.v1.grid import PageSize
+from backend.api.v1.grid import GridService, PageSize, declared_grid, present_text
 from backend.dependencies import (
     CadsrRepo,
     Embeddings,
     NcitStore,
     RepositoryMetadataReads,
 )
-from backend.repository_metadata import RepositoryUnhealthy
+from backend.repository_metadata import CadsrRepositoryReady, RepositoryUnhealthy
+from ontolib.common.grid import ColumnText
 from ontolib.repositories.cadsr.models import (
     CdeDetail,
     CdeRepositorySort,
@@ -29,6 +31,71 @@ from ontolib.terminologies.ncit.graph_store import (
 from ontolib.terminologies.ncit.models import GraphEdge, GraphNode, Neighborhood
 
 router = APIRouter(prefix="/api/v1/cadsr", tags=["cadsr"])
+
+_FILTER_DOMAINS = {
+    "value_domain_type": "value-domain-types",
+    "workflow_status": "workflow-statuses",
+    "registration_status": "registration-statuses",
+    "context": "contexts",
+    "datatype": "datatypes",
+}
+
+
+def _column_text(
+    public_id_text: ColumnText | None = None,
+    name_text: ColumnText | None = None,
+    value_domain_type_text: ColumnText | None = None,
+    workflow_status_text: ColumnText | None = None,
+    registration_status_text: ColumnText | None = None,
+    context_text: ColumnText | None = None,
+    datatype_text: ColumnText | None = None,
+) -> dict[str, str]:
+    return present_text(
+        public_id=public_id_text,
+        name=name_text,
+        value_domain_type=value_domain_type_text,
+        workflow_status=workflow_status_text,
+        registration_status=registration_status_text,
+        context=context_text,
+        datatype=datatype_text,
+    )
+
+
+def _filters(
+    value_domain_type: Annotated[list[str] | None, Query()] = None,
+    workflow_status: Annotated[list[str] | None, Query()] = None,
+    registration_status: Annotated[list[str] | None, Query()] = None,
+    context: Annotated[list[str] | None, Query()] = None,
+    datatype: Annotated[list[str] | None, Query()] = None,
+) -> dict[str, list[str]]:
+    return {
+        key: value
+        for key, value in {
+            "value_domain_type": value_domain_type,
+            "workflow_status": workflow_status,
+            "registration_status": registration_status,
+            "context": context,
+            "datatype": datatype,
+        }.items()
+        if value is not None
+    }
+
+
+CadsrColumnText = Annotated[dict[str, str], Depends(_column_text)]
+CadsrFilters = Annotated[dict[str, list[str]], Depends(_filters)]
+
+
+def _grid(
+    repo: CadsrRepo, metadata: RepositoryMetadataReads
+) -> GridService[CadsrRepositoryReady]:
+    domains = {
+        domain: lambda _, field=field: run_in_threadpool(repo.filter_values, field)
+        for field, domain in _FILTER_DOMAINS.items()
+    }
+    return declared_grid("cadsr", metadata.cadsr, domains)
+
+
+CadsrGrid = Annotated[GridService[CadsrRepositoryReady], Depends(_grid)]
 
 
 def _resolve_similar_cdes(
@@ -48,49 +115,71 @@ def _resolve_similar_cdes(
     ]
 
 
+@router.get("/filter-domains")
+async def filter_domains(grid: CadsrGrid) -> dict[str, list[str]]:
+    """Return source spellings for the declared caDSR closed domains."""
+    return {field: await grid.filter_domain(field) for field in _FILTER_DOMAINS}
+
+
 @router.get("/search", response_model=CdeSearchPage)
-def search(
+async def search(
     repo: CadsrRepo,
+    grid: CadsrGrid,
     q: Annotated[str, Query(min_length=1)],
+    column_text: CadsrColumnText,
+    filters: CadsrFilters,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: CdeRepositorySort = "source",
 ) -> CdeSearchPage:
     """Search caDSR CDEs by short/long name and definition."""
-    try:
-        return repo.search(q, limit=limit, offset=offset, sort=sort)
-    except sqlite3.OperationalError as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    await grid.validate("search", sort, column_text, filters)
+    return await grid.read_sync(
+        lambda _: repo.search(
+            q,
+            limit=limit,
+            offset=offset,
+            sort=sort,
+            filters=filters,
+            column_text=column_text,
+        )
+    )
 
 
 @router.get("/list", response_model=CdeSearchPage)
-def list_cdes(
+async def list_cdes(
     repo: CadsrRepo,
+    grid: CadsrGrid,
+    column_text: CadsrColumnText,
+    filters: CadsrFilters,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: CdeRepositorySort = "source",
 ) -> CdeSearchPage:
     """List CDEs in the requested closed, deterministic sort order."""
-    try:
-        return repo.list_cdes(limit=limit, offset=offset, sort=sort)
-    except sqlite3.OperationalError as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    await grid.validate("list", sort, column_text, filters)
+    return await grid.read_sync(
+        lambda _: repo.list_cdes(
+            limit=limit,
+            offset=offset,
+            sort=sort,
+            filters=filters,
+            column_text=column_text,
+        )
+    )
 
 
 @router.get("/cdes/{public_id}", response_model=CdeDetail)
-def cde_detail(
+async def cde_detail(
     repo: CadsrRepo,
+    grid: CadsrGrid,
     public_id: str,
     version: Annotated[str | None, Query()] = None,
 ) -> CdeDetail:
     """Return a CDE with its permissible values and NCIt concept links."""
-    try:
-        cde = repo.get_cde(public_id, version)
-    except sqlite3.OperationalError as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-    if cde is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"CDE not found: {public_id}")
-    return cde
+    return await grid.read_detail_sync(
+        lambda _: repo.get_cde(public_id, version), detail=public_id
+    )
 
 
 @router.get("/cdes/{public_id}/similar", response_model=list[SimilarCde])
@@ -106,7 +195,7 @@ async def similar_cdes(
     cde = repo.get_cde(public_id, version)  # resolve the concrete version
     if cde is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"CDE not found: {public_id}")
-    repository = metadata.cadsr()
+    repository = await metadata.cadsr()
     if isinstance(repository, RepositoryUnhealthy):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,

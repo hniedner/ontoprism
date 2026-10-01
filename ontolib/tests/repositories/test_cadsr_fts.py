@@ -100,6 +100,15 @@ def test_fts_total_is_the_full_match_count_with_pagination(fts_db: Path) -> None
 
 
 @pytest.mark.unit
+def test_fts_filters_apply_before_pagination_and_total(fts_db: Path) -> None:
+    page = CdeRepository(fts_db).search("of", limit=1, column_text={"public_id": "100"})
+
+    assert page.total == 1
+    assert [hit.public_id for hit in page.hits] == ["100"]
+    assert page.column_text == {"public_id": "100"}
+
+
+@pytest.mark.unit
 def test_fts_past_end_page_retains_exact_total_with_bounded_statements(
     fts_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

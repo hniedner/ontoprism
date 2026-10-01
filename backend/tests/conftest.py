@@ -26,7 +26,12 @@ from backend.dependencies import (
     get_xref_store,
 )
 from backend.main import create_app
-from backend.repository_metadata import NcitRepositoryReady, RepositoryUnhealthy
+from backend.repository_metadata import (
+    CadsrRepositoryReady,
+    CadsrSourceMetadata,
+    NcitRepositoryReady,
+    RepositoryUnhealthy,
+)
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
 
@@ -116,7 +121,8 @@ class _IsolatedRepositoryMetadata:
             ),
         )
 
-    def cadsr(self) -> RepositoryUnhealthy:
+    async def cadsr(self, *, force: bool = False) -> RepositoryUnhealthy:
+        del force
         return RepositoryUnhealthy(
             repository="cadsr",
             reason="manifest-missing",
@@ -127,6 +133,32 @@ class _IsolatedRepositoryMetadata:
 class _EmptyNcitStore:
     async def get_concept_detail(self, _code: str) -> None:
         return None
+
+
+def _cadsr_ready() -> CadsrRepositoryReady:
+    return CadsrRepositoryReady(
+        source_identity="c" * 64,
+        manifest_identity="d" * 64,
+        item_count=1,
+        source=CadsrSourceMetadata(
+            url="https://example.test/cadsr.zip",
+            downloaded_at="2026-10-01T00:00:00Z",
+            etag=None,
+            last_modified=None,
+            archive_size=1,
+            archive_sha256="a" * 64,
+            member_count=1,
+            member_names_sha256="b" * 64,
+            first_member_timestamp="2026-01-01T00:00:00Z",
+            last_member_timestamp="2026-01-01T00:00:00Z",
+        ),
+    )
+
+
+class _CadsrRepositoryMetadata:
+    async def cadsr(self, *, force: bool = False) -> CadsrRepositoryReady:
+        del force
+        return _cadsr_ready()
 
 
 def _store_reachable(url: str) -> bool:
@@ -237,6 +269,7 @@ def cadsr_client(tmp_path: Path) -> Iterator[TestClient]:
     _build_cadsr_db(db)
     app = create_app()
     app.dependency_overrides[get_cadsr_repo] = lambda: CdeRepository(db)
+    app.dependency_overrides[get_repository_metadata] = _CadsrRepositoryMetadata
     with TestClient(app) as client:
         yield client
 

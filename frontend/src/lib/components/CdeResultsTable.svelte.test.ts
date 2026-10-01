@@ -10,7 +10,10 @@ const hits: CdeSummary[] = [
 		short_name: 'NEOPLASM_HIST',
 		long_name: 'Neoplasm Histology',
 		context: 'caDSR',
-		datatype: 'CHARACTER'
+		datatype: 'CHARACTER',
+		workflow_status: 'RELEASED',
+		registration_status: 'Standard',
+		value_domain_type: 'Enumerated'
 	},
 	{
 		public_id: '200',
@@ -18,7 +21,10 @@ const hits: CdeSummary[] = [
 		short_name: 'AGE',
 		long_name: 'Patient Age',
 		context: null,
-		datatype: null
+		datatype: null,
+		workflow_status: null,
+		registration_status: null,
+		value_domain_type: null
 	}
 ];
 
@@ -79,7 +85,7 @@ describe('CdeResultsTable', () => {
 	it('escapes every source-controlled CDE field', () => {
 		const payload = '<img src=x onerror=alert(1)><script>alert(2)</script><svg onload=alert(3)>';
 		const { container } = render(CdeResultsTable, {
-			hits: [{ public_id: payload, version: payload, short_name: payload, long_name: payload, context: payload, datatype: payload }]
+			hits: [{ public_id: payload, version: payload, short_name: payload, long_name: payload, context: payload, datatype: payload, workflow_status: payload, registration_status: payload, value_domain_type: payload }]
 		});
 		expect(within(container).getAllByText(payload).length).toBeGreaterThanOrEqual(5);
 		expect(container.querySelector('img,script,svg,[onerror],[onload]')).toBeNull();

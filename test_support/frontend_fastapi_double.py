@@ -786,13 +786,51 @@ async def list_cadsr(
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: CdeRepositorySort = "source",
+    value_domain_type: Annotated[list[str] | None, Query()] = None,
+    workflow_status: Annotated[list[str] | None, Query()] = None,
+    registration_status: Annotated[list[str] | None, Query()] = None,
+    context: Annotated[list[str] | None, Query()] = None,
+    datatype: Annotated[list[str] | None, Query()] = None,
+    public_id_text: str | None = None,
+    name_text: str | None = None,
+    value_domain_type_text: str | None = None,
+    workflow_status_text: str | None = None,
+    registration_status_text: str | None = None,
+    context_text: str | None = None,
+    datatype_text: str | None = None,
 ) -> dict[str, object]:
+    selected = {
+        key: value
+        for key, value in {
+            "value_domain_type": value_domain_type,
+            "workflow_status": workflow_status,
+            "registration_status": registration_status,
+            "context": context,
+            "datatype": datatype,
+        }.items()
+        if value is not None
+    }
+    column_text = {
+        key: value
+        for key, value in {
+            "public_id": public_id_text,
+            "name": name_text,
+            "value_domain_type": value_domain_type_text,
+            "workflow_status": workflow_status_text,
+            "registration_status": registration_status_text,
+            "context": context_text,
+            "datatype": datatype_text,
+        }.items()
+        if value is not None
+    }
     return {
         "query": "",
         "total": 1,
         "limit": limit,
         "offset": offset,
         "sort": sort,
+        "filters": selected,
+        "column_text": column_text,
         "hits": [
             {
                 "public_id": "2001",
@@ -801,6 +839,9 @@ async def list_cadsr(
                 "long_name": "Tumor Stage Code",
                 "context": "NCIP",
                 "datatype": "CHARACTER",
+                "workflow_status": "RELEASED",
+                "registration_status": "Standard",
+                "value_domain_type": "Enumerated",
             }
         ],
     }
@@ -812,10 +853,49 @@ async def search_cadsr(
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: CdeRepositorySort = "source",
+    value_domain_type: Annotated[list[str] | None, Query()] = None,
+    workflow_status: Annotated[list[str] | None, Query()] = None,
+    registration_status: Annotated[list[str] | None, Query()] = None,
+    context: Annotated[list[str] | None, Query()] = None,
+    datatype: Annotated[list[str] | None, Query()] = None,
+    public_id_text: str | None = None,
+    name_text: str | None = None,
+    value_domain_type_text: str | None = None,
+    workflow_status_text: str | None = None,
+    registration_status_text: str | None = None,
+    context_text: str | None = None,
+    datatype_text: str | None = None,
 ) -> dict[str, object]:
-    result = await list_cadsr(limit=limit, offset=offset, sort=sort)
+    result = await list_cadsr(
+        limit,
+        offset,
+        sort,
+        value_domain_type,
+        workflow_status,
+        registration_status,
+        context,
+        datatype,
+        public_id_text,
+        name_text,
+        value_domain_type_text,
+        workflow_status_text,
+        registration_status_text,
+        context_text,
+        datatype_text,
+    )
     result["query"] = q
     return result
+
+
+@app.get("/api/v1/cadsr/filter-domains")
+async def cadsr_filter_domains() -> dict[str, list[str]]:
+    return {
+        "value_domain_type": ["Enumerated"],
+        "workflow_status": ["RELEASED"],
+        "registration_status": ["Standard", "Superceded", "Superseded"],
+        "context": ["NCIP"],
+        "datatype": ["CHARACTER"],
+    }
 
 
 @app.get("/api/v1/cadsr/cdes/{public_id}")
@@ -869,6 +949,9 @@ async def get_similar_cdes(public_id: str) -> list[dict[str, object]]:
             ),
             "context": "NCIP",
             "datatype": "CHARACTER",
+            "workflow_status": "RELEASED",
+            "registration_status": "Standard",
+            "value_domain_type": "Enumerated",
             "score": 1.0 - index / 100,
         }
         for index in range(10)

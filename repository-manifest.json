@@ -20,7 +20,21 @@
 		"id": "cadsr",
 		"label": "caDSR",
 		"path": "/repositories/cadsr",
-		"kind": "local-certified-proxy"
+		"kind": "local-certified-proxy",
+		"capabilities": {
+			"sorts": { "list": ["source", "public_id:asc", "public_id:desc", "name:asc", "name:desc"], "search": ["source", "public_id:asc", "public_id:desc", "name:asc", "name:desc"] },
+			"filters": {
+				"public_id": { "kind": "text", "text_parameter": "public_id_text", "values": {} },
+				"name": { "kind": "text", "text_parameter": "name_text", "values": {} },
+				"value_domain_type": { "kind": "categorical", "text_parameter": "value_domain_type_text", "multiple": true, "source_domain": "value-domain-types", "values": {} },
+				"workflow_status": { "kind": "categorical", "text_parameter": "workflow_status_text", "multiple": true, "source_domain": "workflow-statuses", "values": {} },
+				"registration_status": { "kind": "categorical", "text_parameter": "registration_status_text", "multiple": true, "source_domain": "registration-statuses", "values": {} },
+				"context": { "kind": "categorical", "text_parameter": "context_text", "multiple": true, "source_domain": "contexts", "values": {} },
+				"datatype": { "kind": "categorical", "text_parameter": "datatype_text", "multiple": true, "source_domain": "datatypes", "values": {} }
+			},
+			"pagination": "offset", "query_before_results": false,
+			"metadata": "certified", "graph": "source-anchors", "links": "source-anchors"
+		}
 	},
 	{
 		"id": "uberon",

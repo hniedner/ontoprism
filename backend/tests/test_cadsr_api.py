@@ -1,7 +1,11 @@
 """caDSR API endpoints against a real temp SQLite DB (no mocks, CI-runnable)."""
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from backend.dependencies import get_cadsr_repo, get_repository_metadata
+from backend.repository_metadata import RepositoryUnhealthy
 
 
 @pytest.mark.api
@@ -36,6 +40,86 @@ def test_list_browses_without_a_query(cadsr_client: TestClient) -> None:
     assert body["query"] == ""
     assert body["total"] >= 1
     assert body["hits"][0]["public_id"] == "100"
+
+
+@pytest.mark.api
+def test_grid_filters_are_validated_applied_and_echoed(
+    cadsr_client: TestClient,
+) -> None:
+    response = cadsr_client.get(
+        "/api/v1/cadsr/list",
+        params={
+            "workflow_status": "RELEASED",
+            "name_text": "histology",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 1
+    assert body["filters"] == {"workflow_status": ["RELEASED"]}
+    assert body["column_text"] == {"name": "histology"}
+    assert body["hits"][0]["workflow_status"] == "RELEASED"
+
+
+@pytest.mark.api
+def test_filter_domains_preserve_source_values(cadsr_client: TestClient) -> None:
+    response = cadsr_client.get("/api/v1/cadsr/filter-domains")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "value_domain_type": ["Enumerated"],
+        "workflow_status": ["RELEASED"],
+        "registration_status": ["Standard"],
+        "context": ["caDSR"],
+        "datatype": ["CHARACTER"],
+    }
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/cadsr/list",
+        "/api/v1/cadsr/search?q=neoplasm",
+        "/api/v1/cadsr/cdes/100",
+        "/api/v1/cadsr/filter-domains",
+    ],
+)
+def test_primary_reads_require_certification(
+    cadsr_client: TestClient, path: str
+) -> None:
+    class UnreadableRepository:
+        calls = 0
+
+        def __getattr__(self, _name: str):
+            def fail(*_args, **_kwargs) -> None:
+                self.calls += 1
+                raise AssertionError("uncertified repository read")
+
+            return fail
+
+    class UnhealthyMetadata:
+        @staticmethod
+        async def cadsr(*, force: bool = False) -> RepositoryUnhealthy:
+            del force
+            return RepositoryUnhealthy(
+                repository="cadsr",
+                reason="repository-unreachable",
+                message="caDSR source drifted",
+            )
+
+    app = cadsr_client.app
+    assert isinstance(app, FastAPI)
+    repository = UnreadableRepository()
+    app.dependency_overrides[get_cadsr_repo] = lambda: repository
+    app.dependency_overrides[get_repository_metadata] = UnhealthyMetadata
+
+    response = cadsr_client.get(path)
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["reason"] == "repository-unreachable"
+    assert repository.calls == 0
 
 
 @pytest.mark.api

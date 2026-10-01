@@ -37,15 +37,15 @@ class CdeSummary(StrictBoundaryModel):
     long_name: str
     context: str | None = None
     datatype: str | None = None
+    workflow_status: str | None = None
+    registration_status: str | None = None
+    value_domain_type: str | None = None
 
 
 class CdeDetail(CdeSummary):
     """Full CDE detail, including its NCIt concept links and permissible values."""
 
     definition: str | None = None
-    workflow_status: str | None = None
-    registration_status: str | None = None
-    value_domain_type: str | None = None
     permissible_values: list[PermissibleValue] = Field(default_factory=list)
     concepts: list[ConceptLink] = Field(default_factory=list)
 
@@ -64,4 +64,6 @@ class CdeSearchPage(StrictBoundaryModel):
     limit: int
     offset: int
     sort: CdeRepositorySort = "source"
+    filters: dict[str, list[str]] = Field(default_factory=dict)
+    column_text: dict[str, str] = Field(default_factory=dict)
     hits: list[CdeSummary] = Field(default_factory=list)
