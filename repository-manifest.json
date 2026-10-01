@@ -42,7 +42,39 @@
 		"id": "icdo",
 		"label": "ICD-O",
 		"path": "/repositories/icdo",
-		"kind": "local-certified-proxy"
+		"kind": "local-certified-proxy",
+		"capabilities_by_dataset": {
+			"3.2/morphology": {
+				"sorts": { "list": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"], "search": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"] },
+				"filters": {
+					"code": { "kind": "text", "text_parameter": "code_text", "values": {} },
+					"preferred": { "kind": "text", "text_parameter": "preferred_text", "values": {} },
+					"behaviour": { "kind": "categorical", "text_parameter": "behaviour_text", "multiple": true, "values": { "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9" } }
+				},
+				"pagination": "offset", "query_before_results": false,
+				"metadata": "certified", "graph": "none", "links": "mapping"
+			},
+			"4.0/morphology": {
+				"sorts": { "list": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"], "search": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"] },
+				"filters": {
+					"code": { "kind": "text", "text_parameter": "code_text", "values": {} },
+					"preferred": { "kind": "text", "text_parameter": "preferred_text", "values": {} },
+					"behaviour": { "kind": "categorical", "text_parameter": "behaviour_text", "multiple": true, "values": { "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9" } }
+				},
+				"pagination": "offset", "query_before_results": false,
+				"metadata": "certified", "graph": "none", "links": "none"
+			},
+			"4.0/topography": {
+				"sorts": { "list": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"], "search": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"] },
+				"filters": {
+					"code": { "kind": "text", "text_parameter": "code_text", "values": {} },
+					"preferred": { "kind": "text", "text_parameter": "preferred_text", "values": {} },
+					"level": { "kind": "categorical", "text_parameter": "level_text", "multiple": true, "values": { "category": "category", "leaf": "leaf" } }
+				},
+				"pagination": "offset", "query_before_results": false,
+				"metadata": "certified", "graph": "none", "links": "none"
+			}
+		}
 	},
 	{
 		"id": "clinicaltrials",

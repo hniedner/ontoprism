@@ -99,6 +99,33 @@ def test_declared_uberon_controls_include_ontology_and_two_source_filter() -> No
     assert source.values == {"uberon": "Uberon", "cl": "Cell Ontology"}
 
 
+def test_declared_icdo_controls_are_bounded_to_each_served_dataset() -> None:
+    icdo = next(
+        entry for entry in load_repository_registry(_MANIFEST) if entry.id == "icdo"
+    )
+
+    assert icdo.capabilities is None
+    assert icdo.capabilities_by_dataset is not None
+    assert set(icdo.capabilities_by_dataset) == {
+        "3.2/morphology",
+        "4.0/morphology",
+        "4.0/topography",
+    }
+    morphology = icdo.capabilities_by_dataset["3.2/morphology"]
+    topography = icdo.capabilities_by_dataset["4.0/topography"]
+    assert set(morphology.filters) == {"code", "preferred", "behaviour"}
+    assert morphology.filters["behaviour"].multiple is True
+    assert morphology.graph == "none"
+    assert morphology.links == "mapping"
+    assert set(topography.filters) == {"code", "preferred", "level"}
+    assert topography.filters["level"].values == {
+        "category": "category",
+        "leaf": "leaf",
+    }
+    assert topography.graph == "none"
+    assert topography.links == "none"
+
+
 @pytest.mark.parametrize(
     ("sort", "text", "selected"),
     [

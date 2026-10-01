@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from ontolib.common.grid import sql_text_filters
 from ontolib.repositories.icdo.ingest import canonical_bytes
 from ontolib.repositories.icdo.models import (
     CanonicalDataset,
@@ -26,6 +27,14 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+
+_TEXT_EXPRESSIONS = {
+    "code": "r.payload->>'code'",
+    "preferred": "r.payload->>'preferred'",
+    "behaviour": "r.payload->>'behaviour'",
+    "level": "r.payload->>'level'",
+}
 
 
 class IcdoManifest(BaseModel):
@@ -229,10 +238,14 @@ class IcdoRepository:
         offset: int,
         behaviour: tuple[IcdoBehaviour, ...] = (),
         level: tuple[IcdoRecordLevel, ...] = (),
+        column_text: dict[str, str] | None = None,
         sort: IcdoRepositorySort = "source",
         generation_id: str | None = None,
     ) -> IcdoSearchPage:
         pattern = f"%{query.lower()}%"
+        text_predicates, text_params = sql_text_filters(
+            column_text or {}, _TEXT_EXPRESSIONS
+        )
         params: dict[str, object] = {
             "edition": edition,
             "axis": axis,
@@ -243,6 +256,7 @@ class IcdoRepository:
             "behaviours": list(behaviour),
             "levels": list(level),
             "generation": generation_id,
+            **text_params,
         }
         order = {
             "source": "r.code",
@@ -262,7 +276,7 @@ class IcdoRepository:
             "AND (cardinality(CAST(:behaviours AS text[])) = 0 OR "
             "r.payload->>'behaviour'=ANY(CAST(:behaviours AS text[]))) "
             "AND (cardinality(CAST(:levels AS text[])) = 0 OR "
-            "r.payload->>'level'=ANY(CAST(:levels AS text[])))"
+            "r.payload->>'level'=ANY(CAST(:levels AS text[])))" + text_predicates
         )
         async with self._sessions() as session:
             total = (
@@ -297,6 +311,7 @@ class IcdoRepository:
                 sort=sort,
                 behaviour=behaviour,
                 level=level,
+                column_text=column_text or {},
                 hits=tuple(decode_icdo_record(row) for row in rows),
             )
         except ValueError as exc:

@@ -83,25 +83,48 @@ class _RepositoryDescriptor(BaseModel):
     label: str
     path: str
     capabilities: GridCapabilities | None = None
+    capabilities_by_dataset: dict[str, GridCapabilities] | None = None
 
     @model_validator(mode="after")
     def consistent_metadata(self):
-        if self.capabilities and (
-            (self.capabilities.metadata == "certified")
-            != isinstance(self, LocalRepositoryDescriptor)
-        ):
-            raise ValueError("metadata capability contradicts repository kind")
-        return self
+        return _consistent_metadata(self, isinstance(self, LocalRepositoryDescriptor))
 
 
 class LocalRepositoryDescriptor(_RepositoryDescriptor):
     id: Literal["ncit", "cadsr", "uberon", "icdo"]
     kind: Literal["local-certified-proxy"]
 
+    @model_validator(mode="after")
+    def dataset_capabilities_belong_to_icdo(self):
+        if self.capabilities_by_dataset and self.id != "icdo":
+            raise ValueError("dataset capabilities are only supported for ICD-O")
+        return self
+
 
 class RemoteRepositoryDescriptor(_RepositoryDescriptor):
     id: Literal["clinicaltrials", "pubmed"]
     kind: Literal["remote-live-service"]
+
+    @model_validator(mode="after")
+    def no_dataset_capabilities(self):
+        if self.capabilities_by_dataset:
+            raise ValueError("remote repositories cannot declare dataset capabilities")
+        return self
+
+
+def _consistent_metadata(
+    descriptor: _RepositoryDescriptor, local: bool
+) -> _RepositoryDescriptor:
+    capabilities = (
+        [descriptor.capabilities] if descriptor.capabilities else []
+    ) + list((descriptor.capabilities_by_dataset or {}).values())
+    if any(
+        (capability.metadata == "certified") != local for capability in capabilities
+    ):
+        raise ValueError("metadata capability contradicts repository kind")
+    if descriptor.capabilities and descriptor.capabilities_by_dataset:
+        raise ValueError("default and dataset capabilities are mutually exclusive")
+    return descriptor
 
 
 RepositoryDescriptor = Annotated[

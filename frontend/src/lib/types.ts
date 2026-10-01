@@ -279,6 +279,7 @@ interface IcdoPageBase {
 	sort: IcdoRepositorySort;
 	behaviour: IcdoBehaviour[];
 	level: IcdoRecordLevel[];
+	column_text: Record<string, string>;
 }
 
 export type IcdoPage =

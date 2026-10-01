@@ -66,6 +66,7 @@ interface RepositoryDescriptorBase {
 	readonly label: string;
 	readonly path: `/repositories/${string}`;
 	readonly capabilities?: GridCapabilities;
+	readonly capabilities_by_dataset?: Record<string, GridCapabilities>;
 }
 
 interface LocalRepositoryDescriptor extends RepositoryDescriptorBase {
@@ -82,38 +83,56 @@ type RepositoryDescriptor = LocalRepositoryDescriptor | RemoteRepositoryDescript
 
 const localIds = new Set(['ncit', 'cadsr', 'uberon', 'icdo']);
 const remoteIds = new Set(['clinicaltrials', 'pubmed']);
-const keys = new Set(['id', 'label', 'path', 'kind', 'capabilities']);
+const keys = new Set(['id', 'label', 'path', 'kind', 'capabilities', 'capabilities_by_dataset']);
+
+function descriptorObject(value: unknown): Record<string, unknown> {
+	if (typeof value !== 'object' || value === null) throw new TypeError('Repository descriptor must be an object');
+	for (const key of Object.keys(value)) {
+		if (!keys.has(key)) throw new TypeError(`Repository descriptor field is not allowed: ${key}`);
+	}
+	return value as Record<string, unknown>;
+}
+
+function validIdentity(entry: Record<string, unknown>): boolean {
+	return (
+		(entry.kind === 'local-certified-proxy' && typeof entry.id === 'string' && localIds.has(entry.id)) ||
+		(entry.kind === 'remote-live-service' && typeof entry.id === 'string' && remoteIds.has(entry.id))
+	);
+}
+
+function validateDeclaredCapabilities(entry: Record<string, unknown>): void {
+	if (entry.capabilities !== undefined) capabilities(entry.capabilities, entry.kind === 'local-certified-proxy');
+	if (entry.capabilities_by_dataset === undefined) return;
+	if (entry.id !== 'icdo' || entry.capabilities !== undefined) throw new TypeError('Invalid dataset capability declaration');
+	const datasets = object(entry.capabilities_by_dataset);
+	if (!Object.keys(datasets).length) throw new TypeError('Dataset capabilities must not be empty');
+	for (const value of Object.values(datasets)) capabilities(value, true);
+}
+
+function repositoryDescriptor(value: unknown): RepositoryDescriptor {
+	const entry = descriptorObject(value);
+	if (typeof entry.label !== 'string' || typeof entry.path !== 'string') throw new TypeError('Repository label and path must be strings');
+	if (!validIdentity(entry) || entry.path !== `/repositories/${entry.id}`) throw new TypeError('Repository descriptor kind, id, and path do not agree');
+	validateDeclaredCapabilities(entry);
+	return entry as unknown as RepositoryDescriptor;
+}
 
 function parseRepositoryRegistry(input: unknown): RepositoryDescriptor[] {
 	if (!Array.isArray(input)) throw new TypeError('Repository manifest must be an array');
-	return input.map((value) => {
-		if (typeof value !== 'object' || value === null) throw new TypeError('Repository descriptor must be an object');
-		for (const key of Object.keys(value)) {
-			if (!keys.has(key)) throw new TypeError(`Repository descriptor field is not allowed: ${key}`);
-		}
-		const entry = value as Record<string, unknown>;
-		if (typeof entry.label !== 'string' || typeof entry.path !== 'string')
-			throw new TypeError('Repository label and path must be strings');
-		const valid =
-			(entry.kind === 'local-certified-proxy' && typeof entry.id === 'string' && localIds.has(entry.id)) ||
-			(entry.kind === 'remote-live-service' && typeof entry.id === 'string' && remoteIds.has(entry.id));
-		if (!valid || entry.path !== `/repositories/${entry.id}`)
-			throw new TypeError('Repository descriptor kind, id, and path do not agree');
-		if (entry.capabilities !== undefined) capabilities(entry.capabilities, entry.kind === 'local-certified-proxy');
-		return entry as unknown as RepositoryDescriptor;
-	});
+	return input.map(repositoryDescriptor);
 }
 
 export const repositories = parseRepositoryRegistry(manifest);
 
-export function gridCapabilities(id: RepositoryId): GridCapabilities {
-	const found = repositories.find((entry) => entry.id === id)?.capabilities;
+export function gridCapabilities(id: RepositoryId, dataset?: string): GridCapabilities {
+	const repository = repositories.find((entry) => entry.id === id);
+	const found = dataset ? repository?.capabilities_by_dataset?.[dataset] : repository?.capabilities;
 	if (!found) throw new TypeError(`Repository ${id} has no grid declaration`);
 	return found;
 }
 
-export function gridControls(id: RepositoryId, domains: Record<string, string[]> = {}) {
-	const c = gridCapabilities(id);
+export function gridControls(id: RepositoryId, domains: Record<string, string[]> = {}, dataset?: string) {
+	const c = gridCapabilities(id, dataset);
 	const sortKeys: Record<string, Partial<Record<'asc' | 'desc', string>>> = {};
 	for (const sort of new Set(Object.values(c.sorts).flat())) {
 		const [column, direction] = sort.split(':');
@@ -129,8 +148,8 @@ export function gridControls(id: RepositoryId, domains: Record<string, string[]>
 	};
 }
 
-export function columnFilter(id: RepositoryId, column: string, ariaLabel: string, domain: string[] = []): DataTableFilter | undefined {
-	const f = gridCapabilities(id).filters[column];
+export function columnFilter(id: RepositoryId, column: string, ariaLabel: string, domain: string[] = [], dataset?: string): DataTableFilter | undefined {
+	const f = gridCapabilities(id, dataset).filters[column];
 	if (!f) return undefined;
 	return f.kind === 'text' ? { kind: 'text', ariaLabel } : {
 		kind: 'categorical', ariaLabel, textFilter: true,

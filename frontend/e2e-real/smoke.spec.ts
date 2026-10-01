@@ -78,14 +78,14 @@ async function filter(page: Page, regionName: string, column: string, option: st
 	if (displayMatchesSelection) for (const text of await cells.allTextContents()) expect(text.trim()).toBe(rendered);
 }
 
-async function declaredControls(page: Page, repository: RepositoryId, regionName: string): Promise<void> {
-	const declaration = gridCapabilities(repository);
+async function declaredControls(page: Page, repository: RepositoryId, regionName: string, dataset?: string): Promise<void> {
+	const declaration = gridCapabilities(repository, dataset);
 	const table = region(page, regionName);
 	for (const sortValue of declaration.sorts.search.filter((value) => value.endsWith(':asc'))) {
 		const column = sortValue.split(':')[0];
 		const header = table.locator(`th[data-column-id="${column}"]`);
 		const name = (await header.getByRole('button', { name: /^Sort by / }).getAttribute('aria-label'))!.replace(/^Sort by /, '');
-		await sort(page, regionName, name, sortValue, column === 'label' ? 'label' : 'text');
+		await sort(page, regionName, name, sortValue, column === 'label' || column === 'preferred' ? 'label' : 'text');
 	}
 	for (const [column, control] of Object.entries(declaration.filters).sort(([, a], [, b]) => Number(b.kind === 'categorical') - Number(a.kind === 'categorical'))) {
 		const header = table.locator(`th[data-column-id="${column}"]`);
@@ -95,7 +95,7 @@ async function declaredControls(page: Page, repository: RepositoryId, regionName
 		const current = (await table.locator('tbody tr').first().locator('td').nth(columnIndex).textContent())!.trim();
 		let textValue = current;
 		if (control.kind === 'categorical') {
-			const [value, rendered] = control.source_domain ? [current, current] : Object.entries(control.values)[0]!;
+			const [value, rendered] = control.source_domain ? [current, current] : Object.entries(control.values).find(([candidate, label]) => candidate === current || label === current) ?? Object.entries(control.values)[0]!;
 			await filter(page, regionName, label, rendered, column, value, rendered, !control.multiple);
 			textValue = rendered;
 			await page.keyboard.press('Escape');
@@ -157,11 +157,10 @@ test('read-only configured repository smoke', async ({ page }) => {
 	await open('/repositories/icdo/3.2/morphology');
 	await rows(page, 'ICD-O repository results');
 	await search(page, 'carcinoma', 'ICD-O repository results');
-	await sort(page, 'ICD-O repository results', 'Code', 'code:asc');
-	await filter(page, 'ICD-O repository results', 'Behaviour', '3', 'behaviour', '3', '3');
+	await declaredControls(page, 'icdo', 'ICD-O repository results', '3.2/morphology');
 	const icdo = await region(page, 'ICD-O repository results').locator('tbody a').first().textContent();
 	await detail(page, 'ICD-O repository results', icdo!.trim());
-	passed('ICD-O list/search/code sort/behaviour filter/detail: PASS');
+	passed('ICD-O declaration-driven list/search/sort/text/behaviour/detail: PASS');
 
 	await open('/repositories/pubmed');
 	await search(page, 'melanoma', 'PubMed repository results');

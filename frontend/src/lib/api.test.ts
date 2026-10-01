@@ -21,7 +21,8 @@ import {
 	similarConcepts,
 	similarCdes,
 	refreshRepositories,
-	icdoCodeSegment
+	icdoCodeSegment,
+	listIcdo
 } from './api';
 import { getTrial, searchClinicalTrials } from './api.clinicaltrials';
 import { getArticle, getRelatedArticles, searchPubmed } from './api.pubmed';
@@ -64,6 +65,19 @@ describe('icdoCodeSegment', () => {
 		['ICD-O-4 topography', 'C00.0', 'QzAwLjA']
 	])('encodes a valid %s code as an unpadded URL-safe segment', (_kind, code, expected) => {
 		expect(icdoCodeSegment(code)).toBe(expected);
+	});
+});
+
+describe('listIcdo', () => {
+	it('uses the selected dataset declaration for text and categorical parameters', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ total: 0, hits: [] }));
+		await listIcdo(
+			{ edition: '4.0', axis: 'topography' },
+			{ level: ['category', 'leaf'], columnText: { code: 'C0', preferred: 'lip' }, fetch: fetchImpl }
+		);
+		expect(fetchImpl.mock.calls[0][0]).toBe(
+			'/api/v1/icdo/4.0/topography/list?limit=25&offset=0&level=category&level=leaf&code_text=C0&preferred_text=lip'
+		);
 	});
 });
 
