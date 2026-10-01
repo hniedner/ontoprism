@@ -27,7 +27,10 @@ describe('MappedCdes', () => {
 			short_name: longName,
 			long_name: longName,
 			context: 'caDSR',
-			datatype: 'CHARACTER'
+			datatype: 'CHARACTER',
+			workflow_status: 'RELEASED',
+			registration_status: 'Standard',
+			value_domain_type: 'Enumerated'
 		});
 
 		const view = render(MappedCdes, { code: 'C1' });
@@ -70,7 +73,10 @@ describe('MappedCdes', () => {
 				short_name: 'NEO',
 				long_name: 'Neoplasm Histology',
 				context: 'caDSR',
-				datatype: 'CHARACTER'
+				datatype: 'CHARACTER',
+				workflow_status: 'RELEASED',
+				registration_status: 'Standard',
+				value_domain_type: 'Enumerated'
 			}
 		];
 		mock.mockResolvedValue(cdes);

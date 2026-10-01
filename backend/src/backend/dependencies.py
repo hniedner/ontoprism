@@ -114,8 +114,8 @@ class RepositoryMetadataReader(Protocol):
         self, *, force: bool = False
     ) -> NcitRepositoryReady | RepositoryUnhealthy[Literal["ncit"]]: ...
 
-    def cadsr(
-        self,
+    async def cadsr(
+        self, *, force: bool = False
     ) -> CadsrRepositoryReady | RepositoryUnhealthy[Literal["cadsr"]]: ...
 
     async def uberon(

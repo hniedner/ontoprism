@@ -53,6 +53,17 @@ test('caDSR: browse → URL search → open a server-loaded CDE detail', async (
 	await expect(page).toHaveURL('/repositories/cadsr?q=tumor');
 	await expect(page.getByText(/Results for .*tumor/)).toBeVisible();
 	await expect(page.getByText('Tumor Stage Code')).toBeVisible();
+	await page.getByRole('button', { name: 'Filter Workflow' }).click();
+	const workflow = page.getByRole('dialog', { name: 'Workflow filter' });
+	await workflow.getByRole('checkbox', { name: 'RELEASED' }).check();
+	await expect(page).toHaveURL((url) => url.searchParams.get('workflow_status') === 'RELEASED');
+	await page.keyboard.press('Escape');
+	await page.getByRole('button', { name: 'Filter Workflow' }).click();
+	const typeahead = page.getByRole('textbox', { name: 'Filter Workflow text' });
+	await typeahead.fill('release');
+	await typeahead.press('Enter');
+	await expect(page).toHaveURL((url) => url.searchParams.get('text_workflow_status') === 'release');
+	await page.keyboard.press('Escape');
 
 	await page.getByRole('link', { name: 'Tumor Stage Code' }).click();
 	await expect(page).toHaveURL(/\/repositories\/cadsr\/2001/);

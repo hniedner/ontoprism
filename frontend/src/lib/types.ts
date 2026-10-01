@@ -324,13 +324,13 @@ export interface CdeSummary {
 	long_name: string;
 	context: string | null;
 	datatype: string | null;
+	workflow_status: string | null;
+	registration_status: string | null;
+	value_domain_type: string | null;
 }
 
 export interface CdeDetail extends CdeSummary {
 	definition: string | null;
-	workflow_status: string | null;
-	registration_status: string | null;
-	value_domain_type: string | null;
 	permissible_values: PermissibleValue[];
 	concepts: ConceptLink[];
 }
@@ -341,8 +341,15 @@ export interface CdeSearchPage {
 	limit: number;
 	offset: number;
 	sort: CdeRepositorySort;
+	filters: Record<string, string[]>;
+	column_text: Record<string, string>;
 	hits: CdeSummary[];
 }
+
+export type CadsrFilterDomains = Record<
+	'value_domain_type' | 'workflow_status' | 'registration_status' | 'context' | 'datatype',
+	string[]
+>;
 
 export interface SimilarConcept {
 	code: string;

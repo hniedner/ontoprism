@@ -24,13 +24,16 @@ def _database(path: Path) -> None:
             short_name TEXT,
             long_name TEXT,
             context TEXT,
-            datatype TEXT
+            datatype TEXT,
+            workflow_status TEXT,
+            registration_status TEXT,
+            value_domain_type TEXT
         );
         CREATE TABLE cde_concepts (public_id TEXT, version TEXT, concept_code TEXT);
         INSERT INTO cdes VALUES
-            ('1', '1.0', 'First', 'First', NULL, NULL),
-            ('2', '1.0', 'Second', 'Second', NULL, NULL),
-            ('3', '1.0', 'Third', 'Third', NULL, NULL);
+            ('1', '1.0', 'First', 'First', NULL, NULL, NULL, NULL, NULL),
+            ('2', '1.0', 'Second', 'Second', NULL, NULL, NULL, NULL, NULL),
+            ('3', '1.0', 'Third', 'Third', NULL, NULL, NULL, NULL, NULL);
         INSERT INTO cde_concepts VALUES
             ('1', '1.0', 'C27262'), ('2', '1.0', 'C27262'), ('3', '1.0', 'C27262');
         """

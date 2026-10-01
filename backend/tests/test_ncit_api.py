@@ -189,7 +189,8 @@ class _Metadata:
     async def ncit(self) -> SimpleNamespace:
         return SimpleNamespace(source_identity="f" * 64, manifest_identity="e" * 64)
 
-    def cadsr(self) -> SimpleNamespace:
+    async def cadsr(self, *, force: bool = False) -> SimpleNamespace:
+        del force
         return SimpleNamespace(source_identity="f" * 64)
 
     async def uberon(self) -> SimpleNamespace:
@@ -284,7 +285,8 @@ class _UnhealthyMetadata:
             message="NCIt activation did not complete.",
         )
 
-    def cadsr(self) -> SimpleNamespace:
+    async def cadsr(self, *, force: bool = False) -> SimpleNamespace:
+        del force
         return SimpleNamespace(source_identity="f" * 64)
 
 

@@ -167,7 +167,8 @@ class _Metadata:
     async def ncit(self) -> SimpleNamespace:
         return SimpleNamespace(source_identity="c" * 64)
 
-    def cadsr(self) -> SimpleNamespace:
+    async def cadsr(self, *, force: bool = False) -> SimpleNamespace:
+        del force
         return SimpleNamespace(source_identity="c" * 64)
 
     async def uberon(self, *, force: bool = False) -> object:

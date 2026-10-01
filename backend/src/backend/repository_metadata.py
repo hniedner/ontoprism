@@ -261,6 +261,8 @@ class _MetadataSettings(Protocol):
 class _CadsrCertification(Protocol):
     def certification(self) -> tuple[CadsrSource, int, str]: ...
 
+    def certification_inputs(self) -> object: ...
+
 
 class _IcdoCertification(Protocol):
     async def certified_metadata(
@@ -658,14 +660,30 @@ class RepositoryMetadataService:
                 RuntimeError("Uberon inputs changed during certification"),
             ),
         )
+        self._cadsr_cache = CertificationCache(
+            clock=clock,
+            inputs=cadsr.certification_inputs,
+            validate=self._cadsr_live,
+            healthy=lambda value: value.state == "ready",
+            changed=lambda: _unhealthy(
+                "cadsr",
+                "observation-mismatch",
+                RuntimeError("caDSR inputs changed during certification"),
+            ),
+        )
 
     def start(self) -> None:
-        """Schedule worker-local warm-up and refresh for both ontology repositories."""
+        """Schedule worker-local warm-up and refresh for cached repositories."""
         self._ncit_cache.start()
         self._uberon_cache.start()
+        self._cadsr_cache.start()
 
     async def aclose(self) -> None:
-        await asyncio.gather(self._ncit_cache.aclose(), self._uberon_cache.aclose())
+        await asyncio.gather(
+            self._ncit_cache.aclose(),
+            self._uberon_cache.aclose(),
+            self._cadsr_cache.aclose(),
+        )
 
     async def ncit(
         self, *, force: bool = False
@@ -695,10 +713,22 @@ class RepositoryMetadataService:
         except StorageError as exc:
             return _unhealthy("ncit", "repository-unreachable", exc)
 
-    def cadsr(self) -> CadsrRepositoryReady | RepositoryUnhealthy:
+    async def cadsr(
+        self, *, force: bool = False
+    ) -> CadsrRepositoryReady | RepositoryUnhealthy:
         """Return a provenance/serving-content-bound caDSR identity."""
         try:
-            source, item_count, fingerprint = self._cadsr.certification()
+            return await self._cadsr_cache.get(force=force)
+        except sqlite3.OperationalError as exc:
+            return _unhealthy("cadsr", "repository-unreachable", exc)
+        except (OSError, ValueError) as exc:
+            return _unhealthy("cadsr", "manifest-invalid", exc)
+
+    async def _cadsr_live(self) -> CadsrRepositoryReady | RepositoryUnhealthy:
+        try:
+            source, item_count, fingerprint = await asyncio.to_thread(
+                self._cadsr.certification
+            )
             return bind_cadsr_repository_metadata(
                 source,
                 item_count=item_count,
