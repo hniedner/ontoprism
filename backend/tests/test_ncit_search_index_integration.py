@@ -1,6 +1,7 @@
 """Integration tests for the NCIt FTS search cache (populate from store → search)."""
 
 import asyncio
+from collections.abc import Iterator
 from http import HTTPStatus
 
 import pytest
@@ -16,23 +17,40 @@ pytestmark = [
 ]
 
 
+@pytest.fixture
+def semantic_type_cases(
+    isolated_api_client: TestClient, isolated_qlever_url: str
+) -> Iterator[None]:
+    async def update(statement: str) -> None:
+        async with SparqlHttpClient.for_qlever(isolated_qlever_url) as client:
+            await client.update(statement)
+
+    prefixes = (
+        "PREFIX ncit: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#> "
+        "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
+        "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> "
+    )
+    triples = (
+        'ncit:C3262 ncit:P106 "Disease or Syndrome" . '
+        'ncit:C999991 a owl:Class ; rdfs:label "Parity Growth Typed" ; '
+        'ncit:P106 "Neoplastic Process" . '
+        'ncit:C999992 a owl:Class ; rdfs:label "Parity Growth Untyped" .'
+    )
+    asyncio.run(update(f"{prefixes} INSERT DATA {{ {triples} }}"))
+    try:
+        yield
+    finally:
+        asyncio.run(update(f"{prefixes} DELETE DATA {{ {triples} }}"))
+        rebuilt = isolated_api_client.post("/api/v1/refresh/ncit/search-index")
+        assert rebuilt.status_code == HTTPStatus.OK, rebuilt.text
+
+
 @pytest.mark.integration
 def test_semantic_types_any_of_and_deterministic_projection(
-    isolated_api_client: TestClient, isolated_qlever_url: str
+    isolated_api_client: TestClient, semantic_type_cases: None
 ) -> None:
-    async def add_semantic_type_cases():
-        async with SparqlHttpClient.for_qlever(isolated_qlever_url) as client:
-            await client.update(
-                "PREFIX ncit: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#> "
-                "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
-                "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> "
-                'INSERT DATA { ncit:C3262 ncit:P106 "Disease or Syndrome" . '
-                'ncit:C999991 a owl:Class ; rdfs:label "Parity Growth Typed" ; '
-                'ncit:P106 "Neoplastic Process" . '
-                'ncit:C999992 a owl:Class ; rdfs:label "Parity Growth Untyped" . }'
-            )
+    del semantic_type_cases
 
-    asyncio.run(add_semantic_type_cases())
     domain = isolated_api_client.get("/api/v1/ncit/semantic-types")
     assert domain.status_code == 200, domain.text
     assert domain.json() == sorted(set(domain.json()))
