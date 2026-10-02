@@ -728,6 +728,7 @@ class XrefStore:
         *,
         ncit_version: str,
         source_version: str,
+        cl_version: str,
         source: str,
         generation_id: str | None = None,
     ) -> set[tuple[str, str]]:
@@ -746,7 +747,10 @@ class XrefStore:
             "AND generation_id = COALESCE(:generation_id, ("
             "SELECT generation_id FROM xref_active_generation WHERE source = :source)) "
             "AND (subject_version <> :ncit_version "
-            "     OR object_version <> :source_version)"
+            "     OR object_version <> CASE "
+            "       WHEN object_id LIKE 'UBERON:%' THEN :source_version "
+            "       WHEN object_id LIKE 'CL:%' THEN :cl_version "
+            "       ELSE '' END)"
         )
         async with self._sf() as s:
             result = await s.execute(
@@ -754,6 +758,7 @@ class XrefStore:
                 {
                     "ncit_version": ncit_version,
                     "source_version": source_version,
+                    "cl_version": cl_version,
                     "source": source,
                     "generation_id": generation_id,
                 },

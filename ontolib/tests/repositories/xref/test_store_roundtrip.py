@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.repositories.xref.candidate_ingest import generate_candidates
 from ontolib.repositories.xref.models import (
     SSSOMRecord,
     StaleXrefGenerationError,
@@ -17,6 +18,7 @@ from ontolib.repositories.xref.models import (
     UberonReadIdentity,
     XrefReadPolicy,
 )
+from ontolib.repositories.xref.source_versions import MappingSourceVersions
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
@@ -38,6 +40,16 @@ _READ_POLICY = XrefReadPolicy(
         uberon_serving_identity="c" * 64,
     )
 )
+
+
+class _CandidateClient:
+    def __init__(self, responses: dict[str, list[dict[str, str]]]) -> None:
+        self._responses = responses
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        return next(
+            (rows for marker, rows in self._responses.items() if marker in query), []
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -109,6 +121,84 @@ async def test_store_roundtrip() -> None:
         assert {r["subject_id"] for r in read_back} == {"C3262", "C12345"}
         assert all(r["predicate_id"] == CLOSE_MATCH for r in read_back)
         assert all(r["confidence"] in (0.7, 1.0) for r in read_back)
+        async with sf() as session:
+            persisted = await session.execute(
+                text(
+                    "SELECT object_id, object_version FROM concept_xref "
+                    "WHERE run_id = :run_id"
+                ),
+                {"run_id": run_id},
+            )
+        assert {row.object_id: row.object_version for row in persisted} == {
+            "UBERON:0002107": "uberon-2026-01",
+            "CL:0000057": "cl-2026-01",
+        }
+    finally:
+        await _clear_xref_tables(sf)
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_generated_candidates_persist_each_source_ontology_version() -> None:
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    run_id = f"test-generated-versions-{uuid.uuid4().hex}"
+    versions = MappingSourceVersions(
+        ncit="26.07d",
+        uberon="http://purl.obolibrary.org/obo/uberon/releases/2026-06-19/uberon.owl",
+        cl="http://purl.obolibrary.org/obo/cl/releases/2026-06-08/cl.owl",
+    )
+    try:
+        records, _ = await generate_candidates(
+            _CandidateClient(
+                {
+                    "SELECT DISTINCT ?fillerCode": [
+                        {"fillerCode": "C3262"},
+                        {"fillerCode": "C12345"},
+                    ],
+                    "SELECT ?code ?label WHERE": [],
+                }
+            ),
+            _CandidateClient(
+                {
+                    "hasDbXref": [
+                        {
+                            "upstream": (
+                                "http://purl.obolibrary.org/obo/UBERON_0002107"
+                            ),
+                            "xref": "NCIT:C3262",
+                        },
+                        {
+                            "upstream": "http://purl.obolibrary.org/obo/CL_0000057",
+                            "xref": "NCIT:C12345",
+                        },
+                    ]
+                }
+            ),
+            versions,
+        )
+        store = XrefStore(sf)
+        await store.upsert_run(
+            run_id=run_id,
+            source="uberon-cl",
+            ncit_version=versions.ncit,
+            source_version=versions.uberon,
+        )
+        await activate_records(
+            store, source="uberon-cl", run_id=run_id, records=records
+        )
+        async with sf() as session:
+            persisted = await session.execute(
+                text(
+                    "SELECT object_id, object_version FROM concept_xref "
+                    "WHERE run_id = :run_id"
+                ),
+                {"run_id": run_id},
+            )
+        assert {row.object_id: row.object_version for row in persisted} == {
+            "UBERON:0002107": versions.uberon,
+            "CL:0000057": versions.cl,
+        }
     finally:
         await _clear_xref_tables(sf)
         await dispose_engine(engine)

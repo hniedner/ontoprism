@@ -6,7 +6,7 @@ then implement ``candidate_ingest`` until they pass.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -23,6 +23,11 @@ from ontolib.repositories.xref.candidate_ingest import (
     ingest_candidates,
 )
 from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.source_versions import (
+    MappingSourceVersionError,
+    MappingSourceVersions,
+    read_mapping_source_versions,
+)
 from ontolib.repositories.xref.vocab import (
     CLOSE_MATCH,
     COMPOSITE_MATCHING,
@@ -44,7 +49,7 @@ class _MockClient:
         self._responses = responses
         self.select_calls: list[str] = []
 
-    async def select(self, query: str) -> list[dict[str, str | None]]:
+    async def select(self, query: str) -> list[dict[str, str]]:
         self.select_calls.append(query)
         for key, rows in self._responses.items():
             if key in query:
@@ -78,8 +83,33 @@ async def test_uberon_xref_projection_fails_closed_on_partial_row() -> None:
 
 # -- Shared test data ---------------------------------------------------
 
-_NCIT_VERSION = "26.02d"
-_UBERON_VERSION = "uberon-2026-01"
+_NCIT_VERSION = "26.07d"
+_UBERON_VERSION = "http://purl.obolibrary.org/obo/uberon/releases/2026-06-19/uberon.owl"
+_CL_VERSION = "http://purl.obolibrary.org/obo/cl/releases/2026-06-08/cl.owl"
+_UBERON_ONTOLOGY = "http://purl.obolibrary.org/obo/uberon.owl"
+_CL_ONTOLOGY = "http://purl.obolibrary.org/obo/cl.owl"
+_VERSIONS = MappingSourceVersions(
+    ncit=_NCIT_VERSION,
+    uberon=_UBERON_VERSION,
+    cl=_CL_VERSION,
+)
+
+
+def _ncit_version_rows(
+    *, default: str = _NCIT_VERSION, stated: str = _NCIT_VERSION
+) -> list[dict[str, str]]:
+    return [
+        {"location": "default", "version": default},
+        {"location": "stated", "version": stated},
+    ]
+
+
+def _upstream_version_rows() -> list[dict[str, str]]:
+    return [
+        {"ontology": _UBERON_ONTOLOGY, "version": _UBERON_VERSION},
+        {"ontology": _CL_ONTOLOGY, "version": _CL_VERSION},
+    ]
+
 
 # Small hand-built fixture of known xref pairs.
 _XREF_FIXTURE: list[tuple[str, str, str, str]] = [
@@ -180,9 +210,7 @@ async def test_xref_candidates_are_closematch_only() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, *_ = await generate_candidates(
-        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
-    )
+    records, *_ = await generate_candidates(ncit, uberon, _VERSIONS)
     assert all(r.predicate_id == CLOSE_MATCH for r in records)
 
 
@@ -199,13 +227,280 @@ async def test_every_record_has_versions_and_justification() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, *_ = await generate_candidates(
-        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
-    )
+    records, *_ = await generate_candidates(ncit, uberon, _VERSIONS)
     for r in records:
         assert r.subject_source_version == _NCIT_VERSION
-        assert r.object_source_version == _UBERON_VERSION
+        expected = _CL_VERSION if r.object_id.startswith("CL:") else _UBERON_VERSION
+        assert r.object_source_version == expected
         assert r.author == "xref-ingest-A3"
+
+
+@pytest.mark.unit
+async def test_each_candidate_has_its_own_source_ontology_version() -> None:
+    ncit = _MockClient(
+        {
+            "SELECT DISTINCT ?fillerCode": [
+                {"fillerCode": "C3262"},
+                {"fillerCode": "C12345"},
+            ],
+            "SELECT ?code ?label WHERE": [],
+        }
+    )
+    uberon = _MockClient(
+        {
+            "hasDbXref": [
+                {"upstream": upstream, "xref": xref}
+                for _, upstream, xref, _ in _XREF_FIXTURE
+            ]
+        }
+    )
+
+    records, _ = await generate_candidates(
+        ncit,
+        uberon,
+        _VERSIONS,
+    )
+
+    assert {record.object_id: record.object_source_version for record in records} == {
+        "UBERON:0002107": _UBERON_VERSION,
+        "CL:0000057": _CL_VERSION,
+    }
+
+
+@pytest.mark.unit
+async def test_versions_are_read_from_the_three_real_ontology_header_shapes() -> None:
+    ncit = _MockClient({"SELECT DISTINCT ?location ?version": _ncit_version_rows()})
+    uberon = _MockClient(
+        {"SELECT DISTINCT ?ontology ?version": _upstream_version_rows()}
+    )
+
+    versions = await read_mapping_source_versions(
+        ncit,
+        uberon,
+        expected_ncit_version=_NCIT_VERSION,
+        expected_uberon_version=_UBERON_VERSION,
+    )
+
+    assert versions.ncit == _NCIT_VERSION
+    assert versions.uberon == _UBERON_VERSION
+    assert versions.cl == _CL_VERSION
+    assert "owl:versionInfo" in ncit.select_calls[0]
+    assert _UBERON_ONTOLOGY in uberon.select_calls[0]
+    assert _CL_ONTOLOGY in uberon.select_calls[0]
+    assert "owl:versionIRI" in uberon.select_calls[0]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("ncit_rows", "upstream_rows", "message"),
+    [
+        (
+            _ncit_version_rows(stated="26.06d"),
+            _upstream_version_rows(),
+            "NCIt default and stated versions differ",
+        ),
+        (
+            _ncit_version_rows(),
+            [*_upstream_version_rows(), {"ontology": _CL_ONTOLOGY, "version": "x"}],
+            "ambiguous CL version",
+        ),
+        (
+            _ncit_version_rows(),
+            [
+                {"ontology": _UBERON_ONTOLOGY, "version": _UBERON_VERSION},
+                {"ontology": _CL_ONTOLOGY, "version": _UBERON_VERSION},
+            ],
+            "CL version IRI does not identify CL",
+        ),
+        (
+            _ncit_version_rows(),
+            [
+                {
+                    "ontology": _UBERON_ONTOLOGY,
+                    "version": (
+                        "http://purl.obolibrary.org/obo/uberon/releases/"
+                        "2026-05-01/uberon.owl"
+                    ),
+                },
+                {"ontology": _CL_ONTOLOGY, "version": _CL_VERSION},
+            ],
+            "Uberon ontology version does not match its certified source",
+        ),
+        (
+            _ncit_version_rows(),
+            [{"ontology": _UBERON_ONTOLOGY, "version": _UBERON_VERSION}, {}],
+            "incomplete ontology version row",
+        ),
+    ],
+)
+async def test_source_version_preflight_rejects_ambiguous_or_mismatched_metadata(
+    ncit_rows: list[dict[str, str]],
+    upstream_rows: list[dict[str, str]],
+    message: str,
+) -> None:
+    ncit = _MockClient({"SELECT DISTINCT ?location ?version": ncit_rows})
+    uberon = _MockClient({"SELECT DISTINCT ?ontology ?version": upstream_rows})
+
+    with pytest.raises(MappingSourceVersionError, match=message):
+        await read_mapping_source_versions(
+            ncit,
+            uberon,
+            expected_ncit_version=_NCIT_VERSION,
+            expected_uberon_version=_UBERON_VERSION,
+        )
+
+
+@pytest.mark.unit
+async def test_missing_cl_version_refuses_ingest_before_any_write() -> None:
+    ncit = _MockClient({"SELECT DISTINCT ?location ?version": _ncit_version_rows()})
+    uberon = _MockClient(
+        {
+            "SELECT DISTINCT ?ontology ?version": [
+                {"ontology": _UBERON_ONTOLOGY, "version": _UBERON_VERSION}
+            ]
+        }
+    )
+    store = AsyncMock()
+
+    with pytest.raises(MappingSourceVersionError, match="missing CL version"):
+        await ingest_candidates(  # type: ignore[arg-type]
+            store,
+            cast("Any", ncit),
+            uberon,
+            _NCIT_VERSION,
+            _UBERON_VERSION,
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+            observe_source_identities=AsyncMock(
+                return_value=("a" * 64, "b" * 64, "c" * 64)
+            ),
+        )
+
+    store.upsert_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_changed_source_identity_refuses_ingest_before_any_write() -> None:
+    ncit = _MockClient(
+        {
+            "SELECT DISTINCT ?location ?version": _ncit_version_rows(),
+            "SELECT DISTINCT ?fillerCode": [{"fillerCode": "C3262"}],
+            "SELECT ?code ?label WHERE": [],
+        }
+    )
+    uberon = _MockClient(
+        {
+            "SELECT DISTINCT ?ontology ?version": _upstream_version_rows(),
+            "hasDbXref": [
+                {
+                    "upstream": "http://purl.obolibrary.org/obo/UBERON_0002107",
+                    "xref": "NCIT:C3262",
+                }
+            ],
+        }
+    )
+    store = AsyncMock()
+
+    with pytest.raises(ValueError, match="source identity changed"):
+        await ingest_candidates(  # type: ignore[arg-type]
+            store,
+            cast("Any", ncit),
+            uberon,
+            _NCIT_VERSION,
+            _UBERON_VERSION,
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+            observe_source_identities=AsyncMock(
+                return_value=("a" * 64, "d" * 64, "c" * 64)
+            ),
+        )
+
+    store.upsert_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_unavailable_source_identity_refuses_ingest_before_any_write() -> None:
+    store = AsyncMock()
+
+    with pytest.raises(ValueError, match="String should match pattern"):
+        await ingest_candidates(  # type: ignore[arg-type]
+            store,
+            cast("Any", _MockClient({})),
+            _MockClient({}),
+            _NCIT_VERSION,
+            _UBERON_VERSION,
+            ncit_source_identity="",
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+            observe_source_identities=AsyncMock(),
+        )
+
+    store.upsert_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_partial_upstream_row_refuses_ingest_before_any_write() -> None:
+    ncit = _MockClient(
+        {
+            "SELECT DISTINCT ?location ?version": _ncit_version_rows(),
+            "SELECT DISTINCT ?fillerCode": [{"fillerCode": "C3262"}],
+        }
+    )
+    uberon = _MockClient(
+        {
+            "SELECT DISTINCT ?ontology ?version": _upstream_version_rows(),
+            "hasDbXref": [
+                {"upstream": "http://purl.obolibrary.org/obo/UBERON_0002107"}
+            ],
+        }
+    )
+    store = AsyncMock()
+
+    with pytest.raises(CandidateSourceInventoryError, match="incomplete xref row"):
+        await ingest_candidates(  # type: ignore[arg-type]
+            store,
+            cast("Any", ncit),
+            uberon,
+            _NCIT_VERSION,
+            _UBERON_VERSION,
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+            observe_source_identities=AsyncMock(
+                return_value=("a" * 64, "b" * 64, "c" * 64)
+            ),
+        )
+
+    store.upsert_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_unknown_obo_iri_is_not_misclassified_as_an_uberon_mapping() -> None:
+    ncit = _MockClient(
+        {
+            "SELECT DISTINCT ?fillerCode": [{"fillerCode": "C1"}],
+            "SELECT ?code ?label WHERE": [],
+        }
+    )
+    uberon = _MockClient(
+        {
+            "hasDbXref": [
+                {
+                    "upstream": "http://purl.obolibrary.org/obo/GO_0008150",
+                    "xref": "NCIT:C1",
+                }
+            ]
+        }
+    )
+
+    with pytest.raises(CandidateSourceInventoryError, match="unknown source ontology"):
+        await generate_candidates(
+            ncit,
+            uberon,
+            _VERSIONS,
+        )
 
 
 @pytest.mark.unit
@@ -221,9 +516,7 @@ async def test_xref_sourced_candidates_are_high_precision() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, filler_to_source = await generate_candidates(
-        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
-    )
+    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
 
     # Build lookup: subject_id -> set of object_ids
     subjects: dict[str, set[str]] = {}
@@ -254,9 +547,7 @@ async def test_lexical_candidates_have_correct_justification() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, filler_to_source = await generate_candidates(
-        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
-    )
+    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
 
     assert len(records) == 1
     r = records[0]
@@ -290,7 +581,7 @@ async def test_lexical_candidates_exclude_foreign_obo_prefixes() -> None:
         }
     )
 
-    records, _ = await generate_candidates(ncit, uberon, _NCIT_VERSION, _UBERON_VERSION)
+    records, _ = await generate_candidates(ncit, uberon, _VERSIONS)
 
     assert [(row.object_system, row.object_id) for row in records] == [
         ("uberon-cl", "UBERON:0000948")
@@ -316,9 +607,7 @@ async def test_filler_with_label_not_found_in_upstream() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, filler_to_source = await generate_candidates(
-        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
-    )
+    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
 
     assert len(records) == 0
     assert filler_to_source.get("C99999") == "none"
@@ -343,9 +632,7 @@ async def test_filler_without_label_is_none() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, filler_to_source = await generate_candidates(
-        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
-    )
+    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
 
     assert len(records) == 0
     assert filler_to_source.get("C77777") == "none"
@@ -380,9 +667,7 @@ async def test_agreeing_xref_and_label_yield_one_composite_candidate() -> None:
         }
     )
 
-    records, filler_to_source = await generate_candidates(
-        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
-    )
+    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
 
     assert len(records) == 1, "one pair must yield one row, or the store drops one"
     assert records[0].subject_id == "C12468"
@@ -414,9 +699,7 @@ async def test_the_lexical_pass_also_runs_over_a_filler_that_has_an_xref() -> No
         }
     )
 
-    records, filler_to_source = await generate_candidates(
-        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
-    )
+    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
 
     assert {(r.object_id, r.mapping_justification) for r in records} == {
         ("UBERON:0002048", DATABASE_CROSS_REFERENCE),
@@ -441,9 +724,7 @@ async def test_an_xref_filler_whose_label_matches_nothing_stays_xref() -> None:
         }
     )
 
-    records, filler_to_source = await generate_candidates(
-        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
-    )
+    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
 
     assert len(records) == 1
     assert records[0].mapping_justification == DATABASE_CROSS_REFERENCE
@@ -453,16 +734,26 @@ async def test_an_xref_filler_whose_label_matches_nothing_stays_xref() -> None:
 
 @pytest.mark.unit
 async def test_ingest_refuses_empty_filler_inventory_before_writing() -> None:
-    ncit = _MockClient({"SELECT DISTINCT ?fillerCode": []})
-    uberon = _MockClient({"hasDbXref": []})
+    ncit = _MockClient(
+        {
+            "SELECT DISTINCT ?location ?version": _ncit_version_rows(),
+            "SELECT DISTINCT ?fillerCode": [],
+        }
+    )
+    uberon = _MockClient(
+        {
+            "SELECT DISTINCT ?ontology ?version": _upstream_version_rows(),
+            "hasDbXref": [],
+        }
+    )
     store = AsyncMock()
 
     with pytest.raises(
         CandidateSourceInventoryError, match="NCIt filler inventory is empty"
     ):
-        await ingest_candidates(
+        await ingest_candidates(  # type: ignore[arg-type]
             store,
-            ncit,
+            cast("Any", ncit),
             uberon,
             _NCIT_VERSION,
             _UBERON_VERSION,
