@@ -21,9 +21,8 @@ _RELEASE_UNCOMPRESSED_BYTES = 1_318_221_540
 # The archive holds 81_209 <DataElement> records, but `cdes` is keyed by
 # (public_id, version) and 589 keys repeat, so 1_374 records collapse on insert.
 # `cde_count` is therefore the distinct-key count, which equals the record count only
-# when no key repeats — for this release it does not. Pinning the record count here is
-# what made this contract fail on every run. Which variant of a repeated key survives
-# is #238.
+# when no key repeats — for this release it does not. The build now counts the collapse
+# and refuses any repeated key whose parsed fields differ (#238).
 _RELEASE_CDE_COUNT = 79_835
 _HISTORICAL_SHA256 = "2be552dbc9b906a084c7fd285ecfaa19d452ebe88719d48f8d45168721c184bd"
 _HISTORICAL_MEMBER_SIZES = (2_592_992,) + (38,) * 13
@@ -54,9 +53,11 @@ def test_configured_cadsr_archive_matches_pinned_release_shape(
         assert sum(path.stat().st_size for path in extracted.xml_paths) == (
             _RELEASE_UNCOMPRESSED_BYTES
         )
-        candidate = build_database(extracted, tmp_path / "current-candidate.db")
+        result = build_database(extracted, tmp_path / "current-candidate.db")
 
-    assert candidate.cde_count == _RELEASE_CDE_COUNT
+    assert result.candidate.cde_count == _RELEASE_CDE_COUNT
+    assert result.record_count == 81_209
+    assert result.collapsed_duplicate_count == 1_374
 
 
 def test_historical_partial_export_is_rejected_and_candidate_removed(

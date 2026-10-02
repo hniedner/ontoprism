@@ -98,7 +98,7 @@ async def test_download_revalidates_unchanged_release_via_304(
         expected_url=cadsr_server,
         workspace_parent=tmp_path / "workspaces",
     ) as extracted:
-        candidate = build_database(extracted, tmp_path / "not-modified.db")
+        candidate = build_database(extracted, tmp_path / "not-modified.db").candidate
     assert candidate.cde_count == 1
 
 
@@ -120,5 +120,5 @@ async def test_download_offline_falls_back_to_cache(tmp_path: Path) -> None:
         expected_url=base,
         workspace_parent=tmp_path / "workspaces",
     ) as extracted:
-        candidate = build_database(extracted, tmp_path / "offline.db")
+        candidate = build_database(extracted, tmp_path / "offline.db").candidate
     assert candidate.cde_count == 1

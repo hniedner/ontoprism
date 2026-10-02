@@ -132,7 +132,7 @@ from ontolib.terminologies.uberon.store import (
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
-    from ontolib.repositories.cadsr.build import ValidatedCadsrCandidate
+    from ontolib.repositories.cadsr.build import CadsrBuildResult
 
 logger = get_logger(__name__)
 app = typer.Typer(help="Standalone data build for ontoprism.", no_args_is_help=True)
@@ -476,7 +476,7 @@ def _build_cadsr() -> None:
         f".{destination.name}.{uuid4().hex}.candidate"
     )
 
-    async def _prepare() -> ValidatedCadsrCandidate:
+    async def _prepare() -> CadsrBuildResult:
         sidecars = _cadsr_sidecars(destination)
         if sidecars:
             raise RuntimeError(
@@ -493,13 +493,13 @@ def _build_cadsr() -> None:
         ) as extracted:
             return build_database(extracted, candidate_path)
 
-    def _replace_source(candidate: ValidatedCadsrCandidate) -> None:
-        candidate.path.replace(destination)
+    def _replace_source(result: CadsrBuildResult) -> None:
+        result.candidate.path.replace(destination)
 
-    async def _run() -> int:
+    async def _run() -> CadsrBuildResult:
         engine = make_engine(settings.database_url)
         try:
-            candidate = await coordinate_corpus_source_replacement(
+            result = await coordinate_corpus_source_replacement(
                 make_sessionmaker(engine),
                 Corpus.CADSR,
                 prepare=_prepare,
@@ -509,15 +509,20 @@ def _build_cadsr() -> None:
             await _dispose_cadsr_engine(engine, original)
             raise
         await _dispose_cadsr_engine(engine)
-        return candidate.cde_count
+        return result
 
     try:
-        count = asyncio.run(_run())
+        result = asyncio.run(_run())
     except BaseException as original:
         _cleanup_cadsr_candidate(candidate_path, original)
         raise
     _cleanup_cadsr_candidate(candidate_path)
-    typer.echo(f"Built caDSR DB with {count} CDEs at {settings.cadsr_db_path}")
+    typer.echo(
+        f"Built caDSR DB at {settings.cadsr_db_path}: "
+        f"records={result.record_count} "
+        f"distinct_keys={result.distinct_key_count} "
+        f"collapsed_duplicates={result.collapsed_duplicate_count}"
+    )
 
 
 def _sha256(path: Path) -> str:
