@@ -20,12 +20,16 @@ if TYPE_CHECKING:
 
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
-
 from ontolib.repositories.xref.models import (
     SSSOMRecord,
     UberonCandidateGenerationMetadata,
 )
 from ontolib.repositories.xref.publication import fail_run_on_error, publish_generation
+from ontolib.repositories.xref.source_versions import (
+    MappingSourceVersions,
+    SparqlSelectClient,
+    read_mapping_source_versions,
+)
 from ontolib.repositories.xref.vocab import (
     CLOSE_MATCH,
     COMPOSITE_MATCHING,
@@ -111,7 +115,7 @@ SELECT DISTINCT ?fillerCode WHERE {{
 """
 
 
-async def get_filler_codes(client: SparqlHttpClient) -> set[str]:
+async def get_filler_codes(client: SparqlSelectClient) -> set[str]:
     """Query the NCIt store for distinct filler codes on target axes."""
     rows = await client.select(build_filler_codes_query())
     result: set[str] = set()
@@ -142,7 +146,7 @@ SELECT ?upstream ?xref WHERE {{
 
 
 async def fetch_uberon_xrefs(
-    client: SparqlHttpClient,
+    client: SparqlSelectClient,
 ) -> list[dict[str, str]]:
     """Fetch Uberon/CL concepts that have ``NCIT:`` xref annotations."""
     rows = await client.select(build_uberon_xref_query())
@@ -152,7 +156,13 @@ async def fetch_uberon_xrefs(
         xref = row.get("xref")
         if not upstream or not xref:
             raise CandidateSourceInventoryError("incomplete xref row")
-        result.append({"upstream": str(upstream), "xref": str(xref)})
+        upstream_iri = str(upstream)
+        curie = _iri_to_curie(upstream_iri)
+        if curie is None or not curie.startswith(UBERON_CL_CURIE_PREFIXES):
+            raise CandidateSourceInventoryError(
+                "xref row belongs to an unknown source ontology"
+            )
+        result.append({"upstream": upstream_iri, "xref": str(xref)})
     return result
 
 
@@ -189,7 +199,7 @@ SELECT ?code ?label WHERE {{
 
 
 async def fetch_ncit_labels(
-    client: SparqlHttpClient,
+    client: SparqlSelectClient,
     codes: Iterable[str],
     *,
     batch_size: int = _LABEL_BATCH_SIZE,
@@ -218,7 +228,7 @@ SELECT ?concept ?label WHERE {{
 
 
 async def fetch_upstream_labels(
-    client: SparqlHttpClient,
+    client: SparqlSelectClient,
 ) -> dict[str, set[str]]:
     """Fetch all Uberon/CL ``rdfs:label`` values.
 
@@ -276,8 +286,7 @@ def _records_for_filler(
     filler: str,
     xref_curies: set[str],
     lexical_curies: set[str],
-    ncit_version: str,
-    uberon_version: str,
+    versions: MappingSourceVersions,
 ) -> list[SSSOMRecord]:
     """One candidate per distinct upstream class this filler matched, either way."""
     records: list[SSSOMRecord] = []
@@ -294,8 +303,8 @@ def _records_for_filler(
                 object_system="uberon-cl",
                 mapping_justification=justification,
                 confidence=confidence,
-                subject_source_version=ncit_version,
-                object_source_version=uberon_version,
+                subject_source_version=versions.ncit,
+                object_source_version=versions.upstream_for(curie),
                 author="xref-ingest-A3",
             )
         )
@@ -325,10 +334,9 @@ def _build_label_index(
 
 
 async def generate_candidates(
-    ncit_client: SparqlHttpClient,
-    uberon_client: SparqlHttpClient,
-    ncit_version: str,
-    uberon_version: str,
+    ncit_client: SparqlSelectClient,
+    uberon_client: SparqlSelectClient,
+    versions: MappingSourceVersions,
     *,
     batch_size: int = _LABEL_BATCH_SIZE,
 ) -> tuple[list[SSSOMRecord], dict[str, str]]:
@@ -360,7 +368,10 @@ async def generate_candidates(
 
         records.extend(
             _records_for_filler(
-                filler, xref_curies, lexical_curies, ncit_version, uberon_version
+                filler,
+                xref_curies,
+                lexical_curies,
+                versions,
             )
         )
         filler_to_source[filler] = _filler_source(xref_curies, lexical_curies)
@@ -374,7 +385,7 @@ async def generate_candidates(
 async def ingest_candidates(
     store: XrefStore,
     ncit_client: SparqlHttpClient,
-    uberon_client: SparqlHttpClient,
+    uberon_client: SparqlSelectClient,
     ncit_version: str,
     uberon_version: str,
     *,
@@ -387,19 +398,30 @@ async def ingest_candidates(
 ) -> dict[str, Any]:
     """Run the full candidate-ingest pipeline and persist results.
 
-    1. Creates an ``xref_run``.
+    1. Validates source identities and reads all three ontology versions.
     2. Generates candidates via :func:`generate_candidates`.
-    3. Publishes records as one immutable, source-specific PostgreSQL/RDF generation.
-    4. Updates the run with the coverage report (metrics).
+    3. Rechecks the source identities before creating an ``xref_run``.
+    4. Publishes one immutable, source-specific PostgreSQL/RDF generation.
+    5. Updates the run with the coverage report (metrics).
 
     Returns the coverage report dict.
     """
     rid = run_id or uuid.uuid4().hex
+    source_metadata = UberonCandidateGenerationMetadata(
+        ncit_source_identity=ncit_source_identity,
+        uberon_source_identity=uberon_source_identity,
+        uberon_serving_identity=uberon_serving_identity,
+    )
+    versions = await read_mapping_source_versions(
+        ncit_client,
+        uberon_client,
+        expected_ncit_version=ncit_version,
+        expected_uberon_version=uberon_version,
+    )
     records, filler_to_source = await generate_candidates(
         ncit_client,
         uberon_client,
-        ncit_version,
-        uberon_version,
+        versions,
     )
     if not filler_to_source:
         raise CandidateSourceInventoryError("NCIt filler inventory is empty")
@@ -424,11 +446,7 @@ async def ingest_candidates(
             source=source,
             run_id=rid,
             records=records,
-            source_metadata=UberonCandidateGenerationMetadata(
-                ncit_source_identity=ncit_source_identity,
-                uberon_source_identity=uberon_source_identity,
-                uberon_serving_identity=uberon_serving_identity,
-            ),
+            source_metadata=source_metadata,
         )
 
         report = candidate_coverage_report(fillers, records, filler_to_source)

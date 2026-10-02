@@ -102,6 +102,7 @@ from ontolib.repositories.xref.models import (
     UberonReadIdentity,
 )
 from ontolib.repositories.xref.publication import fail_run_on_error, publish_generation
+from ontolib.repositories.xref.source_versions import MappingSourceVersions
 from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES, object_iri
 from ontolib.repositories.xref.validation import (
     ReasonerUnavailableError,
@@ -1437,6 +1438,7 @@ async def persist_promotions(
     *,
     ncit_version: str,
     source_version: str,
+    cl_version: str,
     source: str,
     run_id: str | None = None,
     tool_identity: DataBuildToolIdentity | None = None,
@@ -1453,6 +1455,20 @@ async def persist_promotions(
     of whichever record happened to sort first.
     """
     rid = run_id or uuid.uuid4().hex
+    versions = MappingSourceVersions(
+        ncit=ncit_version,
+        uberon=source_version,
+        cl=cl_version,
+    )
+    # Re-stamp with the versions this run actually validated against.
+    stamped = [
+        replace(
+            record,
+            subject_source_version=versions.ncit,
+            object_source_version=versions.upstream_for(record.object_id),
+        )
+        for record in promoted
+    ]
     await store.upsert_run(
         run_id=rid,
         source=source,
@@ -1467,15 +1483,6 @@ async def persist_promotions(
             if _finalize:
                 await store.update_run_metrics(rid, metrics, status="failed")
             return rid
-        # Re-stamp with the versions this run actually validated against.
-        stamped = [
-            replace(
-                r,
-                subject_source_version=ncit_version,
-                object_source_version=source_version,
-            )
-            for r in promoted
-        ]
         await publish_generation(
             store,
             ncit_client,
@@ -1531,10 +1538,16 @@ def _quarantine_if_stale(
     enabled: bool,
     ncit_version: str,
     source_version: str,
+    cl_version: str,
 ) -> SSSOMRecord:
+    versions = MappingSourceVersions(
+        ncit=ncit_version,
+        uberon=source_version,
+        cl=cl_version,
+    )
     is_stale = (
         record.subject_source_version != ncit_version
-        or record.object_source_version != source_version
+        or record.object_source_version != versions.upstream_for(record.object_id)
     )
     if enabled and record.lifecycle_state in {"validated", "active"} and is_stale:
         return replace(record, lifecycle_state="quarantined")
@@ -1561,6 +1574,7 @@ def _promotion_generation_records(
     *,
     ncit_version: str,
     source_version: str,
+    cl_version: str,
     run_id: str,
 ) -> tuple[list[SSSOMRecord], list[str], int]:
     successor = [
@@ -1569,6 +1583,7 @@ def _promotion_generation_records(
             enabled=not report.failed,
             ncit_version=ncit_version,
             source_version=source_version,
+            cl_version=cl_version,
         )
         for record, _originating_run in inherited
     ]
@@ -1613,6 +1628,7 @@ async def _run_promotion_locked(
     *,
     ncit_version: str,
     source_version: str,
+    cl_version: str,
     source: str,
     tool_identity: DataBuildToolIdentity,
     source_metadata: UberonPromotionGenerationMetadata,
@@ -1655,6 +1671,7 @@ async def _run_promotion_locked(
     stale = await store.stale_anchors(
         ncit_version=ncit_version,
         source_version=source_version,
+        cl_version=cl_version,
         source=source,
         generation_id=promotion_generation,
     )
@@ -1672,6 +1689,7 @@ async def _run_promotion_locked(
         report,
         ncit_version=ncit_version,
         source_version=source_version,
+        cl_version=cl_version,
         run_id=run_id,
     )
     await _require_promotion_snapshots(
@@ -1687,6 +1705,7 @@ async def _run_promotion_locked(
         report,
         ncit_version=ncit_version,
         source_version=source_version,
+        cl_version=cl_version,
         source=source,
         run_id=run_id,
         tool_identity=tool_identity,
@@ -1719,6 +1738,7 @@ async def run_promotion(
     *,
     ncit_version: str,
     source_version: str,
+    cl_version: str,
     source: str,
     tool_identity: DataBuildToolIdentity,
     source_metadata: UberonPromotionGenerationMetadata,
@@ -1733,6 +1753,7 @@ async def run_promotion(
             uberon_client,
             ncit_version=ncit_version,
             source_version=source_version,
+            cl_version=cl_version,
             source=source,
             tool_identity=tool_identity,
             source_metadata=source_metadata,
