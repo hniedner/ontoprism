@@ -6,6 +6,7 @@ import pytest
 
 from ontolib.repositories.xref.models import (
     EndpointIdentity,
+    IcdoReadIdentity,
     MappingResult,
     SSSOMRecord,
     UberonReadIdentity,
@@ -104,7 +105,15 @@ def test_mapping_serving_policy_applies_entitlement_in_both_directions(
             uberon_source_identity="b" * 64,
             uberon_serving_identity="c" * 64,
         ),
-        allow_licensed=allow_licensed,
+        icdo=(
+            IcdoReadIdentity(
+                ncit_source_identity="a" * 64,
+                icdo_generation_identity="d" * 64,
+                icdo_serving_identity="e" * 64,
+            )
+            if allow_licensed
+            else None
+        ),
     )
     ncit = EndpointIdentity("ncit", "26.07d", "C1")
     icdo = EndpointIdentity("icdo", "3.2", "8240/3")
@@ -117,6 +126,7 @@ def test_mapping_serving_policy_applies_entitlement_in_both_directions(
     )
 
     assert policy.serves(mapping) is allow_licensed
+    assert policy.allow_licensed is allow_licensed
 
 
 @pytest.mark.unit

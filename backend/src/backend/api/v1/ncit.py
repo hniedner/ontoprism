@@ -96,7 +96,6 @@ async def _xref_expected(
             if icdo is not None
             else None
         ),
-        allow_licensed=include_icdo,
     )
 
 

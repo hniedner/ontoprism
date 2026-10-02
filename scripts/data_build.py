@@ -991,9 +991,7 @@ async def _build_xref_promote(
                 XrefStore(sf),
                 ncit_client,
                 uberon_client,
-                ncit_version=versions.ncit,
-                source_version=versions.uberon,
-                cl_version=versions.cl,
+                versions=versions,
                 # Named explicitly: the D29 sweep is scoped by source, and a shared
                 # default would let a Uberon run quarantine every Mondo bridge.
                 source="uberon-cl-promotion",

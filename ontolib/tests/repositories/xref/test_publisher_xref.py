@@ -355,7 +355,10 @@ async def test_publisher_refuses_source_pointer_switch_during_validation() -> No
 
     ncit.select = switching_version  # type: ignore[method-assign]
     store = _Store()
-    with pytest.raises(PublisherXrefSourceError, match="changed during validation"):
+    with pytest.raises(
+        PublisherXrefSourceError,
+        match="NCIt ontology version does not match its certified source",
+    ):
         await publish_uberon_xrefs(
             store,
             ncit,

@@ -137,8 +137,6 @@ class XrefReadPolicy:
         self,
         uberon: UberonReadIdentity | None = None,
         icdo: IcdoReadIdentity | None = None,
-        *,
-        allow_licensed: bool = False,
     ) -> None:
         if uberon is None and icdo is None:
             raise ValueError("xref read policy must select at least one source family")
@@ -148,7 +146,7 @@ class XrefReadPolicy:
             _uberon_identity_value(uberon) if uberon else None,
         )
         object.__setattr__(self, "icdo", _icdo_identity_value(icdo) if icdo else None)
-        object.__setattr__(self, "allow_licensed", allow_licensed)
+        object.__setattr__(self, "allow_licensed", icdo is not None)
 
     def serves(self, mapping: MappingResult) -> bool:
         """Whether one current-generation mapping is eligible for consumers."""

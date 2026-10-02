@@ -60,7 +60,6 @@ class CoverageReport(BaseModel):
     anchors_in_roles: int
     anchors_new: int
     anchors_identity_mapped: int
-    anchors_close_only: int
     anchors_unmapped: int
     cde_coverage: float
 
@@ -79,15 +78,10 @@ class CoverageReport(BaseModel):
                 f"!= distinct_anchors ({self.distinct_anchors})"
             )
             raise ValueError(msg)
-        mapped = (
-            self.anchors_identity_mapped
-            + self.anchors_close_only
-            + self.anchors_unmapped
-        )
+        mapped = self.anchors_identity_mapped + self.anchors_unmapped
         if mapped != self.distinct_anchors:
             msg = (
                 f"Invariant: identity ({self.anchors_identity_mapped}) + "
-                f"close ({self.anchors_close_only}) + "
                 f"unmapped ({self.anchors_unmapped}) "
                 f"!= distinct_anchors ({self.distinct_anchors})"
             )
@@ -120,10 +114,6 @@ def cde_anchor_map(db_path: str | Path) -> dict[tuple[str, str], CdeAnchors]:
 
 def _is_identity(strengths: set[tuple[str, str]]) -> bool:
     return any(p == EXACT_MATCH and lc in _IDENTITY_LIFECYCLES for p, lc in strengths)
-
-
-def _is_close(strengths: set[tuple[str, str]]) -> bool:
-    return bool(strengths) and not _is_identity(strengths)
 
 
 def _cde_is_covered(
@@ -159,15 +149,13 @@ def _walk_cdes(
 def _strength_buckets(
     codes: set[str],
     strength_by_subject: dict[str, set[tuple[str, str]]],
-) -> tuple[int, int, int]:
-    identity = close = 0
+) -> tuple[int, int]:
+    identity = 0
     for c in codes:
         s = strength_by_subject.get(c, set())
         if _is_identity(s):
             identity += 1
-        elif _is_close(s):
-            close += 1
-    return identity, close, len(codes) - identity - close
+    return identity, len(codes) - identity
 
 
 def build_coverage_report(
@@ -182,7 +170,7 @@ def build_coverage_report(
     )
     n = len(anchor_map)
     live = sum(1 for c in all_codes if live_status.get(c) == "live")
-    identity, close, unmapped = _strength_buckets(all_codes, strength_by_subject)
+    identity, unmapped = _strength_buckets(all_codes, strength_by_subject)
     return CoverageReport(
         n_cdes=n,
         single_code_cdes=n_single,
@@ -193,7 +181,6 @@ def build_coverage_report(
         anchors_in_roles=len(all_codes & role_codes),
         anchors_new=len(all_codes - role_codes),
         anchors_identity_mapped=identity,
-        anchors_close_only=close,
         anchors_unmapped=unmapped,
         cde_coverage=round(covered_cdes / n, 4) if n else 0.0,
     )

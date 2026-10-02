@@ -143,7 +143,6 @@ def test_cde_anchor_map_accepts_file_uri(tmp_path: Path) -> None:
         {"anchors_in_roles": 0, "anchors_new": 0},
         {
             "anchors_identity_mapped": 0,
-            "anchors_close_only": 0,
             "anchors_unmapped": 0,
         },
     ],
@@ -161,7 +160,6 @@ def test_coverage_report_rejects_every_partition_invariant(
         "anchors_in_roles": 1,
         "anchors_new": 0,
         "anchors_identity_mapped": 1,
-        "anchors_close_only": 0,
         "anchors_unmapped": 0,
         "cde_coverage": 1.0,
     }
@@ -217,8 +215,9 @@ def test_close_match_not_covered() -> None:
         role_codes=frozenset(),
     )
     assert report.cde_coverage == 0.0
-    assert report.anchors_close_only == 1
+    assert report.anchors_unmapped == 1
     assert report.anchors_identity_mapped == 0
+    assert not hasattr(report, "anchors_close_only")
 
 
 @pytest.mark.unit
@@ -296,7 +295,6 @@ def test_empty_inputs() -> None:
     assert report.live == 0
     assert report.unresolved == 0
     assert report.anchors_identity_mapped == 0
-    assert report.anchors_close_only == 0
     assert report.anchors_unmapped == 0
     assert report.single_code_cdes == 0
     assert report.post_coordinated_cdes == 0
@@ -320,7 +318,6 @@ def test_as_dict_returns_all_fields() -> None:
         "anchors_in_roles",
         "anchors_new",
         "anchors_identity_mapped",
-        "anchors_close_only",
         "anchors_unmapped",
         "cde_coverage",
     }
@@ -353,8 +350,7 @@ def test_detect_regression_detects_drop() -> None:
         anchors_in_roles=10,
         anchors_new=40,
         anchors_identity_mapped=45,
-        anchors_close_only=5,
-        anchors_unmapped=0,
+        anchors_unmapped=5,
         cde_coverage=0.9,
     )
     cur = CoverageReport(
@@ -367,8 +363,7 @@ def test_detect_regression_detects_drop() -> None:
         anchors_in_roles=10,
         anchors_new=40,
         anchors_identity_mapped=30,
-        anchors_close_only=15,
-        anchors_unmapped=5,
+        anchors_unmapped=20,
         cde_coverage=0.6,
     )
     dropped = detect_coverage_regression(prev, cur)
@@ -387,8 +382,7 @@ def test_detect_regression_accepts_improvement() -> None:
         anchors_in_roles=10,
         anchors_new=40,
         anchors_identity_mapped=30,
-        anchors_close_only=15,
-        anchors_unmapped=5,
+        anchors_unmapped=20,
         cde_coverage=0.6,
     )
     cur = CoverageReport(
@@ -401,8 +395,7 @@ def test_detect_regression_accepts_improvement() -> None:
         anchors_in_roles=10,
         anchors_new=40,
         anchors_identity_mapped=45,
-        anchors_close_only=5,
-        anchors_unmapped=0,
+        anchors_unmapped=5,
         cde_coverage=0.9,
     )
     dropped = detect_coverage_regression(prev, cur)

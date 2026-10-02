@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from ontolib.repositories.xref.evidence import EvidenceDict
+    from ontolib.repositories.xref.source_versions import MappingSourceVersions
 
 
 _CANDIDATE_SOURCE = "uberon-cl"
@@ -755,9 +756,7 @@ class XrefStore:
     async def stale_anchors(
         self,
         *,
-        ncit_version: str,
-        source_version: str,
-        cl_version: str,
+        versions: MappingSourceVersions,
         source: str,
         generation_id: str | None = None,
     ) -> set[tuple[str, str]]:
@@ -779,15 +778,15 @@ class XrefStore:
             "     OR object_version <> CASE "
             "       WHEN object_id LIKE 'UBERON:%' THEN :source_version "
             "       WHEN object_id LIKE 'CL:%' THEN :cl_version "
-            "       ELSE '' END)"
+            "       ELSE NULL END)"
         )
         async with self._sf() as s:
             result = await s.execute(
                 sql,
                 {
-                    "ncit_version": ncit_version,
-                    "source_version": source_version,
-                    "cl_version": cl_version,
+                    "ncit_version": versions.ncit,
+                    "source_version": versions.uberon,
+                    "cl_version": versions.cl,
                     "source": source,
                     "generation_id": generation_id,
                 },
@@ -828,7 +827,7 @@ class XrefStore:
     async def mappings_for_identifiers(
         self, identifiers: set[str], *, expected: XrefReadPolicy
     ) -> dict[str, list[MappingResult]]:
-        """Find active mappings in either direction in one indexed roundtrip."""
+        """Find mappings admitted by the shared lifecycle and licence policy."""
         if not identifiers:
             return {}
         async with self._sf() as s:

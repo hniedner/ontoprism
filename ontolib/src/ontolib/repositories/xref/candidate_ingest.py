@@ -170,7 +170,7 @@ async def extract_candidate_inventory(
     select_fn: SelectRows,
     concept_codes: Iterable[str],
 ) -> CandidateInventory:
-    """Read complete definitions and retain each role/filler/contract route."""
+    """Retain mapped routes, counting R105 exclusions and unrouted roles."""
     cache = AnchorDefinitionRowsCache()
     included: set[CandidateContext] = set()
     excluded: set[CandidateContext] = set()
@@ -188,6 +188,7 @@ async def extract_candidate_inventory(
         for occurrence in definition.occurrences:
             axis = _routed_mapping_axis(occurrence.role_code)
             if axis is None:
+                unknown[f"unrouted-role:{occurrence.role_code}"] += 1
                 continue
             context = CandidateContext(
                 source_role=occurrence.role_code,
@@ -496,9 +497,9 @@ async def ingest_candidates(
 ) -> dict[str, Any]:
     """Run the full candidate-ingest pipeline and persist results.
 
-    1. Validates source identities and reads all three ontology versions.
+    1. Reads and cross-checks all three ontology versions against certified releases.
     2. Reads complete definitions, routes source roles, and generates candidates.
-    3. Rechecks the source identities before creating an ``xref_run``.
+    3. Checks source identities after generation and before creating an ``xref_run``.
     4. Publishes one immutable, source-specific PostgreSQL/RDF generation.
     5. Updates the run with the coverage report (metrics).
 
@@ -517,12 +518,13 @@ async def ingest_candidates(
         expected_uberon_version=uberon_version,
     )
     inventory = inventory or await read_candidate_inventory(ncit_client)
-    if (
-        not inventory.contexts
-        and not inventory.excluded_counts
-        and not inventory.unknown_counts
-    ):
-        raise CandidateSourceInventoryError("NCIt filler inventory is empty")
+    if not inventory.contexts:
+        message = (
+            "NCIt filler inventory is empty"
+            if not inventory.excluded_counts and not inventory.unknown_counts
+            else "NCIt filler inventory has no routed fillers"
+        )
+        raise CandidateSourceInventoryError(message)
     records, filler_to_source = await generate_candidates(
         ncit_client,
         uberon_client,

@@ -165,7 +165,6 @@ async def _read_policy(
             if icdo is not None
             else None
         ),
-        allow_licensed=include_icdo,
     )
 
 

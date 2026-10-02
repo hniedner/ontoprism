@@ -49,6 +49,7 @@ from ontolib.repositories.xref.publication import (
     generation_graph_iri,
     generation_identity,
 )
+from ontolib.repositories.xref.source_versions import MappingSourceVersions
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.validation import ReasonerUnavailableError
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH, NARROW_MATCH
@@ -61,6 +62,11 @@ if TYPE_CHECKING:
 _NCIT_VERSION = "26.02d"
 _UBERON_VERSION = "uberon-2026-01"
 _CL_VERSION = "cl-2026-01"
+_VERSIONS = MappingSourceVersions(
+    ncit=_NCIT_VERSION,
+    uberon=_UBERON_VERSION,
+    cl=_CL_VERSION,
+)
 _SOURCE_METADATA = UberonPromotionGenerationMetadata(
     ncit_source_identity="a" * 64,
     uberon_source_identity="b" * 64,
@@ -86,13 +92,21 @@ _REASONER_TOOL = DataBuildToolIdentity(
 
 async def persist_promotions(*args: object, **kwargs: object) -> str:
     kwargs.setdefault("source_metadata", _SOURCE_METADATA)
-    kwargs.setdefault("cl_version", _CL_VERSION)
+    kwargs["versions"] = MappingSourceVersions(
+        ncit=str(kwargs.pop("ncit_version", _NCIT_VERSION)),
+        uberon=str(kwargs.pop("source_version", _UBERON_VERSION)),
+        cl=str(kwargs.pop("cl_version", _CL_VERSION)),
+    )
     return await _persist_promotions(*args, **kwargs)  # type: ignore[arg-type]
 
 
 async def run_promotion(*args: object, **kwargs: object) -> dict[str, object]:
     kwargs.setdefault("source_metadata", _SOURCE_METADATA)
-    kwargs.setdefault("cl_version", _CL_VERSION)
+    kwargs["versions"] = MappingSourceVersions(
+        ncit=str(kwargs.pop("ncit_version", _NCIT_VERSION)),
+        uberon=str(kwargs.pop("source_version", _UBERON_VERSION)),
+        cl=str(kwargs.pop("cl_version", _CL_VERSION)),
+    )
     return await _run_promotion(*args, **kwargs)  # type: ignore[arg-type]
 
 
@@ -570,9 +584,7 @@ async def test_an_endpoint_release_plans_stale_bridges_without_mutating_publishe
 
     original_generation = await xref_store.active_generation("uberon-cl-promotion")
     stale = await xref_store.stale_anchors(
-        ncit_version=_NCIT_VERSION,
-        source_version=_UBERON_VERSION,
-        cl_version=_CL_VERSION,
+        versions=_VERSIONS,
         source="uberon-cl-promotion",
         generation_id=original_generation,
     )
@@ -609,9 +621,7 @@ async def test_stale_planning_is_scoped_to_its_own_upstream_source(
     )
 
     stale = await xref_store.stale_anchors(
-        ncit_version=_NCIT_VERSION,
-        source_version=_UBERON_VERSION,
-        cl_version=_CL_VERSION,
+        versions=_VERSIONS,
         source="uberon-cl-promotion",
     )
 
@@ -708,9 +718,7 @@ async def test_a_promotion_run_does_not_quarantine_what_it_just_promoted(
         tool_identity=_REASONER_TOOL,
     )
     stale = await xref_store.stale_anchors(
-        ncit_version=_NCIT_VERSION,
-        source_version=_UBERON_VERSION,
-        cl_version=_CL_VERSION,
+        versions=_VERSIONS,
         source="uberon-cl-promotion",
     )
 
@@ -747,9 +755,7 @@ async def test_a_cl_promotion_is_stamped_with_the_cl_release(
     assert stored[0][0].object_source_version == _CL_VERSION
     assert (
         await xref_store.stale_anchors(
-            ncit_version=_NCIT_VERSION,
-            source_version=_UBERON_VERSION,
-            cl_version=_CL_VERSION,
+            versions=_VERSIONS,
             source="uberon-cl-promotion",
         )
         == set()

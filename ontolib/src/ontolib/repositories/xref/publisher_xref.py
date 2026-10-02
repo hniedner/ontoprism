@@ -224,15 +224,12 @@ async def _sources_changed(
 ) -> bool:
     assertions_after = _parse_assertions(await fetch_uberon_xrefs(uberon_client))
     resolved_after = await _resolved_targets(ncit_client, assertions)
-    try:
-        versions_after = await _source_versions(
-            ncit_client,
-            uberon_client,
-            expected_ncit_version=versions.ncit,
-            expected_uberon_version=versions.uberon,
-        )
-    except PublisherXrefSourceError:
-        return True
+    versions_after = await _source_versions(
+        ncit_client,
+        uberon_client,
+        expected_ncit_version=versions.ncit,
+        expected_uberon_version=versions.uberon,
+    )
     return any(
         (
             versions_after != versions,

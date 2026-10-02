@@ -204,6 +204,13 @@ async def test_candidate_inventory_routes_direct_nested_and_mixed_roles(
                 [ owl:unionOf (ncit:C99763 ncit:C99764) ]
             )
         ] .
+        ncit:C99755 owl:equivalentClass [
+            owl:intersectionOf (
+                ncit:C99760
+                [ a owl:Restriction ; owl:onProperty ncit:R999 ;
+                  owl:someValuesFrom ncit:C99765 ]
+            )
+        ] .
     """
 
     async with ncit_sparql_client(isolated_qlever_url) as client:
@@ -215,7 +222,7 @@ async def test_candidate_inventory_routes_direct_nested_and_mixed_roles(
         )
         inventory = await candidate_ingest_module.extract_candidate_inventory(
             client.select,
-            ("C99751", "C99752", "C99753", "C99754"),
+            ("C99751", "C99752", "C99753", "C99754", "C99755"),
         )
 
     assert {
@@ -227,7 +234,10 @@ async def test_candidate_inventory_routes_direct_nested_and_mixed_roles(
         ("R101", "C99763", "op:PrimarySite"),
     }
     assert inventory.excluded_by_role == {"R105": 1}
-    assert inventory.unknown_by_reason == {"unsupported-definition-constructor": 1}
+    assert inventory.unknown_by_reason == {
+        "unrouted-role:R999": 1,
+        "unsupported-definition-constructor": 1,
+    }
 
 
 # -- Tests: Query structure ---------------------------------------------
@@ -916,6 +926,50 @@ async def test_ingest_refuses_empty_filler_inventory_before_writing() -> None:
             ),
             inventory=_inventory(),
         )
+    store.upsert_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "inventory",
+    [
+        CandidateInventory(contexts=(), excluded_counts=(("R105", 1),)),
+        CandidateInventory(
+            contexts=(),
+            excluded_counts=(),
+            unknown_counts=(("unsupported-definition-constructor", 1),),
+        ),
+    ],
+    ids=("all-excluded", "all-unknown"),
+)
+async def test_ingest_refuses_inventory_without_routed_fillers_before_writing(
+    inventory: CandidateInventory,
+) -> None:
+    ncit = _MockClient({"SELECT DISTINCT ?location ?version": _ncit_version_rows()})
+    uberon = _MockClient(
+        {"SELECT DISTINCT ?ontology ?version": _upstream_version_rows()}
+    )
+    store = AsyncMock()
+
+    with pytest.raises(
+        CandidateSourceInventoryError,
+        match="NCIt filler inventory has no routed fillers",
+    ):
+        await ingest_candidates(  # type: ignore[arg-type]
+            store,
+            cast("Any", ncit),
+            uberon,
+            _NCIT_VERSION,
+            _UBERON_VERSION,
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+            observe_source_identities=AsyncMock(
+                return_value=("a" * 64, "b" * 64, "c" * 64)
+            ),
+            inventory=inventory,
+        )
+
     store.upsert_run.assert_not_awaited()
 
 

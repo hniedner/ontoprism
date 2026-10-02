@@ -963,7 +963,6 @@ async def test_mixed_active_sources_validate_only_their_certified_inputs() -> No
             icdo_generation_identity="4" * 64,
             icdo_serving_identity="5" * 64,
         ),
-        allow_licensed=True,
     )
     generations = (
         (
@@ -1069,11 +1068,6 @@ async def test_mixed_active_sources_validate_only_their_certified_inputs() -> No
                 uberon_source_identity="2" * 64,
                 uberon_serving_identity="3" * 64,
             ),
-            icdo=IcdoReadIdentity(
-                ncit_source_identity="1" * 64,
-                icdo_generation_identity="4" * 64,
-                icdo_serving_identity="5" * 64,
-            ),
         ),
     )
     assert set(public_rows) == {"MIX-CANDIDATE", "MIX-PUBLISHER", "MIX-PROMOTION"}
@@ -1088,11 +1082,6 @@ async def test_mixed_active_sources_validate_only_their_certified_inputs() -> No
                     ncit_source_identity="1" * 64,
                     uberon_source_identity="2" * 64,
                     uberon_serving_identity="3" * 64,
-                ),
-                icdo=IcdoReadIdentity(
-                    ncit_source_identity="1" * 64,
-                    icdo_generation_identity="4" * 64,
-                    icdo_serving_identity="5" * 64,
                 ),
             ),
         )
