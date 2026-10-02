@@ -180,6 +180,69 @@ def test_full_application_images_are_exactly_digest_pinned() -> None:
         assert from_images == [expected_image, expected_image]
 
 
+def test_installable_package_versions_come_from_scm() -> None:
+    for relative_path in ("ontolib/pyproject.toml", "backend/pyproject.toml"):
+        package = tomllib.loads((_ROOT / relative_path).read_text())
+        assert "version" not in package["project"]
+        assert package["project"]["dynamic"] == ["version"]
+        assert package["tool"]["pdm"]["version"] == {"source": "scm"}
+
+    root = tomllib.loads((_ROOT / "pyproject.toml").read_text())
+    assert "version" not in root["project"]
+    assert "dynamic" not in root["project"]
+    assert "version" not in json.loads((_ROOT / "frontend/package.json").read_text())
+
+
+def test_runtime_image_version_inputs_are_explicit() -> None:
+    compose = yaml.safe_load((_ROOT / "docker-compose.app.yml").read_text())
+    assert compose["services"]["api"]["build"]["args"] == {
+        "ONTOPRISM_VERSION": "${ONTOPRISM_VERSION:-0+unknown}"
+    }
+    dockerfile = (_ROOT / "backend/Dockerfile").read_text()
+    assert "ARG ONTOPRISM_VERSION=0+unknown" in dockerfile
+    assert 'PDM_BUILD_SCM_VERSION="$ONTOPRISM_VERSION" pip install' in dockerfile
+    assert "version(name) == sys.argv[1]" in dockerfile
+    assert "('ontolib', 'ontoprism-backend')" in dockerfile
+
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    runtime_check = next(
+        step
+        for step in workflow["jobs"]["docker-build"]["steps"]
+        if step.get("name") == "Verify image runtimes"
+    )
+    assert "EXPECTED_BACKEND_VERSION" in runtime_check["env"]
+    assert "assert body['version'] == sys.argv[1]" in runtime_check["run"]
+
+
+def test_ci_fetches_tags_for_scm_backed_package_installation() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    checked_jobs = 0
+    for job in workflow["jobs"].values():
+        steps = job.get("steps", [])
+        installs_local_package = any(
+            isinstance(step.get("run"), str)
+            and any(
+                command in step["run"]
+                for command in ("pdm sync", "pdm install", "pdm build")
+            )
+            for step in steps
+        )
+        if not installs_local_package:
+            continue
+        checked_jobs += 1
+        checkout = next(
+            (
+                step
+                for step in steps
+                if str(step.get("uses", "")).startswith("actions/checkout@")
+            ),
+            None,
+        )
+        assert checkout is not None
+        assert checkout["with"]["fetch-depth"] == 0
+    assert checked_jobs >= 2
+
+
 @pytest.fixture
 def application_image_contract_root(tmp_path: Path) -> Path:
     for relative_path in (

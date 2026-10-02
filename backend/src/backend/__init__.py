@@ -3,5 +3,3 @@
 Lifted from fairdata's backend, scoped to the repository/graph/search/refresh surface.
 Frontend talks only to this backend, which owns all QLever/Postgres access.
 """
-
-__version__ = "0.1.0"

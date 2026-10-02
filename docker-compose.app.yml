@@ -3,6 +3,8 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.app.yml up --build
 #
+# Set ONTOPRISM_VERSION to an SCM-derived package version for an identified build;
+# an unset value reports the explicit non-release sentinel 0+unknown.
 # Then open http://localhost:8080. The data services must already hold their stores
 # (see docs/DATA_SETUP.md); this overlay only adds the application tier. All app
 # config is env-driven here — no localhost defaults are baked into the image.
@@ -11,6 +13,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        ONTOPRISM_VERSION: ${ONTOPRISM_VERSION:-0+unknown}
     container_name: ontoprism-api
     environment:
       # Point at the compose-network service names, not the host-published ports.

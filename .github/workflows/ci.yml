@@ -137,6 +137,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # SCM-backed editable packages need release tags during installation.
+          fetch-depth: 0
 
       - name: Set up PDM (cached)
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
@@ -302,6 +304,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # SCM-backed editable packages need release tags during installation.
+          fetch-depth: 0
 
       - name: Set up Node 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
@@ -377,6 +381,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # SCM-backed editable packages need release tags during installation.
+          fetch-depth: 0
 
       - name: Set up PDM (cached)
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
@@ -485,6 +491,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # SCM-backed editable packages need release tags during installation.
+          fetch-depth: 0
 
       - name: Set up PDM (cached)
         uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
@@ -510,6 +518,28 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # Build package metadata from the release-tag history.
+          fetch-depth: 0
+
+      - name: Set up PDM (cached)
+        uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
+        with:
+          python-version: "3.14.7"
+          version: "2.28.0"
+          cache: true
+
+      - name: Resolve backend image version
+        id: image-version
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # The wheel filename is the backend's pdm-backend SCM metadata.
+          pdm build -p backend --no-sdist -d "$RUNNER_TEMP/version-dist"
+          wheel=("$RUNNER_TEMP"/version-dist/ontoprism_backend-*.whl)
+          test "${#wheel[@]}" -eq 1
+          filename="${wheel[0]##*/}"
+          version="${filename#ontoprism_backend-}"
+          echo "version=${version%%-*}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
@@ -522,6 +552,7 @@ jobs:
           load: true
           push: false
           tags: ontoprism-api:ci
+          build-args: ONTOPRISM_VERSION=${{ steps.image-version.outputs.version }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max
 
@@ -537,6 +568,8 @@ jobs:
           cache-to: type=gha,scope=frontend,mode=max
 
       - name: Verify image runtimes
+        env:
+          EXPECTED_BACKEND_VERSION: ${{ steps.image-version.outputs.version }}
         run: |
           set -euo pipefail
           cleanup() {
@@ -566,6 +599,9 @@ jobs:
             "import sys; assert sys.version_info[:3] == (3, 14, 7), sys.version"
           wait_for_command ontoprism-api-ci python -c \
             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2).read()"
+          docker exec ontoprism-api-ci python -c \
+            "import json, sys, urllib.request; body=json.load(urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2)); assert body['version'] == sys.argv[1], body" \
+            "$EXPECTED_BACKEND_VERSION"
           wait_for_command ontoprism-web-ci node -e \
             "fetch('http://127.0.0.1:3000/', {signal: AbortSignal.timeout(2000)}).then(r => { if (!r.ok) throw new Error(String(r.status)) })"
           wait_for_command ontoprism-web-ci node -e \

@@ -8,11 +8,11 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend import __version__
 from backend.api.v1 import (
     cadsr,
     clinicaltrials,
@@ -52,6 +52,7 @@ from ontolib.terminologies.uberon.graph_store import UberonGraphStore
 from ontolib.terminologies.uberon.search_index import UberonSearchIndex
 
 logger = get_logger(__name__)
+APP_VERSION = version("ontoprism-backend")
 
 
 async def check_ncit_version(client: SparqlHttpClient, expected: str) -> None:
@@ -142,7 +143,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     """Build the FastAPI application."""
-    app = FastAPI(title="ontoprism", version=__version__, lifespan=lifespan)
+    app = FastAPI(title="ontoprism", version=APP_VERSION, lifespan=lifespan)
     settings = get_settings()
 
     # Added inner→outer: RateLimit runs after RequestContext (so a 429 carries the
@@ -160,7 +161,7 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["meta"])
     def health() -> dict[str, str]:
         """Liveness — the process is up (no dependency checks)."""
-        return {"status": "ok", "version": __version__}
+        return {"status": "ok", "version": APP_VERSION}
 
     @app.get("/ready", tags=["meta"])
     async def ready(metadata: RepositoryMetadataReads) -> dict[str, object]:

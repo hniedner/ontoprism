@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Backend image (FastAPI + uvicorn). Build context is the repo root:
-#   docker build -f backend/Dockerfile -t ontoprism-api .
+#   docker build --build-arg ONTOPRISM_VERSION=<SCM-version> -f backend/Dockerfile -t ontoprism-api .
 # The runtime deps live in the root pyproject; ontolib + backend are local packages.
 
 FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS builder
@@ -12,6 +12,7 @@ RUN pdm export --prod --no-hashes -o /tmp/requirements.txt
 
 FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
 WORKDIR /app
+ARG ONTOPRISM_VERSION=0+unknown
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -20,7 +21,8 @@ RUN pip install -r /tmp/requirements.txt
 # Local packages installed without deps (their deps came from requirements above).
 COPY ontolib ./ontolib
 COPY backend ./backend
-RUN pip install --no-deps ./ontolib ./backend
+RUN PDM_BUILD_SCM_VERSION="$ONTOPRISM_VERSION" pip install --no-deps ./ontolib ./backend && \
+    python -c "from importlib.metadata import version; import sys; assert all(version(name) == sys.argv[1] for name in ('ontolib', 'ontoprism-backend'))" "$ONTOPRISM_VERSION"
 # Non-root runtime user; /app/refresh is the writable target for refresh downloads.
 RUN mkdir -p /app/refresh && useradd --create-home --uid 10001 app && chown -R app /app
 USER app

@@ -3341,8 +3341,8 @@ disagreed (`0.1.0` vs `0.0.1`). **Decision:** adopt `python-semantic-release`, d
 Conventional Commits, triggered by a `workflow_run` on a **successful CI run of a push
 to main** — i.e. a PR merge whose merged tree is green. Since #405, release automation
 tags that validated commit and creates the GitHub release without committing generated
-version or changelog changes to protected `main`; repository version fields describe the
-source snapshot and the Git tag is the release version of record.
+version or changelog changes to protected `main`. Since #510, installable distribution
+metadata derives directly from the Git tag, which remains the release version of record.
 
 Deliberate departures from the sibling `fairdata` workflow this was modelled on:
 - **`major_on_zero = false`.** SemVer §4 reserves `0.y.z` for initial development. A
@@ -3603,8 +3603,8 @@ bump must fail loudly.
 Keep-names layout has top-level dirs (`ontolib/`, `backend/`) whose names equal the
 packages. Under pytest's `importlib` mode, collecting a test at `ontolib/tests/…`
 synthesizes the module `ontolib.tests.…`, which pre-binds `sys.modules["ontolib"]` to the
-outer namespace dir and shadows the real `ontolib/src` package (top-level attrs like
-`__version__` disappear). Decision: use `--import-mode=prepend` plus a root `conftest.py`
+outer namespace dir and shadows the real `ontolib/src` package. Decision: use
+`--import-mode=prepend` plus a root `conftest.py`
 that prepends `ontolib/src` and `backend/src` to `sys.path` (runs in every xdist worker,
 where editable `.pth` files are not processed).
 *Trade-off:* prepend mode requires unique test-module basenames per directory. **Revisit
