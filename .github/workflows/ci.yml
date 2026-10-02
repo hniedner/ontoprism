@@ -137,6 +137,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # SCM-backed editable packages need release tags during installation.
           fetch-depth: 0
 
       - name: Set up PDM (cached)
@@ -303,6 +304,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # SCM-backed editable packages need release tags during installation.
           fetch-depth: 0
 
       - name: Set up Node 24
@@ -379,6 +381,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # SCM-backed editable packages need release tags during installation.
           fetch-depth: 0
 
       - name: Set up PDM (cached)
@@ -488,6 +491,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # SCM-backed editable packages need release tags during installation.
           fetch-depth: 0
 
       - name: Set up PDM (cached)
@@ -514,6 +518,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # Build package metadata from the release-tag history.
           fetch-depth: 0
 
       - name: Set up PDM (cached)
@@ -526,6 +531,9 @@ jobs:
       - name: Resolve backend image version
         id: image-version
         run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # The wheel filename is the backend's pdm-backend SCM metadata.
           pdm build -p backend --no-sdist -d "$RUNNER_TEMP/version-dist"
           wheel=("$RUNNER_TEMP"/version-dist/ontoprism_backend-*.whl)
           test "${#wheel[@]}" -eq 1
@@ -590,6 +598,8 @@ jobs:
           docker exec ontoprism-api-ci python -c \
             "import sys; assert sys.version_info[:3] == (3, 14, 7), sys.version"
           wait_for_command ontoprism-api-ci python -c \
+            "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2).read()"
+          docker exec ontoprism-api-ci python -c \
             "import json, sys, urllib.request; body=json.load(urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2)); assert body['version'] == sys.argv[1], body" \
             "$EXPECTED_BACKEND_VERSION"
           wait_for_command ontoprism-web-ci node -e \

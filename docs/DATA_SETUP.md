@@ -238,6 +238,9 @@ pdm run agent-replay podman-compose-down
 pdm run agent-replay podman-app-smoke
 ```
 
+The app smoke uses the explicit non-release image version `0+unknown`. Set
+`ONTOPRISM_VERSION` to the SCM-derived package version when validating an identified image.
+
 The seven-concept enhanced-NCIt showcase and its operator commands were retired in #353.
 Use the published #127 run and its D93 outcomes and flags for expert-review demonstrations.
 Retirement does not remove the old isolated graph or local artifacts; stored-data cleanup
