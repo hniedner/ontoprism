@@ -465,6 +465,71 @@ def test_entitled_concept_mappings_refuses_uncertified_licensed_family(
 
 
 @pytest.mark.api
+def test_translate_uses_fhir_r4_concept_map_equivalence_codes() -> None:
+    # Published FHIR R4 ConceptMapEquivalence value set:
+    # https://hl7.org/fhir/R4/valueset-concept-map-equivalence.html
+    fhir_r4_codes = frozenset(
+        {
+            "relatedto",
+            "equivalent",
+            "equal",
+            "wider",
+            "subsumes",
+            "narrower",
+            "specializes",
+            "inexact",
+            "unmatched",
+            "disjoint",
+        }
+    )
+    expected: dict[MappingPredicate, str] = {
+        EXACT_MATCH: "equivalent",
+        CLOSE_MATCH: "inexact",
+        BROAD_MATCH: "wider",
+        NARROW_MATCH: "narrower",
+        RELATED_MATCH: "relatedto",
+    }
+    store = _FakeXrefStore()
+    store.mappings["C120"] = [
+        MappingResult(
+            subject=EndpointIdentity("ncit", "26.07d", "C120"),
+            predicate=predicate,
+            object=EndpointIdentity("uberon", "2026-06-19", f"UBERON:{index}"),
+            lifecycle="active",
+            confidence=1.0,
+        )
+        for index, predicate in enumerate(expected, start=1)
+    ]
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _FakeClient
+    app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_xref_store] = lambda: store
+    app.dependency_overrides[get_repository_metadata] = _FakeMetadata
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/mappings/$translate", json={"code": "C120"})
+        unmatched = client.post(
+            "/api/v1/mappings/$translate", json={"code": "C-NOT-MAPPED"}
+        )
+
+    assert response.status_code == unmatched.status_code == 200
+    body = response.json()
+    assert body["fhir_release"] == "R4"
+    assert unmatched.json()["fhir_release"] == "R4"
+    equivalence_by_code = {
+        row["concept"]["code"]: row["equivalence"] for row in body["result"]
+    }
+    assert equivalence_by_code == {
+        f"UBERON:{index}": equivalence
+        for index, equivalence in enumerate(expected.values(), start=1)
+    }
+    emitted_codes = set(equivalence_by_code.values()) | {
+        unmatched.json()["result"][0]["equivalence"]
+    }
+    assert emitted_codes <= fhir_r4_codes
+
+
+@pytest.mark.api
 def test_translate_ncit_to_upstream() -> None:
     client = next(_client())
     resp = client.post(
@@ -493,7 +558,7 @@ def test_translate_upstream_to_ncit_selects_subject_and_inverts_direction() -> N
     assert response.status_code == 200
     assert response.json()["result"] == [
         {
-            "equivalence": "narrow",
+            "equivalence": "narrower",
             "concept": {
                 "code": "C70000",
                 "system": "ncit",
@@ -513,7 +578,7 @@ def test_translate_reverse_narrow_match_becomes_broad() -> None:
     assert response.status_code == 200
     assert response.json()["result"] == [
         {
-            "equivalence": "broad",
+            "equivalence": "wider",
             "concept": {
                 "code": "C70001",
                 "system": "ncit",

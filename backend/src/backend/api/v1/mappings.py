@@ -1,6 +1,6 @@
 """Mappings + FHIR-style $translate endpoints (issue #82, design §8.4)."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import Field
@@ -25,13 +25,29 @@ from ontolib.repositories.xref.vocab import (
     CLOSE_MATCH,
     EXACT_MATCH,
     NARROW_MATCH,
+    RELATED_MATCH,
+    MappingPredicate,
 )
 
-_SKOS_TO_EQUIVALENCE: dict[str, str] = {
+FhirR4ConceptMapEquivalence = Literal[
+    "relatedto",
+    "equivalent",
+    "equal",
+    "wider",
+    "subsumes",
+    "narrower",
+    "specializes",
+    "inexact",
+    "unmatched",
+    "disjoint",
+]
+
+_SKOS_TO_EQUIVALENCE: dict[MappingPredicate, FhirR4ConceptMapEquivalence] = {
     EXACT_MATCH: "equivalent",
-    CLOSE_MATCH: "close",
-    BROAD_MATCH: "broad",
-    NARROW_MATCH: "narrow",
+    CLOSE_MATCH: "inexact",
+    BROAD_MATCH: "wider",
+    NARROW_MATCH: "narrower",
+    RELATED_MATCH: "relatedto",
 }
 
 router = APIRouter(prefix="/api/v1/mappings", tags=["mappings"])
@@ -56,9 +72,9 @@ class TranslateConcept(StrictBoundaryModel):
 
 
 class TranslateEntry(StrictBoundaryModel):
-    """One translate result — the equivalence and target concept."""
+    """One translate result using FHIR R4 ConceptMap equivalence codes."""
 
-    equivalence: str
+    equivalence: FhirR4ConceptMapEquivalence
     concept: TranslateConcept
     confidence: float = Field(ge=0.0, le=1.0)
 
@@ -66,19 +82,22 @@ class TranslateEntry(StrictBoundaryModel):
 class TranslateResponse(StrictBoundaryModel):
     """Result of a ``$translate`` lookup."""
 
+    fhir_release: Literal["R4"] = "R4"
     result: list[TranslateEntry]
 
 
 def _translate_entry(
     code: str,
-    pred: str,
+    predicate: MappingPredicate | None,
     confidence: float,
     *,
     system: str | None = None,
     version: str | None = None,
 ) -> TranslateEntry:
     return TranslateEntry(
-        equivalence=_SKOS_TO_EQUIVALENCE.get(pred, "unmatched"),
+        equivalence=(
+            _SKOS_TO_EQUIVALENCE[predicate] if predicate is not None else "unmatched"
+        ),
         concept=TranslateConcept(code=code, system=system, version=version),
         confidence=confidence,
     )
@@ -183,6 +202,6 @@ async def translate(
     )
 
     if not entries:
-        entries.append(_translate_entry(code, "", 0.0))
+        entries.append(_translate_entry(code, None, 0.0))
 
     return TranslateResponse(result=entries)
