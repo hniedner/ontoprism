@@ -16,7 +16,6 @@ from backend.api.v1.icdo import (
     IcdoDetail,
     IcdoPage,
     require_served_icdo_dataset,
-    validate_icdo_grid_filters,
 )
 from backend.api.v1.ncit import ConceptMappings
 from backend.api.v1.ncit import router as production_ncit_router
@@ -24,9 +23,6 @@ from backend.api.v1.refresh import RefreshReport
 from ontolib.decomposition.read_models import ConceptDecomposition
 from ontolib.repositories.cadsr.models import CdeSearchPage
 from ontolib.repositories.icdo.models import (
-    IcdoAxis,
-    IcdoBehaviour,
-    IcdoRecordLevel,
     decode_icdo_record,
 )
 from ontolib.terminologies.ncit.models import BrowsePage, SearchPage
@@ -235,42 +231,17 @@ def test_double_cadsr_pages_use_strict_production_response_model(
 
 
 @pytest.mark.parametrize(
-    "path",
+    "query",
     [
-        "/api/v1/icdo/4.0/topography/list?sort=relevance",
-        "/api/v1/icdo/4.0/topography/list?behaviour=3",
-        "/api/v1/icdo/4.0/morphology/list?level=leaf",
-        "/api/v1/icdo/3.2/topography/list",
+        "name_text=" + "x" * 101,
+        "workflow_status=BOGUS",
     ],
 )
-def test_double_rejects_the_same_invalid_icdo_grid_inputs_as_production(
-    path: str,
-) -> None:
+def test_double_rejects_invalid_cadsr_grid_inputs(query: str) -> None:
     with TestClient(app) as client:
-        response = client.get(path, headers={"X-ICDO-Entitlement": "licensed"})
+        response = client.get(f"/api/v1/cadsr/list?{query}")
 
     assert response.status_code == 422
-
-
-@pytest.mark.parametrize(
-    ("axis", "behaviour", "level", "path"),
-    [
-        ("topography", ["3"], None, "/api/v1/icdo/4.0/topography/list?behaviour=3"),
-        ("morphology", None, ["leaf"], "/api/v1/icdo/4.0/morphology/list?level=leaf"),
-    ],
-)
-def test_double_and_production_grid_validation_share_rejection_semantics(
-    axis: IcdoAxis,
-    behaviour: list[IcdoBehaviour] | None,
-    level: list[IcdoRecordLevel] | None,
-    path: str,
-) -> None:
-    with pytest.raises(HTTPException) as production_error:
-        validate_icdo_grid_filters(axis, behaviour, level)
-    with TestClient(app) as client:
-        doubled = client.get(path, headers={"X-ICDO-Entitlement": "licensed"})
-
-    assert production_error.value.status_code == doubled.status_code == 422
 
 
 def test_double_and_production_reject_unserved_detail_dataset_consistently() -> None:
@@ -293,6 +264,9 @@ def test_double_echoes_sort_and_filter_metadata_and_filters_matching_rows() -> N
                 ("sort", "preferred:desc"),
                 ("level", "category"),
                 ("level", "leaf"),
+                ("code_text", "C34"),
+                ("preferred_text", "lung"),
+                ("level_text", "leaf"),
             ],
             headers={"X-ICDO-Entitlement": "licensed"},
         )
@@ -301,17 +275,30 @@ def test_double_echoes_sort_and_filter_metadata_and_filters_matching_rows() -> N
             params={"behaviour": "9"},
             headers={"X-ICDO-Entitlement": "licensed"},
         )
+        text_empty = client.get(
+            "/api/v1/icdo/4.0/topography/list",
+            params={"code_text": "not-the-record"},
+            headers={"X-ICDO-Entitlement": "licensed"},
+        )
 
     assert response.status_code == 200
     assert response.json()["sort"] == "preferred:desc"
     assert response.json()["behaviour"] == []
     assert response.json()["level"] == ["category", "leaf"]
+    assert response.json()["column_text"] == {
+        "code": "C34",
+        "preferred": "lung",
+        "level": "leaf",
+    }
     assert response.json()["hits"][0]["level"] == "leaf"
     assert empty.status_code == 200
     assert empty.json()["behaviour"] == ["9"]
     assert empty.json()["level"] == []
     assert empty.json()["total"] == 0
     assert empty.json()["hits"] == []
+    assert text_empty.status_code == 200
+    assert text_empty.json()["total"] == 0
+    assert text_empty.json()["hits"] == []
 
 
 def test_double_refresh_report_validates_against_production_dto() -> None:

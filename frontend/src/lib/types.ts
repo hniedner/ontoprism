@@ -206,6 +206,8 @@ export type IcdoAccessStatus =
 	| 'ready-and-entitled'
 	| 'entitlement-required'
 	| 'unavailable';
+export type IcdoTextColumn = 'code' | 'preferred' | 'behaviour' | 'level';
+export type IcdoColumnText = Partial<Record<IcdoTextColumn, string>>;
 interface IcdoRecordBase {
 	code: string;
 	preferred: string | null;
@@ -279,6 +281,7 @@ interface IcdoPageBase {
 	sort: IcdoRepositorySort;
 	behaviour: IcdoBehaviour[];
 	level: IcdoRecordLevel[];
+	column_text: IcdoColumnText;
 }
 
 export type IcdoPage =
@@ -303,6 +306,16 @@ export interface IcdoCongruenceReport {
 
 // caDSR CDE read models (backend ontolib.repositories.cadsr.models).
 
+export type CadsrTextColumn =
+	| 'public_id'
+	| 'name'
+	| 'value_domain_type'
+	| 'workflow_status'
+	| 'registration_status'
+	| 'context'
+	| 'datatype';
+export type CadsrColumnText = Partial<Record<CadsrTextColumn, string>>;
+
 export interface ConceptLink {
 	concept_code: string;
 	concept_name: string;
@@ -323,13 +336,13 @@ export interface CdeSummary {
 	long_name: string;
 	context: string | null;
 	datatype: string | null;
+	workflow_status: string | null;
+	registration_status: string | null;
+	value_domain_type: string | null;
 }
 
 export interface CdeDetail extends CdeSummary {
 	definition: string | null;
-	workflow_status: string | null;
-	registration_status: string | null;
-	value_domain_type: string | null;
 	permissible_values: PermissibleValue[];
 	concepts: ConceptLink[];
 }
@@ -340,8 +353,15 @@ export interface CdeSearchPage {
 	limit: number;
 	offset: number;
 	sort: CdeRepositorySort;
+	filters: Record<string, string[]>;
+	column_text: CadsrColumnText;
 	hits: CdeSummary[];
 }
+
+export type CadsrFilterDomains = Record<
+	'value_domain_type' | 'workflow_status' | 'registration_status' | 'context' | 'datatype',
+	string[]
+>;
 
 export interface SimilarConcept {
 	code: string;
@@ -591,10 +611,22 @@ export interface RefreshReport {
 // ClinicalTrials.gov v2 read models (backend ontolib.repositories.clinicaltrials.models).
 
 export type CTPageSize = PageSize;
-export const CT_STATUSES = ['ACTIVE_NOT_RECRUITING', 'APPROVED_FOR_MARKETING', 'AVAILABLE', 'COMPLETED', 'ENROLLING_BY_INVITATION', 'NOT_YET_RECRUITING', 'NO_LONGER_AVAILABLE', 'RECRUITING', 'SUSPENDED', 'TEMPORARILY_NOT_AVAILABLE', 'TERMINATED', 'UNKNOWN', 'WITHDRAWN', 'WITHHELD'] as const;
-export type CTStatus = (typeof CT_STATUSES)[number];
-export const CT_PHASES = ['EARLY_PHASE1', 'PHASE1', 'PHASE2', 'PHASE3', 'PHASE4'] as const;
-export type CTFilterPhase = (typeof CT_PHASES)[number];
+export type CTStatus =
+	| 'ACTIVE_NOT_RECRUITING'
+	| 'APPROVED_FOR_MARKETING'
+	| 'AVAILABLE'
+	| 'COMPLETED'
+	| 'ENROLLING_BY_INVITATION'
+	| 'NOT_YET_RECRUITING'
+	| 'NO_LONGER_AVAILABLE'
+	| 'RECRUITING'
+	| 'SUSPENDED'
+	| 'TEMPORARILY_NOT_AVAILABLE'
+	| 'TERMINATED'
+	| 'UNKNOWN'
+	| 'WITHDRAWN'
+	| 'WITHHELD';
+export type CTFilterPhase = 'EARLY_PHASE1' | 'PHASE1' | 'PHASE2' | 'PHASE3' | 'PHASE4';
 export type CTStudyPhase = 'NA' | CTFilterPhase;
 
 export interface CTInterventionDetail {

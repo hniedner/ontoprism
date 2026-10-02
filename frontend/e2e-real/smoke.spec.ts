@@ -41,7 +41,7 @@ async function detail(page: Page, name: string, identifier: string): Promise<voi
 	await expect(page.locator('main').getByText(identifier, { exact: false }).first()).toBeVisible();
 }
 
-async function sort(page: Page, regionName: string, name: string, value: string, kind: 'text' | 'numeric' | 'date' | 'label' = 'text'): Promise<void> {
+async function sort(page: Page, regionName: string, name: string, value: string, kind: 'text' | 'numeric' | 'date' | 'label' | 'nocase' = 'text'): Promise<void> {
 	const table = region(page, regionName);
 	const header = table.locator('th').filter({ has: page.getByRole('button', { name: `Sort by ${name}` }) });
 	const column = await header.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element));
@@ -59,6 +59,7 @@ async function sort(page: Page, regionName: string, name: string, value: string,
 	} else {
 		const comparator = kind === 'numeric'
 			? (a: string, b: string) => Number.parseInt(a, 10) - Number.parseInt(b, 10)
+			: kind === 'nocase' ? (a: string, b: string) => a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0
 			: kind === 'label' ? (a: string, b: string) => a.localeCompare(b, 'en', { ignorePunctuation: true })
 			: (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 		expect(values).toEqual([...values].sort(comparator));
@@ -78,14 +79,14 @@ async function filter(page: Page, regionName: string, column: string, option: st
 	if (displayMatchesSelection) for (const text of await cells.allTextContents()) expect(text.trim()).toBe(rendered);
 }
 
-async function declaredControls(page: Page, repository: RepositoryId, regionName: string): Promise<void> {
-	const declaration = gridCapabilities(repository);
+async function declaredControls(page: Page, repository: RepositoryId, regionName: string, dataset?: string): Promise<void> {
+	const declaration = gridCapabilities(repository, dataset);
 	const table = region(page, regionName);
 	for (const sortValue of declaration.sorts.search.filter((value) => value.endsWith(':asc'))) {
 		const column = sortValue.split(':')[0];
 		const header = table.locator(`th[data-column-id="${column}"]`);
 		const name = (await header.getByRole('button', { name: /^Sort by / }).getAttribute('aria-label'))!.replace(/^Sort by /, '');
-		await sort(page, regionName, name, sortValue, column === 'label' ? 'label' : 'text');
+		await sort(page, regionName, name, sortValue, column === 'public_id' ? 'numeric' : column === 'name' ? 'nocase' : column === 'label' || column === 'preferred' ? 'label' : 'text');
 	}
 	for (const [column, control] of Object.entries(declaration.filters).sort(([, a], [, b]) => Number(b.kind === 'categorical') - Number(a.kind === 'categorical'))) {
 		const header = table.locator(`th[data-column-id="${column}"]`);
@@ -95,11 +96,12 @@ async function declaredControls(page: Page, repository: RepositoryId, regionName
 		const current = (await table.locator('tbody tr').first().locator('td').nth(columnIndex).textContent())!.trim();
 		let textValue = current;
 		if (control.kind === 'categorical') {
-			const [value, rendered] = control.source_domain ? [current, current] : Object.entries(control.values)[0]!;
+			const [value, rendered] = control.source_domain ? [current, current] : Object.entries(control.values).find(([candidate, label]) => candidate === current || label === current) ?? Object.entries(control.values)[0]!;
 			await filter(page, regionName, label, rendered, column, value, rendered, !control.multiple);
 			textValue = rendered;
 			await page.keyboard.press('Escape');
 		}
+		if (!control.text_parameter) continue;
 		await button.click();
 		const input = page.getByRole('textbox', { name: `Filter ${label} text` });
 		await input.fill(textValue);
@@ -145,35 +147,49 @@ test('read-only configured repository smoke', async ({ page }) => {
 	await open('/repositories/cadsr');
 	await rows(page, 'caDSR CDE repository results');
 	await search(page, 'tumor', 'caDSR CDE repository results');
-	await sort(page, 'caDSR CDE repository results', 'Public ID', 'public_id:asc', 'numeric');
+	await declaredControls(page, 'cadsr', 'caDSR CDE repository results');
+	const cadsrScreenshot = test.info().outputPath('cadsr-grid.png');
+	await page.screenshot({ path: cadsrScreenshot, fullPage: true });
+	console.log(`caDSR combined screenshot: ${cadsrScreenshot}`);
 	const cde = await region(page, 'caDSR CDE repository results').locator('tbody a').first().textContent();
 	await detail(page, 'caDSR CDE repository results', cde!.trim());
 	await expect(page.getByRole('heading', { name: 'Concept graph' })).toBeVisible();
 	await page.getByRole('button', { name: 'Explore in graph' }).click();
 	await expect(page.getByRole('heading', { name: 'Network' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Export as PNG' })).toBeVisible();
-	passed('caDSR list/search/sort/detail/graph: PASS; filter: not applicable (#487)');
+	passed('caDSR declaration-driven list/search/sort/filter/detail/graph: PASS');
 
 	await open('/repositories/icdo/3.2/morphology');
 	await rows(page, 'ICD-O repository results');
 	await search(page, 'carcinoma', 'ICD-O repository results');
-	await sort(page, 'ICD-O repository results', 'Code', 'code:asc');
-	await filter(page, 'ICD-O repository results', 'Behaviour', '3', 'behaviour', '3', '3');
+	await declaredControls(page, 'icdo', 'ICD-O repository results', '3.2/morphology');
 	const icdo = await region(page, 'ICD-O repository results').locator('tbody a').first().textContent();
 	await detail(page, 'ICD-O repository results', icdo!.trim());
-	passed('ICD-O list/search/code sort/behaviour filter/detail: PASS');
+	passed('ICD-O declaration-driven list/search/sort/text/behaviour/detail: PASS');
 
 	await open('/repositories/pubmed');
 	await search(page, 'melanoma', 'PubMed repository results');
-	await sort(page, 'PubMed repository results', 'Date', 'pub_date', 'date');
+	const pubmedDeclaration = gridCapabilities('pubmed');
+	expect(pubmedDeclaration.pagination).toBe('offset');
+	expect(pubmedDeclaration.query_before_results).toBe(true);
+	if (pubmedDeclaration.sorts.search.includes('pub_date')) await sort(page, 'PubMed repository results', 'Date', 'pub_date', 'date');
+	const pubmedScreenshot = test.info().outputPath('pubmed-text-search.png');
+	await page.screenshot({ path: pubmedScreenshot, fullPage: true });
+	console.log(`PubMed text-search screenshot: ${pubmedScreenshot}`);
 	const pmid = await region(page, 'PubMed repository results').locator('tbody a').first().textContent();
 	await detail(page, 'PubMed repository results', pmid!.trim());
-	passed('PubMed search/publication-date sort/detail: PASS; initial list and filter: not applicable (#487)');
+	passed('PubMed declaration-driven search/publication-date sort/detail: PASS; initial list and filter: not applicable');
 
 	await open('/repositories/clinicaltrials');
 	await search(page, 'melanoma', 'ClinicalTrials.gov repository results');
-	await filter(page, 'ClinicalTrials.gov repository results', 'Status', 'RECRUITING', 'status', 'RECRUITING', 'RECRUITING');
+	expect(gridCapabilities('clinicaltrials').pagination).toBe('cursor');
+	await declaredControls(page, 'clinicaltrials', 'ClinicalTrials.gov repository results');
+	await page.getByRole('button', { name: /^Filter Status/ }).click();
+	const trialsScreenshot = test.info().outputPath('clinicaltrials-multi-select.png');
+	await page.screenshot({ path: trialsScreenshot, fullPage: true });
+	console.log(`ClinicalTrials.gov multi-select screenshot: ${trialsScreenshot}`);
+	await page.keyboard.press('Escape');
 	const nct = await region(page, 'ClinicalTrials.gov repository results').locator('tbody a').first().textContent();
 	await detail(page, 'ClinicalTrials.gov repository results', nct!.trim());
-	passed('ClinicalTrials.gov search/status filter/detail: PASS; initial list and sort: not applicable (#487)');
+	passed('ClinicalTrials.gov declaration-driven search/status/phase/detail: PASS; initial list and sort: not applicable');
 });

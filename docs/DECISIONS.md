@@ -7,6 +7,27 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-10-01 — CI runs once per milestone
+
+### D100. Issues merge into the milestone branch without CI; CI runs on the milestone PR
+
+**Context.** D92 gated every issue merge with a CI run on the pushed milestone branch.
+M12 produced eleven push runs, three of them red, before its PR. The owner's milestone
+pattern has no per-issue CI.
+
+**Decision (owner, amends D92).** An issue is implemented on its own branch, tested
+locally (`pdm run lint`, `pdm run verify`), demonstrated, merged into the milestone
+branch without a PR or review, and its branch deleted. When every issue is merged, the
+milestone branch takes `main`, runs `pdm run verify` and `pdm run smoke-real`, and the
+five-dimension review runs to convergence. Only then is the branch pushed and the PR to
+`main` opened; that PR run is the milestone's first CI run. When every check is green the
+PR merges, CI runs on the merge SHA, and the milestone branch is deleted. Pushes to
+milestone branches trigger no CI. The milestone PR closes its issues with `Closes #n`.
+
+**Why.** One CI run per milestone instead of one per issue, and one place where issues
+close. Problems that local `verify` misses now surface at the milestone PR and are fixed
+on the milestone branch like review findings.
+
 ## 2026-09-29 — one repository kit for the six shipped repositories
 
 ### D99. Capabilities are configuration; readers, controls and links are reused
@@ -41,15 +62,23 @@ its schema. No schema migration, new table or new source release is approved.
 M12 migrates NCIt first, then Uberon/CL, ICD-O, caDSR and the remote pair.
 Filters belong to each migration, not a separate #485 implementation. The
 owner creates those migration issues and closes #485 as absorbed. Stop and ask
-for a split if the remote pair exceeds one issue's size cap. The kit overall
-removes more non-test code than it adds; every migration reports its expected
-and actual net change and explains a positive net. Compare performance and
-user-visible behavior with the existing paths before replacing them. This is
-internal reuse, not the ontology-generic platform gated by G1 (D98).
+for a split if the remote pair exceeds one issue's size cap. Every migration
+reports its expected and actual net change and explains a positive net. Compare
+performance and user-visible behavior with the existing paths before replacing
+them. This is internal reuse, not the ontology-generic platform gated by G1 (D98).
 
 **Why.** A single declaration avoids disagreement among API, UI and smoke;
 typed snippets retain compile-time UI contracts, and a read projection keeps
 different mapping/source-anchor semantics without duplicating persisted data.
+
+**Amendment (owner, 2026-10-02).** The kit-wide criterion that it remove more
+non-test code than it adds is replaced by the owner's M12b completion decision:
+
+> no parallel implementation; a handler holds only its typed signature and the
+> store call; shared code is used by at least two repositories; the net size is
+> reported
+
+This amendment does not authorize a route factory or further M12b consolidation.
 
 ## 2026-09-29 — curated evidence before expert curation in the graph viewer
 

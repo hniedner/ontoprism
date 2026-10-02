@@ -20,7 +20,7 @@ class CapabilityModel(BaseModel):
 
 class GridFilter(CapabilityModel):
     kind: Literal["text", "categorical"]
-    text_parameter: str = Field(pattern=r"^[a-z_]+$")
+    text_parameter: str | None = Field(default=None, pattern=r"^[a-z_]+$")
     values: dict[str, str]
     multiple: bool = False
     source_domain: str | None = None
@@ -36,6 +36,8 @@ class GridFilter(CapabilityModel):
     def valid_domain(self):
         has_domain = bool(self.values) or self.source_domain is not None
         if self.kind == "text":
+            if self.text_parameter is None:
+                raise ValueError("text filters require a text parameter")
             if has_domain:
                 raise ValueError("text filters forbid a value domain")
             return self
@@ -71,7 +73,11 @@ class GridCapabilities(CapabilityModel):
 
     @model_validator(mode="after")
     def valid_controls(self):
-        parameters = [f.text_parameter for f in self.filters.values()]
+        parameters = [
+            f.text_parameter
+            for f in self.filters.values()
+            if f.text_parameter is not None
+        ]
         if len(set(parameters)) != len(parameters) or any(not k for k in self.filters):
             raise ValueError("filter names and text parameters must be distinct")
         return self
@@ -83,25 +89,66 @@ class _RepositoryDescriptor(BaseModel):
     label: str
     path: str
     capabilities: GridCapabilities | None = None
+    capabilities_by_dataset: (
+        Annotated[dict[str, GridCapabilities], Field(min_length=1)] | None
+    ) = None
+
+    @field_validator("capabilities_by_dataset")
+    @classmethod
+    def valid_dataset_names(cls, datasets):
+        if datasets is not None and any(not name for name in datasets):
+            raise ValueError("dataset capability names must be nonempty")
+        return datasets
 
     @model_validator(mode="after")
     def consistent_metadata(self):
-        if self.capabilities and (
-            (self.capabilities.metadata == "certified")
-            != isinstance(self, LocalRepositoryDescriptor)
-        ):
-            raise ValueError("metadata capability contradicts repository kind")
-        return self
+        return _consistent_metadata(self, isinstance(self, LocalRepositoryDescriptor))
 
 
 class LocalRepositoryDescriptor(_RepositoryDescriptor):
     id: Literal["ncit", "cadsr", "uberon", "icdo"]
     kind: Literal["local-certified-proxy"]
 
+    @model_validator(mode="after")
+    def dataset_capabilities_belong_to_icdo(self):
+        _require_matching_path(self.path, self.id)
+        if self.capabilities_by_dataset and self.id != "icdo":
+            raise ValueError("dataset capabilities are only supported for ICD-O")
+        return self
+
 
 class RemoteRepositoryDescriptor(_RepositoryDescriptor):
     id: Literal["clinicaltrials", "pubmed"]
     kind: Literal["remote-live-service"]
+
+    @model_validator(mode="after")
+    def no_dataset_capabilities(self):
+        _require_matching_path(self.path, self.id)
+        if self.capabilities_by_dataset:
+            raise ValueError("remote repositories cannot declare dataset capabilities")
+        return self
+
+
+def _consistent_metadata(
+    descriptor: _RepositoryDescriptor, local: bool
+) -> _RepositoryDescriptor:
+    capabilities = (
+        [descriptor.capabilities] if descriptor.capabilities else []
+    ) + list((descriptor.capabilities_by_dataset or {}).values())
+    if any(
+        (capability.metadata == "certified") != local for capability in capabilities
+    ):
+        raise ValueError("metadata capability contradicts repository kind")
+    if (descriptor.capabilities is None) == (
+        descriptor.capabilities_by_dataset is None
+    ):
+        raise ValueError("exactly one capability declaration is required")
+    return descriptor
+
+
+def _require_matching_path(path: str, repository_id: str) -> None:
+    if path != f"/repositories/{repository_id}":
+        raise ValueError("repository path must match its id")
 
 
 RepositoryDescriptor = Annotated[

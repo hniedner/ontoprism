@@ -1,80 +1,55 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { navigating, page } from '$app/state';
-	import { navigateRepositoryGrid } from '$lib/repository-navigation';
-	import { repositorySearchHref } from '$lib/repository-search';
-	import RepoPageHeader from '$lib/components/RepoPageHeader.svelte';
-	import RepoSearchBar from '$lib/components/RepoSearchBar.svelte';
-	import RepoResultsCard from '$lib/components/RepoResultsCard.svelte';
 	import PubMedResultsTable from '$lib/components/PubMedResultsTable.svelte';
+	import RepoBrowsePage from '$lib/components/RepoBrowsePage.svelte';
+	import type { DataTableOperations } from '$lib/components/data-table/types';
+	import { gridCapabilities, gridControls } from '$lib/repository-registry';
+	import type { PubMedArticleSummary } from '$lib/types';
 	import type { PageProps } from './$types';
-	import RemoteSearchSurface from '$lib/components/RemoteSearchSurface.svelte';
-	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
-	import Pagination from '$lib/components/Pagination.svelte';
-	import type { DataTableIntent, DataTableOperations } from '$lib/components/data-table/types';
 
-	const SUGGESTIONS = ['melanoma immunotherapy', 'CRISPR', 'tumor microenvironment', 'BRCA1'];
 	let { data }: PageProps = $props();
-	let queryValue = $derived(data.query);
-	const result = $derived(data.result.state === 'ready' ? data.result.data : null);
-	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
-	const countLabel = $derived(result ? `${result.total.toLocaleString()} articles` : '');
-
-	function navigate(update: (params: URLSearchParams) => void): void { navigateRepositoryGrid(resolve('/repositories/pubmed'), page.url, update, goto); }
-	function search(term = queryValue): void { const target = repositorySearchHref('pubmed', page.url, term); goto(target); }
-	function intent(value: DataTableIntent): void { if (value.kind !== 'sort' && value.kind !== 'reset') return; navigate((params) => { params.delete('offset'); if (value.kind === 'reset') params.delete('size'); if (value.kind === 'sort' && value.sort.key === 'date') params.set('sort', 'pub_date'); else params.delete('sort'); }); }
-	const operations = $derived<DataTableOperations>({ kind: 'server', sort: data.sort === 'pub_date' ? { key: 'date', direction: 'desc' } : null, defaultSort: null, activeSortLabel: data.sort === 'pub_date' ? 'Publication date descending' : 'Relevance', filters: {}, busy: loading, onintent: intent });
+	const controls = gridControls('pubmed');
+	const dateSort = gridCapabilities('pubmed').sorts.search.includes('pub_date');
+	const response = $derived(data.result.state === 'ready' ? data.result.data : null);
+	const remote = $derived.by(() => data.result.state === 'error'
+		? {
+				service: 'NCBI PubMed' as const,
+				state: 'error' as const,
+				error: { remoteState: data.result.remoteState, message: data.result.message }
+			}
+		: {
+				service: 'NCBI PubMed' as const,
+				state: data.result.state,
+				error: null
+			});
 </script>
 
-<svelte:head>
-	<title>PubMed · ONTOPRISM</title>
-</svelte:head>
-
-<RepoPageHeader
+<RepoBrowsePage
 	title="PubMed"
+	route={resolve('/repositories/pubmed')}
 	kind="remote-live-service"
-	description="Search the NCBI PubMed literature database. Open an article for its abstract, authors, MeSH terms, and identifiers."
-	total={result?.total ?? null}
->
-	{#snippet help()}
-		Enter a query (terms, MeSH, author names) to search PubMed via the NCBI E-utilities. Open an
-		article for its abstract, MeSH headings, DOI/PMC ids, and a link to PubMed.
-	{/snippet}
-</RepoPageHeader>
-
-<RemoteServiceDisclosure service="NCBI PubMed" />
-
-<RepoSearchBar
-	bind:value={queryValue}
+	description="Search biomedical literature through NCBI PubMed. Results are retrieved live from the NCBI E-utilities API."
 	placeholder="Search PubMed… e.g. melanoma immunotherapy"
 	ariaLabel="Search PubMed"
-	suggestions={SUGGESTIONS}
-	{loading}
-	onsearch={search}
-	onsuggestion={(term) => {
-		queryValue = term;
-		search(term);
-	}}
-/>
-
-<RemoteSearchSurface
-	service="PubMed"
-	error={data.result.state === 'error' ? data.result : null}
-	ready={result !== null}
+	suggestions={['melanoma immunotherapy', 'BRCA1 breast cancer', 'CRISPR gene therapy', 'single cell RNA sequencing']}
+	browseTitle="PubMed articles"
+	initial={{ result: { total: response?.total ?? 0, hits: response?.articles ?? [] }, query: data.query, offset: data.offset, size: data.size, sort: String(data.sort), filters: {} }}
+	defaultSort="relevance"
+	sortKeys={dateSort ? { date: { desc: 'pub_date' } } : {}}
+	filterKeys={controls.filterKeys}
+	textKeys={controls.textKeys}
+	{remote}
+	navigationTotal={Math.min(response?.total ?? 0, 10_000)}
+	countLabel={(n: number) => `${n.toLocaleString()} articles`}
+	noMatchesLabel={(query: string) => `No articles matched “${query}”.`}
 >
-	{#snippet instruction()}
-		<p class="text-sm text-muted">
-			Enter a query above to search <span class="font-medium text-default">PubMed</span>.
-		</p>
+	{#snippet helpText()}
+		Search PubMed by keywords, author, title, or MeSH terms. Queries use the standard PubMed search syntax. Click an article to view its abstract and metadata.
 	{/snippet}
-	<RepoResultsCard
-		title={`Results for “${data.query}”`}
-		{countLabel}
-		{loading}
-		error={null}
-	>
-		<PubMedResultsTable articles={result?.articles ?? []} {operations} emptyMessage={`No articles matched “${data.query}”.`} />
-		<Pagination offset={data.offset} limit={data.size} total={result?.total ?? 0} navigationTotal={Math.min(result?.total ?? 0, 10000)} onPage={(offset) => navigate((params) => { if (offset) params.set('offset', String(offset)); else params.delete('offset'); })} onSize={(size) => navigate((params) => { params.delete('offset'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })} />
-	</RepoResultsCard>
-</RemoteSearchSurface>
+	{#snippet instruction()}
+		<p class="text-sm text-muted">Enter a query above to search PubMed.</p>
+	{/snippet}
+	{#snippet results(articles: PubMedArticleSummary[], operations: DataTableOperations, emptyMessage: string)}
+		<PubMedResultsTable {articles} {operations} {emptyMessage} />
+	{/snippet}
+</RepoBrowsePage>

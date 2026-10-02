@@ -1,5 +1,6 @@
 """Shared closed query vocabulary for repository grids."""
 
+import sqlite3
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from functools import cache
 from typing import Annotated, Literal, cast
@@ -7,6 +8,7 @@ from typing import Annotated, Literal, cast
 from fastapi import HTTPException
 from pydantic import BeforeValidator, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 
 from backend.repository_metadata import RepositoryUnhealthy
 from backend.repository_registry import (
@@ -74,7 +76,11 @@ class GridService[Ready]:
     ) -> None:
         if sort not in self.capabilities.sorts[operation]:
             raise HTTPException(422, "Undeclared repository sort")
-        if any(key not in self.capabilities.filters for key in text):
+        if any(
+            key not in self.capabilities.filters
+            or self.capabilities.filters[key].text_parameter is None
+            for key in text
+        ):
             raise HTTPException(422, "Undeclared repository text filter")
         for key, value in selected.items():
             await self._validate_selection(key, value)
@@ -104,7 +110,8 @@ class GridService[Ready]:
             raise RuntimeError(
                 f"{self.label} source domain {definition.source_domain!r} is missing"
             )
-        return await resolver(await self.ready())
+        repository = await self.ready()
+        return await self._guarded_read(lambda: resolver(repository))
 
     async def ready(self) -> Ready:
         if self._certified is _UNCERTIFIED:
@@ -121,9 +128,21 @@ class GridService[Ready]:
         available: Callable[[Ready], Awaitable[bool]] | None = None,
     ) -> Result:
         repository = await self.ready()
+        return await self._guarded_read(
+            lambda: self._execute(repository, query, available)
+        )
+
+    async def read_sync[Result](self, query: Callable[[Ready], Result]) -> Result:
+        """Certify, then run a blocking repository adapter in the worker pool."""
+        repository = await self.ready()
+        return await self._guarded_read(lambda: run_in_threadpool(query, repository))
+
+    async def _guarded_read[Result](
+        self, query: Callable[[], Awaitable[Result]]
+    ) -> Result:
         try:
-            result = await self._execute(repository, query, available)
-        except SQLAlchemyError as exc:
+            result = await query()
+        except (SQLAlchemyError, sqlite3.DatabaseError) as exc:
             logger.exception("%s repository read unavailable", self.label)
             raise HTTPException(
                 503, f"{self.label} certified search index is unavailable."
@@ -142,15 +161,35 @@ class GridService[Ready]:
             ) from exc
         return result
 
+    async def filter_domain(self, key: str) -> list[str]:
+        """Return one declared categorical domain after certification."""
+        definition = self.capabilities.filters.get(key)
+        if definition is None or definition.kind != "categorical":
+            raise HTTPException(422, "Undeclared repository categorical filter")
+        return list(await self._selection_domain(definition, True))
+
     async def read_detail[Result](
         self,
         query: Callable[[Ready], Awaitable[Result | None]],
         *,
         detail: str,
+        noun: str = "Concept",
     ) -> Result:
         result = await self.read(query)
         if result is None:
-            raise HTTPException(404, f"Concept not found: {detail}")
+            raise HTTPException(404, f"{noun} not found: {detail}")
+        return result
+
+    async def read_detail_sync[Result](
+        self,
+        query: Callable[[Ready], Result | None],
+        *,
+        detail: str,
+        noun: str = "Concept",
+    ) -> Result:
+        result = await self.read_sync(query)
+        if result is None:
+            raise HTTPException(404, f"{noun} not found: {detail}")
         return result
 
     async def _execute[Result](
@@ -187,11 +226,16 @@ def declared_grid[Ready](
     source_domains: (
         Mapping[str, Callable[[Ready], Awaitable[Sequence[str]]]] | None
     ) = None,
+    *,
+    dataset: str | None = None,
 ) -> GridService[Ready]:
     """Build one grid guard from the tracked capability declaration."""
     descriptor = _declared(repository_id)
-    if descriptor.capabilities is None:
-        raise RuntimeError(f"{descriptor.label} grid capabilities are missing")
-    return GridService(
-        descriptor.label, descriptor.capabilities, certify, source_domains
+    capabilities = (
+        (descriptor.capabilities_by_dataset or {}).get(dataset)
+        if dataset is not None
+        else descriptor.capabilities
     )
+    if capabilities is None:
+        raise RuntimeError(f"{descriptor.label} grid capabilities are missing")
+    return GridService(descriptor.label, capabilities, certify, source_domains)

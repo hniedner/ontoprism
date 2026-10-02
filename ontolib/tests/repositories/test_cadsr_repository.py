@@ -1,5 +1,7 @@
 """CdeRepository against a real temp SQLite DB (no mocks)."""
 
+import sqlite3
+
 import pytest
 
 from ontolib.repositories.cadsr.repository import CdeRepository
@@ -40,6 +42,23 @@ def test_search_matches_name(cadsr_db_path) -> None:
 
 
 @pytest.mark.unit
+def test_non_fts_search_applies_category_and_text_before_total_and_pagination(
+    cadsr_db_path,
+) -> None:
+    page = CdeRepository(cadsr_db_path).search(
+        "Definition",
+        limit=1,
+        filters={"context": ["caDSR"]},
+        column_text={"name": "neoplasm"},
+    )
+
+    assert page.total == 1
+    assert [hit.public_id for hit in page.hits] == ["100"]
+    assert page.filters == {"context": ["caDSR"]}
+    assert page.column_text == {"name": "neoplasm"}
+
+
+@pytest.mark.unit
 def test_find_cdes_by_concept_is_the_ncit_join(cadsr_db_path) -> None:
     hits = CdeRepository(cadsr_db_path).find_cdes_by_concept("C3262")
     assert [h.public_id for h in hits] == ["100"]
@@ -69,6 +88,112 @@ def test_list_cdes_paginates(cadsr_db_path) -> None:
     assert second.total == 2
     assert [h.public_id for h in first.hits] == ["100"]
     assert [h.public_id for h in second.hits] == ["2003771"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("value_domain_type", "Enumerated"),
+        ("workflow_status", "RELEASED"),
+        ("registration_status", "Standard"),
+        ("context", "caDSR"),
+        ("datatype", "CHARACTER"),
+    ],
+)
+def test_each_closed_domain_filter_applies_before_pagination_and_total(
+    cadsr_db_path, field: str, value: str
+) -> None:
+    with sqlite3.connect(cadsr_db_path) as connection:
+        connection.execute(
+            "UPDATE cdes SET workflow_status = 'DRAFT NEW', "
+            "registration_status = 'Superceded' WHERE public_id = '2003771'"
+        )
+    page = CdeRepository(cadsr_db_path).list_cdes(limit=1, filters={field: [value]})
+
+    assert page.total == 1
+    assert [hit.public_id for hit in page.hits] == ["100"]
+    assert page.filters == {field: [value]}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("public_id", "100"),
+        ("public_id", "v2.0"),
+        ("name", "neoplasm hist"),
+        ("value_domain_type", "enumer"),
+        ("workflow_status", "release"),
+        ("registration_status", "stand"),
+        ("context", "cads"),
+        ("datatype", "char"),
+    ],
+)
+def test_each_displayed_filter_text_matches_before_pagination_and_total(
+    cadsr_db_path, field: str, value: str
+) -> None:
+    with sqlite3.connect(cadsr_db_path) as connection:
+        connection.execute(
+            "UPDATE cdes SET workflow_status = 'DRAFT NEW', "
+            "registration_status = 'Superceded', value_domain_type = 'External' "
+            "WHERE public_id = '2003771'"
+        )
+    page = CdeRepository(cadsr_db_path).list_cdes(limit=1, column_text={field: value})
+
+    assert page.total == 1
+    assert [hit.public_id for hit in page.hits] == ["100"]
+    assert page.column_text == {field: value}
+
+
+@pytest.mark.unit
+def test_filter_domains_preserve_distinct_source_spellings(cadsr_db_path) -> None:
+    with sqlite3.connect(cadsr_db_path) as connection:
+        connection.execute(
+            "UPDATE cdes SET registration_status = 'Superceded' WHERE public_id = '100'"
+        )
+        connection.execute(
+            "UPDATE cdes SET registration_status = 'Superseded' "
+            "WHERE public_id = '2003771'"
+        )
+
+    values = CdeRepository(cadsr_db_path).filter_domains("generation")[
+        "registration_status"
+    ]
+
+    assert values == ["Superceded", "Superseded"]
+
+
+@pytest.mark.unit
+def test_filter_domains_are_cached_for_one_certified_generation(cadsr_db_path) -> None:
+    repository = CdeRepository(cadsr_db_path)
+    initial = repository.filter_domains("generation-1")
+    with sqlite3.connect(cadsr_db_path) as connection:
+        connection.execute(
+            "UPDATE cdes SET workflow_status = 'DRAFT NEW' WHERE public_id = '2003771'"
+        )
+
+    assert repository.filter_domains("generation-1") == initial
+    assert repository.filter_domains("generation-2")["workflow_status"] == [
+        "DRAFT NEW",
+        "RELEASED",
+    ]
+
+
+@pytest.mark.unit
+def test_closed_domain_filters_accept_multiple_source_values(cadsr_db_path) -> None:
+    with sqlite3.connect(cadsr_db_path) as connection:
+        connection.execute(
+            "UPDATE cdes SET registration_status = 'Superceded' "
+            "WHERE public_id = '2003771'"
+        )
+
+    page = CdeRepository(cadsr_db_path).list_cdes(
+        limit=1, filters={"registration_status": ["Standard", "Superceded"]}
+    )
+
+    assert page.total == 2
+    assert len(page.hits) == 1
 
 
 @pytest.mark.unit

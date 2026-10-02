@@ -8,7 +8,14 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-from pydantic import BaseModel, ConfigDict, TypeAdapter, computed_field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    computed_field,
+    model_validator,
+)
 
 type IcdoEdition = Literal["3.2", "4.0"]
 type IcdoAxis = Literal["morphology", "topography"]
@@ -220,6 +227,7 @@ class IcdoSearchPage(_StrictModel):
     sort: IcdoRepositorySort = "source"
     behaviour: tuple[IcdoBehaviour, ...]
     level: tuple[IcdoRecordLevel, ...]
+    column_text: dict[str, str] = Field(default_factory=dict)
     hits: tuple[IcdoRecord, ...]
 
     @model_validator(mode="after")

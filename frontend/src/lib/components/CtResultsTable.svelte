@@ -1,16 +1,17 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { CT_PHASES, CT_STATUSES, type CTStudySummary } from '$lib/types';
+	import type { CTStudySummary } from '$lib/types';
 	import DataTable from '$lib/components/data-table/DataTable.svelte';
 	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
+	import { columnFilter } from '$lib/repository-registry';
 
 	let { studies, operations = { kind: 'none' }, emptyMessage = 'No trials.' }: { studies: readonly CTStudySummary[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
 	const interactive = $derived(operations.kind === 'server');
 	let columns = $derived.by((): readonly DataTableColumn<CTStudySummary>[] => [
 		{ id: 'nct_id', label: 'NCT ID', cell: idCell, sticky: { side: 'left', offset: 0 } },
 		{ id: 'title', label: 'Title', cell: titleCell },
-		{ id: 'status', label: 'Status', cell: statusCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter trial statuses', options: CT_STATUSES.map((value) => ({ value, label: value.replaceAll('_', ' ') })) } : undefined },
-		{ id: 'phase', label: 'Phase', cell: phaseCell, filter: interactive ? { kind: 'categorical', ariaLabel: 'Filter trial phases', options: CT_PHASES.map((value) => ({ value, label: value.replace('_', ' ') })) } : undefined }
+		{ id: 'status', label: 'Status', cell: statusCell, filter: interactive ? columnFilter('clinicaltrials', 'status', 'Filter trial statuses') : undefined },
+		{ id: 'phase', label: 'Phase', cell: phaseCell, filter: interactive ? columnFilter('clinicaltrials', 'phase', 'Filter trial phases') : undefined }
 	]);
 </script>
 

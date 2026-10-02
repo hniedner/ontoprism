@@ -63,13 +63,12 @@ steps but reaches `main` through its own reviewed PR; it is never merged locally
    `pdm run agent-git delete-merged <issue-branch>`. Issue branches get no PR and no
    five-dimension review. The wrapper refuses to merge while HEAD is `main`, `master`
    or detached; bare `git merge` remains forbidden.
-6. Push the milestone branch immediately. Find the CI push run by the full merge SHA
-   and watch it. That run is the issue's gate of record. Never batch issue merges or
-   start the next issue while the merge is unpushed or CI is red. Fix a red run on a
-   new issue branch before continuing. When that run is green, close the issue with
-   `pdm run agent-github issue-close <n>`, linking the merge SHA, the CI run and the demo
-   result. A risky issue branch may first use a manually
-   dispatched CI run; this is optional and does not replace the post-merge push run.
+6. An issue gets no CI run of its own (D100). Its gate is step 4 (`pdm run lint`,
+   `pdm run verify`) and its posted demo. Do not start the next issue before the
+   previous one is merged. Pushing the milestone branch is optional, as a backup; it
+   triggers no CI. A risky change may use a manually dispatched run
+   (`pdm run agent-github workflow-dispatch --ref <branch>`). The issue stays open until
+   the milestone PR merges; that PR closes it.
 
 One session may carry a milestone; start another when context is exhausted or the work
 changes character. A stalled milestone is split, not extended; ask the owner before
@@ -85,13 +84,16 @@ moving or reordering issues.
    in all five dimensions to convergence (Review below).
 3. Open one milestone PR to `main`. Its title uses the highest-impact issue commit type
    (`feat` > `fix`/`perf` > others; preserve `!`). Its body lists landed issues with a
-   link to each issue's demo result comment, all five verdicts, every dropped finding
+   link to each issue's demo result comment and a `Closes #n` line for each landed
+   issue, all five verdicts, every dropped finding
    with its reason, every deferred finding with its issue, every red CI run restored
    without prior approval, and every pending milestone edit.
+   The milestone branch is pushed here; the PR run is its first CI run.
 4. Merge only after all expected checks pass, then watch CI on the exact merge SHA.
+   When it is green, check out `main`, pull, and delete the milestone branch with
+   `pdm run agent-git delete-merged`.
 
-For a local issue merge use `git rev-parse HEAD`; for a PR merge use the
-`merge_commit` printed by `pdm run agent-github pr-merge`. Poll
+For the merge SHA use the `merge_commit` printed by `pdm run agent-github pr-merge`. Poll
 `gh run list --workflow CI --event push --commit <sha> --json databaseId,conclusion`
 up to ten times about a minute apart, then run `gh run watch <id> --exit-status`. A
 short SHA or the newest branch run is not evidence. If no run appears or it fails,
@@ -179,7 +181,7 @@ Quality stays strict; only timing is tiered:
 | Broad change before commit | optional `pdm run test-unit` |
 | Commit | pre-commit |
 | Before issue merge | `pdm run lint`, then one `pdm run verify` |
-| Per-issue record | CI on the pushed milestone merge SHA |
+| Per-issue record | `pdm run lint`, `pdm run verify` and the posted demo (no CI run) |
 | Per-milestone record | CI and CodeQL on the milestone PR |
 | Real-store contract changed | `pdm run agent-test --full-store <node> -v` |
 

@@ -12,6 +12,10 @@ export function parseIcdoDataset(edition: string, axis: string): IcdoDataset | n
 	return null;
 }
 
+export function icdoDatasetKey(dataset: IcdoDataset): string {
+	return `${dataset.edition}/${dataset.axis}`;
+}
+
 export function icdoListPath(dataset: IcdoDataset): string {
 	return `/api/v1/icdo/${dataset.edition}/${dataset.axis}/list`;
 }

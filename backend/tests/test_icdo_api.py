@@ -94,10 +94,12 @@ class _Store:
         offset = kwargs["offset"]
         behaviour = kwargs["behaviour"]
         level = kwargs["level"]
+        column_text = kwargs.get("column_text", {})
         assert isinstance(limit, int)
         assert isinstance(offset, int)
         assert isinstance(behaviour, tuple)
         assert isinstance(level, tuple)
+        assert isinstance(column_text, dict)
         return IcdoSearchPage(
             edition=edition,
             axis=axis,
@@ -107,6 +109,7 @@ class _Store:
             offset=offset,
             behaviour=behaviour,
             level=level,
+            column_text=column_text,
             hits=(record,),
         )
 
@@ -228,11 +231,19 @@ def _client(
 
 
 @pytest.mark.api
+@pytest.mark.parametrize(
+    "path",
+    [
+        "3.2/morphology/list",
+        "3.2/morphology/search?q=papilloma",
+        "3.2/morphology/metadata",
+    ],
+)
 def test_entitlement_refuses_before_repository_read(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, path: str
 ) -> None:
     store = _Store()
-    response = next(_client(store, monkeypatch)).get("/api/v1/icdo/3.2/morphology/list")
+    response = next(_client(store, monkeypatch)).get(f"/api/v1/icdo/{path}")
     assert response.status_code == 403
     assert store.calls == 0
     assert "Intraductal" not in response.text
@@ -365,11 +376,68 @@ def test_search_preserves_repeated_filters_for_or_semantics(
 
 
 @pytest.mark.api
+def test_list_and_search_apply_declared_text_and_axis_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _Store()
+    client = next(_client(store, monkeypatch))
+    headers = {"X-ICDO-Entitlement": "licensed"}
+
+    morphology = client.get(
+        "/api/v1/icdo/4.0/morphology/list",
+        params={
+            "code_text": "850",
+            "preferred_text": "papilloma",
+            "behaviour_text": "0",
+            "behaviour": "0",
+        },
+        headers=headers,
+    )
+    assert morphology.status_code == 200, morphology.text
+    assert store.search_args["column_text"] == {
+        "code": "850",
+        "preferred": "papilloma",
+        "behaviour": "0",
+    }
+    assert store.search_args["behaviour"] == ("0",)
+    assert store.search_args["level"] == ()
+    assert morphology.json()["column_text"] == {
+        "code": "850",
+        "preferred": "papilloma",
+        "behaviour": "0",
+    }
+
+    topography = client.get(
+        "/api/v1/icdo/4.0/topography/search",
+        params=[
+            ("q", "lip"),
+            ("code_text", "C0"),
+            ("preferred_text", "lip"),
+            ("level_text", "leaf"),
+            ("level", "category"),
+            ("level", "leaf"),
+        ],
+        headers=headers,
+    )
+    assert topography.status_code == 200, topography.text
+    assert store.search_args["column_text"] == {
+        "code": "C0",
+        "preferred": "lip",
+        "level": "leaf",
+    }
+    assert store.search_args["behaviour"] == ()
+    assert store.search_args["level"] == ("category", "leaf")
+
+
+@pytest.mark.api
 @pytest.mark.parametrize(
     ("path", "params"),
     [
         ("4.0/topography/list", {"behaviour": "3"}),
+        ("4.0/topography/list", {"behaviour_text": "3"}),
         ("4.0/morphology/list", {"level": "category"}),
+        ("4.0/morphology/list", {"level": "morphology"}),
+        ("4.0/morphology/list", {"level_text": "morphology"}),
         ("3.2/topography/list", {}),
     ],
 )
@@ -488,6 +556,38 @@ def test_list_refuses_a_typed_page_for_another_dataset(
 
     assert response.status_code == 503
     assert response.json()["detail"] == "ICD-O generation is invalid."
+
+
+@pytest.mark.api
+def test_list_reports_invalid_response_shape_as_bad_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _InvalidResponse(_Store):
+        async def search(self, *args: object, **kwargs: object) -> IcdoSearchPage:
+            del args, kwargs
+            return IcdoSearchPage.model_construct(
+                edition="3.2",
+                axis="morphology",
+                query="",
+                total=1,
+                limit=25,
+                offset=0,
+                sort="source",
+                behaviour=(),
+                level=(),
+                column_text={},
+                hits=(SimpleNamespace(model_dump=lambda: {"code": "invalid"}),),
+            )
+
+    response = next(_client(_InvalidResponse(), monkeypatch)).get(
+        "/api/v1/icdo/3.2/morphology/list",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "ICD-O repository returned an invalid or unavailable response."
+    )
 
 
 @pytest.mark.api

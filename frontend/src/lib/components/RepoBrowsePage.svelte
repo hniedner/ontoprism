@@ -3,17 +3,19 @@
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { navigating, page } from '$app/state';
+	import CursorPagination from '$lib/components/CursorPagination.svelte';
 	import RepoPageHeader from '$lib/components/RepoPageHeader.svelte';
 	import RepoSearchBar from '$lib/components/RepoSearchBar.svelte';
 	import RepoResultsCard from '$lib/components/RepoResultsCard.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import RemoteSearchSurface from '$lib/components/RemoteSearchSurface.svelte';
+	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
 	import type { DataTableFilterKeyMap, DataTableFilterState, DataTableIntent, DataTableOperations, DataTableSortState } from '$lib/components/data-table/types';
 	import type { PageSize } from '$lib/grid-state';
 
-	// Full browse/search page for a paginated local repository: header, search
-	// bar, results card, and pagination over server-loaded URL state. Each concrete
-	// repository supplies its copy and a `results` snippet for its own table.
-	interface Props {
+	// Full browse/search page for a paginated local or remote repository. Each
+	// concrete repository supplies its copy and a `results` snippet for its table.
+	interface SharedProps {
 		title: string;
 		description: string;
 		route: string;
@@ -31,13 +33,42 @@
 		sortKeys: Readonly<Record<string, Partial<Record<'asc' | 'desc', Sort>>>>;
 		filterKeys: DataTableFilterKeyMap;
 		textKeys?: DataTableFilterKeyMap;
+		noMatchesLabel?: (query: string) => string;
+		navigationTotal?: number;
 	}
+
+	interface LocalProps {
+		kind?: 'local-certified-proxy';
+		instruction?: Snippet;
+		remote?: never;
+		cursor?: never;
+	}
+
+	interface RemoteProps {
+		kind: 'remote-live-service';
+		instruction: Snippet;
+		remote: { service: 'NCBI PubMed' | 'ClinicalTrials.gov' } & (
+			| {
+				state: 'error';
+				error: { remoteState: 'unavailable' | 'rate-limited' | 'timeout'; message: string };
+			}
+			| {
+				state: 'empty' | 'ready';
+				error: null;
+			}
+		);
+		cursor?: { trail: string[]; next: string | null };
+	}
+
+	type Props = SharedProps & (LocalProps | RemoteProps);
 
 	let {
 		title,
 		description,
 		route,
+		kind,
 		helpText,
+		instruction,
 		placeholder,
 		ariaLabel,
 		suggestions,
@@ -50,11 +81,16 @@
 		defaultSort,
 		sortKeys,
 		filterKeys,
-		textKeys = {}
+		textKeys = {},
+		noMatchesLabel,
+		navigationTotal,
+		remote,
+		cursor
 	}: Props = $props();
 
 	let queryValue = $derived(initial.query);
 	const mode = $derived(initial.query ? 'search' : 'browse');
+	const repositoryKind = $derived(kind ?? 'local-certified-proxy');
 	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
 	const hasActiveFilters = $derived(Object.values(initial.filters).some((selected) => selected.length > 0) || Object.values(initial.textFilters ?? {}).some(Boolean));
 
@@ -70,7 +106,14 @@
 		const query = term.trim(); if (query) params.set('q', query); else params.delete('q');
 		if (query !== initial.query) params.delete('sort');
 		if (nextOffset) params.set('offset', String(nextOffset)); else params.delete('offset');
+		params.delete('cursor');
 	}); }
+	function loadCursor(tokens: string[]): void {
+		void navigate((params) => {
+			params.delete('cursor');
+			for (const token of tokens) params.append('cursor', token);
+		});
+	}
 	function sortState(value: Sort): DataTableSortState | null {
 		for (const [key, sorts] of Object.entries(sortKeys)) {
 			if (value === sorts.asc) return { key, direction: 'asc' };
@@ -130,6 +173,7 @@
 		intentError = null;
 		void navigate((params) => {
 			params.delete('offset');
+			params.delete('cursor');
 			update(params);
 		});
 	}
@@ -163,7 +207,7 @@
 	const emptyMessage = $derived(
 		mode === 'browse' && !hasActiveFilters
 			? 'This repository contains no records.'
-			: 'No records matched the current query and filters.'
+			: noMatchesLabel?.(initial.query) ?? 'No records matched the current query and filters.'
 	);
 </script>
 
@@ -171,7 +215,7 @@
 	<title>{title} · ONTOPRISM</title>
 </svelte:head>
 
-<RepoPageHeader {title} {description} total={initial.result.total} kind="local-certified-proxy">
+<RepoPageHeader {title} {description} total={remote && remote.state !== 'ready' ? null : initial.result.total} kind={repositoryKind}>
 	{#snippet help()}
 		{@render helpText()}
 	{/snippet}
@@ -195,14 +239,39 @@
 	{@render filters()}
 {/if}
 
-<RepoResultsCard title={resultTitle} countLabel={label} {loading} error={null}>
+{#snippet resultCard()}
+	<RepoResultsCard title={resultTitle} countLabel={label} {loading} error={null}>
 		{#if intentError}<p role="alert" class="mb-2 text-sm text-danger">{intentError}</p>{/if}
 		{@render results(initial.result.hits, operations, emptyMessage)}
-		<Pagination
-			offset={initial.offset}
-			limit={initial.size}
-			total={initial.result.total}
-			onPage={(nextOffset) => load(nextOffset, initial.query)}
-			onSize={(size) => navigate((params) => { params.delete('offset'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })}
-		/>
-</RepoResultsCard>
+		{#if cursor}
+			<CursorPagination
+				count={initial.result.hits.length}
+				total={initial.result.total}
+				hasPrevious={cursor.trail.length > 0}
+				hasNext={Boolean(cursor.next)}
+				size={initial.size}
+				onPrevious={() => loadCursor(cursor.trail.slice(0, -1))}
+				onNext={() => cursor.next && loadCursor([...cursor.trail, cursor.next])}
+				onSize={(size) => navigate((params) => { params.delete('cursor'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })}
+			/>
+		{:else}
+			<Pagination
+				offset={initial.offset}
+				limit={initial.size}
+				total={initial.result.total}
+				navigationTotal={navigationTotal ?? initial.result.total}
+				onPage={(nextOffset) => load(nextOffset, initial.query)}
+				onSize={(size) => navigate((params) => { params.delete('offset'); if (size === 25) params.delete('size'); else params.set('size', String(size)); })}
+			/>
+		{/if}
+	</RepoResultsCard>
+{/snippet}
+
+{#if remote && instruction}
+	<RemoteServiceDisclosure service={remote.service} />
+	<RemoteSearchSurface service={remote.service} ready={remote.state === 'ready'} error={remote.error} {instruction}>
+		{@render resultCard()}
+	</RemoteSearchSurface>
+{:else}
+	{@render resultCard()}
+{/if}

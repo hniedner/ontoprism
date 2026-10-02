@@ -20,7 +20,21 @@
 		"id": "cadsr",
 		"label": "caDSR",
 		"path": "/repositories/cadsr",
-		"kind": "local-certified-proxy"
+		"kind": "local-certified-proxy",
+		"capabilities": {
+			"sorts": { "list": ["source", "public_id:asc", "public_id:desc", "name:asc", "name:desc"], "search": ["source", "public_id:asc", "public_id:desc", "name:asc", "name:desc"] },
+			"filters": {
+				"public_id": { "kind": "text", "text_parameter": "public_id_text", "values": {} },
+				"name": { "kind": "text", "text_parameter": "name_text", "values": {} },
+				"value_domain_type": { "kind": "categorical", "text_parameter": "value_domain_type_text", "multiple": true, "source_domain": "value-domain-types", "values": {} },
+				"workflow_status": { "kind": "categorical", "text_parameter": "workflow_status_text", "multiple": true, "source_domain": "workflow-statuses", "values": {} },
+				"registration_status": { "kind": "categorical", "text_parameter": "registration_status_text", "multiple": true, "source_domain": "registration-statuses", "values": {} },
+				"context": { "kind": "categorical", "text_parameter": "context_text", "multiple": true, "source_domain": "contexts", "values": {} },
+				"datatype": { "kind": "categorical", "text_parameter": "datatype_text", "multiple": true, "source_domain": "datatypes", "values": {} }
+			},
+			"pagination": "offset", "query_before_results": false,
+			"metadata": "certified", "graph": "source-anchors", "links": "source-anchors"
+		}
 	},
 	{
 		"id": "uberon",
@@ -42,18 +56,65 @@
 		"id": "icdo",
 		"label": "ICD-O",
 		"path": "/repositories/icdo",
-		"kind": "local-certified-proxy"
+		"kind": "local-certified-proxy",
+		"capabilities_by_dataset": {
+			"3.2/morphology": {
+				"sorts": { "list": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"], "search": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"] },
+				"filters": {
+					"code": { "kind": "text", "text_parameter": "code_text", "values": {} },
+					"preferred": { "kind": "text", "text_parameter": "preferred_text", "values": {} },
+					"behaviour": { "kind": "categorical", "text_parameter": "behaviour_text", "multiple": true, "values": { "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9" } }
+				},
+				"pagination": "offset", "query_before_results": false,
+				"metadata": "certified", "graph": "none", "links": "mapping"
+			},
+			"4.0/morphology": {
+				"sorts": { "list": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"], "search": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"] },
+				"filters": {
+					"code": { "kind": "text", "text_parameter": "code_text", "values": {} },
+					"preferred": { "kind": "text", "text_parameter": "preferred_text", "values": {} },
+					"behaviour": { "kind": "categorical", "text_parameter": "behaviour_text", "multiple": true, "values": { "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9" } }
+				},
+				"pagination": "offset", "query_before_results": false,
+				"metadata": "certified", "graph": "none", "links": "none"
+			},
+			"4.0/topography": {
+				"sorts": { "list": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"], "search": ["source", "code:asc", "code:desc", "preferred:asc", "preferred:desc"] },
+				"filters": {
+					"code": { "kind": "text", "text_parameter": "code_text", "values": {} },
+					"preferred": { "kind": "text", "text_parameter": "preferred_text", "values": {} },
+					"level": { "kind": "categorical", "text_parameter": "level_text", "multiple": true, "values": { "category": "category", "leaf": "leaf" } }
+				},
+				"pagination": "offset", "query_before_results": false,
+				"metadata": "certified", "graph": "none", "links": "none"
+			}
+		}
 	},
 	{
 		"id": "clinicaltrials",
 		"label": "ClinicalTrials.gov",
 		"path": "/repositories/clinicaltrials",
-		"kind": "remote-live-service"
+		"kind": "remote-live-service",
+		"capabilities": {
+			"sorts": { "list": ["relevance"], "search": ["relevance"] },
+			"filters": {
+				"status": { "kind": "categorical", "multiple": true, "values": { "ACTIVE_NOT_RECRUITING": "ACTIVE NOT RECRUITING", "APPROVED_FOR_MARKETING": "APPROVED FOR MARKETING", "AVAILABLE": "AVAILABLE", "COMPLETED": "COMPLETED", "ENROLLING_BY_INVITATION": "ENROLLING BY INVITATION", "NOT_YET_RECRUITING": "NOT YET RECRUITING", "NO_LONGER_AVAILABLE": "NO LONGER AVAILABLE", "RECRUITING": "RECRUITING", "SUSPENDED": "SUSPENDED", "TEMPORARILY_NOT_AVAILABLE": "TEMPORARILY NOT AVAILABLE", "TERMINATED": "TERMINATED", "UNKNOWN": "UNKNOWN", "WITHDRAWN": "WITHDRAWN", "WITHHELD": "WITHHELD" } },
+				"phase": { "kind": "categorical", "multiple": true, "values": { "EARLY_PHASE1": "EARLY PHASE1", "PHASE1": "PHASE1", "PHASE2": "PHASE2", "PHASE3": "PHASE3", "PHASE4": "PHASE4" } }
+			},
+			"pagination": "cursor", "query_before_results": true,
+			"metadata": "remote", "graph": "none", "links": "references"
+		}
 	},
 	{
 		"id": "pubmed",
 		"label": "PubMed",
 		"path": "/repositories/pubmed",
-		"kind": "remote-live-service"
+		"kind": "remote-live-service",
+		"capabilities": {
+			"sorts": { "list": ["relevance", "pub_date"], "search": ["relevance", "pub_date"] },
+			"filters": {},
+			"pagination": "offset", "query_before_results": true,
+			"metadata": "remote", "graph": "none", "links": "references"
+		}
 	}
 ]

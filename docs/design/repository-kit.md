@@ -39,9 +39,10 @@ It holds **capabilities only**: sorts, filters (both kinds and controlled value
 domains), pagination kind, query-before-results, metadata kind, graph kind
 and link kind. It holds **no columns or rendering hints**. Columns remain
 typed snippets in the one shared `DataTable`; this is not a configuration-driven
-UI engine. Python and TypeScript validators at the existing registry boundaries
-reject unknown keys and contradictory capabilities. The API, table and smoke
-read the same declaration for supported controls. Smoke still checks actual
+UI engine. The Python registry boundary rejects unknown keys and contradictory
+capabilities; the frontend consumes that checked-in declaration as typed
+configuration without a second validator. The API, table and smoke read the
+same declaration for supported controls. Smoke still checks actual
 rendered results, rather than treating a declaration as evidence that they work.
 ICD-O entitlement stays enforced in the backend; declaration is never authorization.
 
@@ -155,9 +156,11 @@ issues from this amended design; implementers do not create them.
 
 M12 has **five migrations and no separate filter issue**. Each repository's
 filters are in its migration; #485 is absorbed/closed by the owner when those
-issues are created. The kit as a whole **removes more non-test code than it
-adds**. Each issue states expected and actual net non-test lines; any
-positive-net migration explains why even though the overall kit is smaller.
+issues are created. Under the 2026-10-02 D99 amendment, acceptance requires no
+parallel implementation; a handler holds only its typed signature and store
+call; shared code is used by at least two repositories; and net size is
+reported. Each issue states expected and actual net non-test lines and explains
+a positive net.
 
 For each migration, compare measured cold and warm endpoint latency, request
 counts, result and page shapes against the same configured dataset before

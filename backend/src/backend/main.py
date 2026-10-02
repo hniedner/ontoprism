@@ -170,7 +170,7 @@ def create_app() -> FastAPI:
             if repository_id == "ncit":
                 repositories.append(await metadata.ncit(force=True))
             elif repository_id == "cadsr":
-                repositories.append(metadata.cadsr())
+                repositories.append(await metadata.cadsr(force=True))
             elif repository_id == "uberon":
                 repositories.append(await metadata.uberon(force=True))
             elif repository_id == "icdo":

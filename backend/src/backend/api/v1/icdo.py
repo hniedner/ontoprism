@@ -4,10 +4,10 @@ import base64
 import binascii
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 
 from backend.api.v1.alignment import mapping_relative_to
-from backend.api.v1.grid import PageSize
+from backend.api.v1.grid import GridService, PageSize, declared_grid, present_text
 from backend.dependencies import (
     IcdoReads,
     RepositoryMetadataReads,
@@ -18,6 +18,7 @@ from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import IcdoRepositoryReady, RepositoryUnhealthy
 from backend.security import RequireIcdoEntitlement
 from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.common.grid import ColumnText
 from ontolib.repositories.icdo.congruence import (
     CongruenceReport,
     build_congruence_report,
@@ -149,6 +150,7 @@ class _IcdoPage(StrictBoundaryModel):
     sort: IcdoRepositorySort
     behaviour: list[IcdoBehaviour]
     level: list[IcdoRecordLevel]
+    column_text: dict[str, str]
 
 
 class Morphology32Page(_IcdoPage):
@@ -217,32 +219,37 @@ def require_served_icdo_dataset(
     return dataset
 
 
-def validate_icdo_grid_filters(
+def _column_text(
+    code_text: ColumnText | None = None,
+    preferred_text: ColumnText | None = None,
+    behaviour_text: ColumnText | None = None,
+    level_text: ColumnText | None = None,
+) -> dict[str, str]:
+    return present_text(
+        code=code_text,
+        preferred=preferred_text,
+        behaviour=behaviour_text,
+        level=level_text,
+    )
+
+
+IcdoColumnText = Annotated[dict[str, str], Depends(_column_text)]
+
+
+def _grid(
+    repository_metadata: RepositoryMetadataReads,
+    edition: IcdoEdition,
     axis: IcdoAxis,
-    behaviour: list[IcdoBehaviour] | None,
-    level: list[IcdoRecordLevel] | None,
-) -> None:
-    """Reject filter values that do not apply to the requested ICD-O axis."""
-    if axis == "topography":
-        invalid = bool(behaviour) or "morphology" in (level or ())
-    else:
-        invalid = any(value != "morphology" for value in level or ())
-    if invalid:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "ICD-O filters do not apply to the requested axis.",
-        )
+) -> GridService[IcdoRepositoryReady]:
+    dataset = require_served_icdo_dataset(edition, axis)
+    return declared_grid(
+        "icdo",
+        lambda: repository_metadata.icdo(dataset),
+        dataset=f"{dataset.edition}/{dataset.axis}",
+    )
 
 
-async def _ready(
-    repository_metadata: RepositoryMetadataReads, dataset: ServedIcdoDataset
-) -> IcdoRepositoryReady:
-    result = await repository_metadata.icdo(dataset)
-    if isinstance(result, RepositoryUnhealthy):
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, result.model_dump(mode="json")
-        )
-    return result
+IcdoGrid = Annotated[GridService[IcdoRepositoryReady], Depends(_grid)]
 
 
 def _page_response(
@@ -266,9 +273,58 @@ def _page_response(
             "sort": result.sort,
             "behaviour": list(result.behaviour),
             "level": list(result.level),
+            "column_text": result.column_text,
             "hits": [record.model_dump() for record in result.hits],
         }
     )
+
+
+async def _grid_page(
+    repository: IcdoReads,
+    grid: IcdoGrid,
+    dataset: ServedIcdoDataset,
+    operation: Literal["list", "search"],
+    *,
+    query: str,
+    behaviour: list[IcdoBehaviour] | None,
+    level: list[IcdoRecordLevel] | None,
+    column_text: dict[str, str],
+    limit: int,
+    offset: int,
+    sort: IcdoRepositorySort,
+) -> IcdoPage:
+    selected = {
+        key: value
+        for key, value in {"behaviour": behaviour, "level": level}.items()
+        if value is not None
+    }
+    await grid.validate(operation, sort, column_text, selected)
+
+    async def read_page(repository_ready: IcdoRepositoryReady) -> IcdoPage:
+        result = await repository.search(
+            dataset.edition,
+            dataset.axis,
+            query=query,
+            behaviour=tuple(behaviour or ()),
+            level=tuple(level or ()),
+            column_text=column_text,
+            limit=limit,
+            offset=offset,
+            generation_id=repository_ready.activation_identity,
+            sort=sort,
+        )
+        return _page_response(result, dataset, repository_ready)
+
+    try:
+        return await grid.read(read_page)
+    except IcdoRepositoryDataError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O record data is invalid."
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."
+        ) from exc
 
 
 @router.get("/access", response_model=IcdoAccessReport)
@@ -309,12 +365,8 @@ def _decode_code(segment: str, edition: IcdoEdition, axis: IcdoAxis) -> str:
 
 
 @router.get("/{edition}/{axis}/metadata")
-async def metadata(
-    repository_metadata: RepositoryMetadataReads, edition: IcdoEdition, axis: IcdoAxis
-) -> object:
-    dataset = require_served_icdo_dataset(edition, axis)
-    result = await _ready(repository_metadata, dataset)
-    return result.model_dump(mode="json")
+async def metadata(grid: IcdoGrid, edition: IcdoEdition, axis: IcdoAxis) -> object:
+    return (await grid.ready()).model_dump(mode="json")
 
 
 @router.get("/4.0/topography/congruence", response_model=CongruenceReport)
@@ -373,78 +425,60 @@ async def _uberon_congruence_records(
 @router.get("/{edition}/{axis}/list", response_model=IcdoPage)
 async def list_records(
     repository: IcdoReads,
-    repository_metadata: RepositoryMetadataReads,
+    grid: IcdoGrid,
     edition: IcdoEdition,
     axis: IcdoAxis,
+    column_text: IcdoColumnText,
     behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
     level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: IcdoRepositorySort = "source",
 ) -> IcdoPage:
-    validate_icdo_grid_filters(axis, behaviour, level)
     dataset = require_served_icdo_dataset(edition, axis)
-    ready = await _ready(repository_metadata, dataset)
-    try:
-        result = await repository.search(
-            dataset.edition,
-            dataset.axis,
-            query="",
-            behaviour=tuple(behaviour or ()),
-            level=tuple(level or ()),
-            limit=limit,
-            offset=offset,
-            generation_id=ready.activation_identity,
-            sort=sort,
-        )
-        return _page_response(result, dataset, ready)
-    except IcdoRepositoryDataError as exc:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O record data is invalid."
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."
-        ) from exc
+    return await _grid_page(
+        repository,
+        grid,
+        dataset,
+        "list",
+        query="",
+        behaviour=behaviour,
+        level=level,
+        column_text=column_text,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+    )
 
 
 @router.get("/{edition}/{axis}/search", response_model=IcdoPage)
 async def search(
     repository: IcdoReads,
-    repository_metadata: RepositoryMetadataReads,
+    grid: IcdoGrid,
     edition: IcdoEdition,
     axis: IcdoAxis,
     q: Annotated[str, Query(min_length=1)],
+    column_text: IcdoColumnText,
     behaviour: Annotated[list[IcdoBehaviour] | None, Query()] = None,
     level: Annotated[list[IcdoRecordLevel] | None, Query()] = None,
     limit: PageSize = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
     sort: IcdoRepositorySort = "source",
 ) -> IcdoPage:
-    validate_icdo_grid_filters(axis, behaviour, level)
     dataset = require_served_icdo_dataset(edition, axis)
-    ready = await _ready(repository_metadata, dataset)
-    try:
-        result = await repository.search(
-            dataset.edition,
-            dataset.axis,
-            query=q,
-            behaviour=tuple(behaviour or ()),
-            level=tuple(level or ()),
-            limit=limit,
-            offset=offset,
-            generation_id=ready.activation_identity,
-            sort=sort,
-        )
-        return _page_response(result, dataset, ready)
-    except IcdoRepositoryDataError as exc:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O record data is invalid."
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."
-        ) from exc
+    return await _grid_page(
+        repository,
+        grid,
+        dataset,
+        "search",
+        query=q,
+        behaviour=behaviour,
+        level=level,
+        column_text=column_text,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+    )
 
 
 @router.get("/{edition}/{axis}/concepts/{code}", response_model=IcdoDetail)
@@ -452,19 +486,22 @@ async def detail(
     repository: IcdoReads,
     xref_store: XrefReads,
     repository_metadata: RepositoryMetadataReads,
+    grid: IcdoGrid,
     edition: IcdoEdition,
     axis: IcdoAxis,
     code: Annotated[str, Path(min_length=1)],
 ) -> object:
     dataset = require_served_icdo_dataset(edition, axis)
-    ready = await _ready(repository_metadata, dataset)
+    ready = await grid.ready()
     canonical = _decode_code(code, dataset.edition, dataset.axis)
     try:
-        result = await repository.detail(
-            dataset.edition,
-            dataset.axis,
-            canonical,
-            generation_id=ready.activation_identity,
+        result = await grid.read(
+            lambda _: repository.detail(
+                dataset.edition,
+                dataset.axis,
+                canonical,
+                generation_id=ready.activation_identity,
+            )
         )
         record = decode_icdo_record(result) if result is not None else None
     except ValueError as exc:

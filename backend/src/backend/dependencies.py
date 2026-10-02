@@ -114,8 +114,8 @@ class RepositoryMetadataReader(Protocol):
         self, *, force: bool = False
     ) -> NcitRepositoryReady | RepositoryUnhealthy[Literal["ncit"]]: ...
 
-    def cadsr(
-        self,
+    async def cadsr(
+        self, *, force: bool = False
     ) -> CadsrRepositoryReady | RepositoryUnhealthy[Literal["cadsr"]]: ...
 
     async def uberon(
@@ -151,6 +151,7 @@ class IcdoReader(Protocol):
         offset: int,
         behaviour: tuple[IcdoBehaviour, ...] = (),
         level: tuple[IcdoRecordLevel, ...] = (),
+        column_text: dict[str, str] | None = None,
         sort: IcdoRepositorySort = "source",
         generation_id: str | None = None,
     ) -> IcdoSearchPage: ...

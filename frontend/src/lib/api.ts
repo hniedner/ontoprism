@@ -4,10 +4,13 @@
 import { gridCapabilities, type RepositoryId } from './repository-registry';
 import type {
 	CdeDetail,
+	CadsrFilterDomains,
+	CadsrColumnText,
 	CdeRepositorySort,
 	CdeSearchPage,
 	CdeSummary,
 	IcdoBehaviour,
+	IcdoColumnText,
 	IcdoRecordLevel,
 	IcdoRepositorySort,
 	ConceptDecomposition,
@@ -133,10 +136,10 @@ export async function postJsonBody<T>(
 	return (await resp.json()) as T;
 }
 
-function appendColumnText(params: Record<string, string | number | readonly string[]>, repository: RepositoryId, values: Partial<Record<string, string>> = {}): void {
+function appendColumnText(params: Record<string, string | number | readonly string[]>, repository: RepositoryId, values: Partial<Record<string, string>> = {}, dataset?: string): void {
 	for (const [column, value] of Object.entries(values)) {
-		const filter = gridCapabilities(repository).filters[column];
-		if (!filter) throw new Error(`Unknown ${repository} text column: ${column}`);
+		const filter = gridCapabilities(repository, dataset).filters[column];
+		if (!filter?.text_parameter) throw new Error(`Unknown ${repository} text column: ${column}`);
 		if (value === undefined) continue;
 		params[filter.text_parameter] = value;
 	}
@@ -208,32 +211,40 @@ export function getNeighborhood(
 	);
 }
 
-export function searchUberon(
-	q: string,
-	opts: { limit?: number; offset?: number; sources?: UberonSource[]; sort?: UberonSearchSort; columnText?: UberonColumnText; fetch?: typeof fetch } = {}
-): Promise<UberonSearchPage> {
+type UberonGridOptions<
+	Sort extends UberonBrowseSort | UberonSearchSort = UberonBrowseSort | UberonSearchSort
+> = {
+	limit?: number;
+	offset?: number;
+	sources?: UberonSource[];
+	sort?: Sort;
+	columnText?: UberonColumnText;
+	fetch?: typeof fetch;
+};
+
+function uberonGridParams(opts: UberonGridOptions): Record<string, string | number | readonly string[]> {
 	const params: Record<string, string | number | readonly string[]> = {
-		q,
 		limit: opts.limit ?? 25,
 		offset: opts.offset ?? 0
 	};
 	if (opts.sources?.length) params.source = opts.sources;
 	if (opts.sort) params.sort = opts.sort;
 	appendColumnText(params, 'uberon', opts.columnText);
+	return params;
+}
+
+export function searchUberon(
+	q: string,
+	opts: UberonGridOptions<UberonSearchSort> = {}
+): Promise<UberonSearchPage> {
+	const params = { q, ...uberonGridParams(opts) };
 	return getJson<UberonSearchPage>(apiUrl('/api/v1/uberon/search', params), opts.fetch);
 }
 
 export function listUberon(
-	opts: { limit?: number; offset?: number; sources?: UberonSource[]; sort?: UberonBrowseSort; columnText?: UberonColumnText; fetch?: typeof fetch } = {}
+	opts: UberonGridOptions<UberonBrowseSort> = {}
 ): Promise<UberonBrowsePage> {
-	const params: Record<string, string | number | readonly string[]> = {
-		limit: opts.limit ?? 25,
-		offset: opts.offset ?? 0
-	};
-	if (opts.sources?.length) params.source = opts.sources;
-	if (opts.sort) params.sort = opts.sort;
-	appendColumnText(params, 'uberon', opts.columnText);
-	return getJson<UberonBrowsePage>(apiUrl('/api/v1/uberon/list', params), opts.fetch);
+	return getJson<UberonBrowsePage>(apiUrl('/api/v1/uberon/list', uberonGridParams(opts)), opts.fetch);
 }
 
 export function getUberonConcept(
@@ -282,24 +293,26 @@ interface IcdoGridOptions {
 	behaviour?: readonly IcdoBehaviour[];
 	level?: readonly IcdoRecordLevel[];
 	sort?: IcdoRepositorySort;
+	columnText?: IcdoColumnText;
 	fetch?: typeof fetch;
 }
 
-function icdoGridParams(q: string | undefined, opts: IcdoGridOptions): Record<string, string | number | readonly string[]> {
+function icdoGridParams(dataset: IcdoDataset, q: string | undefined, opts: IcdoGridOptions): Record<string, string | number | readonly string[]> {
 	const params: Record<string, string | number | readonly string[]> = { limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
 	if (q !== undefined) params.q = q;
 	if (opts.behaviour) params.behaviour = opts.behaviour;
 	if (opts.level) params.level = opts.level;
 	if (opts.sort) params.sort = opts.sort;
+	appendColumnText(params, 'icdo', opts.columnText, `${dataset.edition}/${dataset.axis}`);
 	return params;
 }
 
 export function listIcdo<D extends IcdoDataset>(dataset: D, opts: IcdoGridOptions = {}): Promise<IcdoPageFor<D>> {
-	return getJson<IcdoPageFor<D>>(apiUrl(icdoListPath(dataset), icdoGridParams(undefined, opts)), opts.fetch);
+	return getJson<IcdoPageFor<D>>(apiUrl(icdoListPath(dataset), icdoGridParams(dataset, undefined, opts)), opts.fetch);
 }
 
 export function searchIcdo<D extends IcdoDataset>(dataset: D, q: string, opts: IcdoGridOptions = {}): Promise<IcdoPageFor<D>> {
-	return getJson<IcdoPageFor<D>>(apiUrl(icdoSearchPath(dataset), icdoGridParams(q, opts)), opts.fetch);
+	return getJson<IcdoPageFor<D>>(apiUrl(icdoSearchPath(dataset), icdoGridParams(dataset, q, opts)), opts.fetch);
 }
 
 
@@ -356,29 +369,44 @@ export function getCdeNeighborhood(
 
 // --- caDSR ---
 
-export function searchCadsr(
-	q: string,
-	opts: { limit?: number; offset?: number; sort?: CdeRepositorySort; fetch?: typeof fetch } = {}
-): Promise<CdeSearchPage> {
-	const url = apiUrl('/api/v1/cadsr/search', {
-		q,
+interface CadsrGridOptions {
+	limit?: number;
+	offset?: number;
+	sort?: CdeRepositorySort;
+	filters?: Partial<Record<keyof CadsrFilterDomains, readonly string[]>>;
+	columnText?: CadsrColumnText;
+	fetch?: typeof fetch;
+}
+
+function cadsrGridParams(opts: CadsrGridOptions): Record<string, string | number | readonly string[]> {
+	const params: Record<string, string | number | readonly string[]> = {
 		limit: opts.limit ?? 25,
 		offset: opts.offset ?? 0,
 		sort: opts.sort ?? 'source'
-	});
+	};
+	for (const [key, values] of Object.entries(opts.filters ?? {})) if (values?.length) params[key] = values;
+	appendColumnText(params, 'cadsr', opts.columnText);
+	return params;
+}
+
+export function searchCadsr(
+	q: string,
+	opts: CadsrGridOptions = {}
+): Promise<CdeSearchPage> {
+	const url = apiUrl('/api/v1/cadsr/search', { q, ...cadsrGridParams(opts) });
 	return getJson<CdeSearchPage>(url, opts.fetch);
 }
 
 /** List caDSR CDEs in the requested deterministic browse order. */
 export function listCadsr(
-	opts: { limit?: number; offset?: number; sort?: CdeRepositorySort; fetch?: typeof fetch } = {}
+	opts: CadsrGridOptions = {}
 ): Promise<CdeSearchPage> {
-	const url = apiUrl('/api/v1/cadsr/list', {
-		limit: opts.limit ?? 25,
-		offset: opts.offset ?? 0,
-		sort: opts.sort ?? 'source'
-	});
+	const url = apiUrl('/api/v1/cadsr/list', cadsrGridParams(opts));
 	return getJson<CdeSearchPage>(url, opts.fetch);
+}
+
+export function getCadsrFilterDomains(fetchImpl?: typeof fetch): Promise<CadsrFilterDomains> {
+	return getJson<CadsrFilterDomains>(apiUrl('/api/v1/cadsr/filter-domains'), fetchImpl);
 }
 
 export function getCde(

@@ -268,6 +268,19 @@ test('ClinicalTrials and PubMed search URLs and detail routes render initial con
 	expect(await article.text()).toContain('SSR abstract from FastAPI.');
 });
 
+test('remote repository grids retain text search and upstream multi-select state', async ({ page }, testInfo) => {
+	await page.goto('/repositories/pubmed?q=immunotherapy');
+	await expect(page.getByRole('searchbox', { name: 'Search PubMed' })).toHaveValue('immunotherapy');
+	await expect(page.getByText('SSR article for immunotherapy')).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('pubmed-text-search.png'), fullPage: true });
+
+	await page.goto('/repositories/clinicaltrials?q=melanoma&status=RECRUITING&status=COMPLETED');
+	await page.getByRole('button', { name: /Filter Status, 2 selected/ }).click();
+	await expect(page.getByRole('checkbox', { name: 'RECRUITING', exact: true })).toBeChecked();
+	await expect(page.getByRole('checkbox', { name: 'COMPLETED', exact: true })).toBeChecked();
+	await page.screenshot({ path: testInfo.outputPath('clinicaltrials-multi-select.png'), fullPage: true });
+});
+
 test('repository kind is persistent on navigation, list, and detail surfaces', async ({ page }) => {
 	await page.goto('/repositories/ncit');
 	await expect(page.getByRole('navigation').getByText('Local', { exact: true }).first()).toBeVisible();
@@ -334,9 +347,20 @@ test('route-critical 404, 503, and timeout responses retain explicit HTTP status
 
 test('slow client navigation exposes the shared delayed critical-load status', async ({ page }) => {
 	await page.goto('/repositories/ncit?q=slow');
+	let releaseRequest!: () => void;
+	let markRequestHeld!: () => void;
+	const requestHeld = new Promise<void>((resolve) => (markRequestHeld = resolve));
+	const released = new Promise<void>((resolve) => (releaseRequest = resolve));
+	await page.route('**/repositories/ncit/CSLOW/__data.json*', async (route) => {
+		markRequestHeld();
+		await released;
+		await route.continue();
+	});
 	const navigation = page.getByRole('link', { name: 'SSR result for slow' }).click();
+	await requestHeld;
 	const loadingPage = page.getByRole('status').filter({ hasText: 'Loading page' });
 	await expect(loadingPage).toBeVisible();
+	releaseRequest();
 	await navigation;
 	await expect(page).toHaveURL('/repositories/ncit/CSLOW');
 	await expect(page.getByText('SSR concept definition from FastAPI.')).toBeVisible();
