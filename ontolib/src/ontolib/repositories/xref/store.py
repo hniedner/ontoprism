@@ -169,6 +169,20 @@ def _source_is_requested(source: str, expected: XrefReadPolicy) -> bool:
     return source == _P334_SOURCE and expected.icdo is not None
 
 
+def _mapping_result(row: Any) -> MappingResult:
+    return MappingResult(
+        subject=EndpointIdentity(
+            row["subject_system"], row["subject_version"], row["subject_id"]
+        ),
+        predicate=row["predicate_id"],
+        object=EndpointIdentity(
+            row["object_system"], row["object_version"], row["object_id"]
+        ),
+        lifecycle=row["lifecycle_state"],
+        confidence=row["confidence"],
+    )
+
+
 def _require_requested_families(
     expected: XrefReadPolicy, active_sources: set[str]
 ) -> None:
@@ -623,19 +637,11 @@ class XrefStore:
     async def mapping_strength_by_subject(
         self, *, expected: XrefReadPolicy
     ) -> dict[str, set[tuple[str, str]]]:
-        """Return mapping strengths from current, policy-selected generations.
-
-        Because rows from multiple active sources coalesce in the same set, callers
-        should be aware that the same ``(subject, predicate)`` may appear
-        with different lifecycle states (e.g. ``proposed`` in one generation and
-        ``validated`` in another). The downstream ``build_coverage_report`` treats any
-        ``exactMatch + {validated, active}`` as identity-grade.  This is
-        correct for Phase A where ingest produces ``closeMatch/proposed``
-        and validation (#73) promotes to ``exactMatch/validated``;
-        cross-source conflicts are resolved by dataset design, not by this query.
-        """
+        """Return strengths eligible under the shared mapping-serving policy."""
         sql = text(
-            "SELECT subject_id, predicate_id, lifecycle_state FROM concept_xref "
+            "SELECT subject_system, subject_version, subject_id, predicate_id, "
+            "object_system, object_version, object_id, lifecycle_state, confidence "
+            "FROM concept_xref "
             "WHERE generation_id IN :generation_ids"
         ).bindparams(bindparam("generation_ids", expanding=True))
         async with self._sf() as s:
@@ -645,9 +651,10 @@ class XrefStore:
             )
             out: dict[str, set[tuple[str, str]]] = {}
             for r in result.mappings().all():
-                key = r["subject_id"]
-                pair = (r["predicate_id"], r["lifecycle_state"])
-                out.setdefault(key, set()).add(pair)
+                mapping = _mapping_result(r)
+                if expected.serves(mapping):
+                    pair = (mapping.predicate, mapping.lifecycle)
+                    out.setdefault(mapping.subject.identifier, set()).add(pair)
             return out
 
     async def proposed_candidates(
@@ -818,84 +825,6 @@ class XrefStore:
                 records.append((SSSOMRecord(**values), run_id))
             return records
 
-    async def mappings_by_subjects(
-        self, codes: set[str], *, expected: XrefReadPolicy
-    ) -> dict[str, list[MappingResult]]:
-        if not codes:
-            return {}
-        async with self._sf() as s:
-            generation_ids = list(
-                (await self._validated_active_generations(s, expected)).values()
-            )
-            if not generation_ids:
-                return {}
-            result = await s.execute(
-                text(
-                    "SELECT x.subject_system, x.subject_version, x.subject_id, "
-                    "x.object_system, x.object_version, x.object_id, x.predicate_id, "
-                    "x.lifecycle_state, x.confidence FROM concept_xref x "
-                    "WHERE x.generation_id = ANY(:generation_ids) "
-                    "AND x.subject_id = ANY(:codes)"
-                ),
-                {"generation_ids": generation_ids, "codes": list(codes)},
-            )
-            rows = result.mappings().all()
-            out: dict[str, list[MappingResult]] = {}
-            for r in rows:
-                out.setdefault(r["subject_id"], []).append(
-                    MappingResult(
-                        subject=EndpointIdentity(
-                            r["subject_system"], r["subject_version"], r["subject_id"]
-                        ),
-                        predicate=r["predicate_id"],
-                        object=EndpointIdentity(
-                            r["object_system"], r["object_version"], r["object_id"]
-                        ),
-                        lifecycle=r["lifecycle_state"],
-                        confidence=r["confidence"],
-                    )
-                )
-            return out
-
-    async def mappings_by_objects(
-        self, curies: set[str], *, expected: XrefReadPolicy
-    ) -> dict[str, list[MappingResult]]:
-        if not curies:
-            return {}
-        async with self._sf() as s:
-            generation_ids = list(
-                (await self._validated_active_generations(s, expected)).values()
-            )
-            if not generation_ids:
-                return {}
-            result = await s.execute(
-                text(
-                    "SELECT x.subject_system, x.subject_version, x.subject_id, "
-                    "x.object_system, x.object_version, x.object_id, x.predicate_id, "
-                    "x.lifecycle_state, x.confidence FROM concept_xref x "
-                    "WHERE x.generation_id = ANY(:generation_ids) "
-                    "AND x.object_id = ANY(:curies)"
-                ),
-                {"generation_ids": generation_ids, "curies": list(curies)},
-            )
-            rows = result.mappings().all()
-            out: dict[str, list[MappingResult]] = {}
-            for r in rows:
-                out.setdefault(r["object_id"], []).append(
-                    MappingResult(
-                        subject=EndpointIdentity(
-                            r["subject_system"], r["subject_version"], r["subject_id"]
-                        ),
-                        predicate=r["predicate_id"],
-                        object=EndpointIdentity(
-                            r["object_system"], r["object_version"], r["object_id"]
-                        ),
-                        lifecycle=r["lifecycle_state"],
-                        confidence=r["confidence"],
-                    )
-                )
-            return out
-
     async def mappings_for_identifiers(
         self, identifiers: set[str], *, expected: XrefReadPolicy
     ) -> dict[str, list[MappingResult]]:
@@ -930,17 +859,9 @@ class XrefStore:
             rows = result.mappings().all()
             out: dict[str, list[MappingResult]] = {}
             for row in rows:
-                mapping = MappingResult(
-                    subject=EndpointIdentity(
-                        row["subject_system"], row["subject_version"], row["subject_id"]
-                    ),
-                    predicate=row["predicate_id"],
-                    object=EndpointIdentity(
-                        row["object_system"], row["object_version"], row["object_id"]
-                    ),
-                    lifecycle=row["lifecycle_state"],
-                    confidence=row["confidence"],
-                )
+                mapping = _mapping_result(row)
+                if not expected.serves(mapping):
+                    continue
                 key = (
                     mapping.subject.identifier
                     if mapping.subject.identifier in identifiers

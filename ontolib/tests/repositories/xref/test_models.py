@@ -8,9 +8,15 @@ from ontolib.repositories.xref.models import (
     EndpointIdentity,
     MappingResult,
     SSSOMRecord,
+    UberonReadIdentity,
     XrefReadPolicy,
 )
-from ontolib.repositories.xref.vocab import BROAD_MATCH, CLOSE_MATCH, EXACT_MATCH
+from ontolib.repositories.xref.vocab import (
+    BROAD_MATCH,
+    CLOSE_MATCH,
+    EXACT_MATCH,
+    MappingLifecycle,
+)
 
 
 @pytest.mark.unit
@@ -52,6 +58,88 @@ def test_mapping_result_rejects_out_of_range_database_confidence() -> None:
 def test_xref_read_policy_requires_a_source_family() -> None:
     with pytest.raises(ValueError, match="source family"):
         XrefReadPolicy()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("lifecycle", "served"),
+    [
+        ("proposed", False),
+        ("validated", True),
+        ("active", True),
+        ("quarantined", False),
+        ("retired", False),
+    ],
+)
+def test_mapping_serving_policy_applies_every_lifecycle(
+    lifecycle: MappingLifecycle, served: bool
+) -> None:
+    policy = XrefReadPolicy(
+        uberon=UberonReadIdentity(
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+        )
+    )
+    mapping = MappingResult(
+        subject=EndpointIdentity("ncit", "26.07d", "C1"),
+        predicate=EXACT_MATCH,
+        object=EndpointIdentity("uberon-cl", "2026-07-22", "UBERON:1"),
+        lifecycle=lifecycle,
+        confidence=1.0,
+    )
+
+    assert policy.serves(mapping) is served
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("allow_licensed", [False, True])
+def test_mapping_serving_policy_applies_entitlement_in_both_directions(
+    reverse: bool, allow_licensed: bool
+) -> None:
+    policy = XrefReadPolicy(
+        uberon=UberonReadIdentity(
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+        ),
+        allow_licensed=allow_licensed,
+    )
+    ncit = EndpointIdentity("ncit", "26.07d", "C1")
+    icdo = EndpointIdentity("icdo", "3.2", "8240/3")
+    mapping = MappingResult(
+        subject=icdo if reverse else ncit,
+        predicate=EXACT_MATCH,
+        object=ncit if reverse else icdo,
+        lifecycle="active",
+        confidence=1.0,
+    )
+
+    assert policy.serves(mapping) is allow_licensed
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("identifier", ["SNOMED:123", "ICD-O-3:8240/3"])
+def test_mapping_serving_policy_recognizes_licensed_identifier_prefixes(
+    identifier: str,
+) -> None:
+    policy = XrefReadPolicy(
+        uberon=UberonReadIdentity(
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+        )
+    )
+    mapping = MappingResult(
+        subject=EndpointIdentity("ncit", "26.07d", "C1"),
+        predicate=EXACT_MATCH,
+        object=EndpointIdentity("uberon-cl", "v1", identifier),
+        lifecycle="active",
+        confidence=1.0,
+    )
+
+    assert policy.serves(mapping) is False
 
 
 @pytest.mark.unit

@@ -17,7 +17,11 @@ from backend.icdo_datasets import ServedIcdoDataset
 from backend.main import create_app
 from ontolib.core.exceptions import StorageError
 from ontolib.decomposition import vocab
-from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
+from ontolib.repositories.xref.models import (
+    EndpointIdentity,
+    MappingResult,
+    XrefReadPolicy,
+)
 from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
     CLOSE_MATCH,
@@ -92,13 +96,14 @@ class _FakeXrefStore:
         self.rows = rows or []
 
     async def mappings_for_identifiers(
-        self, codes: set[str], **_kwargs: object
+        self, codes: set[str], *, expected: XrefReadPolicy
     ) -> dict[str, list[MappingResult]]:
         return {
             code: [
                 row
                 for row in self.rows
                 if code in (row.subject.identifier, row.object.identifier)
+                and expected.serves(row)
             ]
             for code in codes
         }
@@ -242,7 +247,7 @@ def test_decomposition_hides_icdo_upstream_without_entitlement() -> None:
                 subject=EndpointIdentity("ncit", "26.07d", "C12400"),
                 predicate=CLOSE_MATCH,
                 object=EndpointIdentity("icdo", "3.2", "8503/0"),
-                lifecycle="proposed",
+                lifecycle="validated",
                 confidence=0.9,
             )
         ]
@@ -267,7 +272,7 @@ def test_decomposition_entitlement_cannot_override_disabled_server_capability(
                 subject=EndpointIdentity("ncit", "26.07d", "C12400"),
                 predicate=CLOSE_MATCH,
                 object=EndpointIdentity("icdo", "3.2", "8503/0"),
-                lifecycle="proposed",
+                lifecycle="validated",
                 confidence=0.9,
             )
         ]
@@ -294,7 +299,7 @@ def test_decomposition_serves_icdo_when_capability_and_entitlement_allow(
                 subject=EndpointIdentity("ncit", "26.07d", "C12400"),
                 predicate=CLOSE_MATCH,
                 object=EndpointIdentity("icdo", "3.2", "8503/0"),
-                lifecycle="proposed",
+                lifecycle="validated",
                 confidence=0.9,
             )
         ]
@@ -322,7 +327,7 @@ def test_decomposition_hides_icdo_without_valid_entitlement_when_capable(
                 subject=EndpointIdentity("ncit", "26.07d", "C12400"),
                 predicate=CLOSE_MATCH,
                 object=EndpointIdentity("icdo", "3.2", "8503/0"),
-                lifecycle="proposed",
+                lifecycle="validated",
                 confidence=0.9,
             )
         ]
@@ -351,7 +356,7 @@ def test_decomposition_orients_directional_rows_to_requested_filler(
                 subject=EndpointIdentity("uberon", "2026-06-19", "UBERON:0002046"),
                 predicate=stored,
                 object=EndpointIdentity("ncit", "26.07d", "C12400"),
-                lifecycle="proposed",
+                lifecycle="validated",
                 confidence=0.9,
             )
         ]

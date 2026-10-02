@@ -335,7 +335,7 @@ async def test_failed_run_cannot_be_reset_or_overwritten() -> None:
 
 
 @pytest.mark.integration
-async def test_mapping_strength_by_subject() -> None:
+async def test_mapping_strength_applies_serving_lifecycle_policy() -> None:
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     run_id = f"test-strength-{uuid.uuid4().hex}"
@@ -376,11 +376,7 @@ async def test_mapping_strength_by_subject() -> None:
             store, source="uberon-cl", run_id=run_id, records=records
         )
         strength = await store.mapping_strength_by_subject(expected=_READ_POLICY)
-        assert "C3262" in strength
-        assert (EXACT_MATCH, "validated") in strength["C3262"]
-        assert (CLOSE_MATCH, "proposed") in strength["C3262"]
-        assert "C12345" in strength
-        assert (CLOSE_MATCH, "proposed") in strength["C12345"]
+        assert strength == {"C3262": {(EXACT_MATCH, "validated")}}
     finally:
         await _clear_xref_tables(sf)
         await dispose_engine(engine)
@@ -427,7 +423,7 @@ async def test_mapping_strength_rejects_stale_active_generation() -> None:
 
 
 @pytest.mark.integration
-async def test_mappings_by_subjects_filters_by_codes() -> None:
+async def test_served_mappings_filter_by_subject_identifier() -> None:
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     run_id = f"test-mbs-{uuid.uuid4().hex}"
@@ -460,7 +456,7 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
         )
         await _retain_only_active_source(sf, "uberon-cl")
 
-        result = await store.mappings_by_subjects({"C3262"}, expected=_READ_POLICY)
+        result = await store.mappings_for_identifiers({"C3262"}, expected=_READ_POLICY)
         assert "C3262" in result
         assert len(result["C3262"]) == 1
         mapping = result["C3262"][0]
@@ -475,19 +471,19 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
 
 
 @pytest.mark.integration
-async def test_mappings_by_subjects_empty_returns_empty() -> None:
+async def test_served_mappings_empty_lookup_returns_empty() -> None:
     engine = make_engine(get_settings().database_url)
     try:
         sf = make_sessionmaker(engine)
         store = XrefStore(sf)
-        result = await store.mappings_by_subjects(set(), expected=_READ_POLICY)
+        result = await store.mappings_for_identifiers(set(), expected=_READ_POLICY)
         assert result == {}
     finally:
         await dispose_engine(engine)
 
 
 @pytest.mark.integration
-async def test_mappings_by_objects_reverse_lookup() -> None:
+async def test_served_mappings_reverse_lookup() -> None:
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     run_id = f"test-mbo-{uuid.uuid4().hex}"
@@ -520,7 +516,7 @@ async def test_mappings_by_objects_reverse_lookup() -> None:
         )
         await _retain_only_active_source(sf, "uberon-cl")
 
-        result = await store.mappings_by_objects(
+        result = await store.mappings_for_identifiers(
             {"UBERON:0002107"}, expected=_READ_POLICY
         )
         assert "UBERON:0002107" in result
@@ -533,16 +529,4 @@ async def test_mappings_by_objects_reverse_lookup() -> None:
         assert "UBERON:0002046" not in result
     finally:
         await _clear_xref_tables(sf)
-        await dispose_engine(engine)
-
-
-@pytest.mark.integration
-async def test_mappings_by_objects_empty_returns_empty() -> None:
-    engine = make_engine(get_settings().database_url)
-    try:
-        sf = make_sessionmaker(engine)
-        store = XrefStore(sf)
-        result = await store.mappings_by_objects(set(), expected=_READ_POLICY)
-        assert result == {}
-    finally:
         await dispose_engine(engine)

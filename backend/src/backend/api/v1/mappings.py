@@ -13,7 +13,6 @@ from backend.repository_metadata import RepositoryUnhealthy
 from backend.security import has_icdo_entitlement
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.repositories.xref.models import (
-    EndpointIdentity,
     IcdoReadIdentity,
     MappingResult,
     StaleXrefGenerationError,
@@ -28,26 +27,12 @@ from ontolib.repositories.xref.vocab import (
     NARROW_MATCH,
 )
 
-_LICENSED_PREFIXES = frozenset({"SNOMED", "ICD-O-3"})
-
 _SKOS_TO_EQUIVALENCE: dict[str, str] = {
     EXACT_MATCH: "equivalent",
     CLOSE_MATCH: "close",
     BROAD_MATCH: "broad",
     NARROW_MATCH: "narrow",
 }
-
-_ACTIVE_LIFECYCLES = frozenset({"validated", "active"})
-
-
-def _is_licensed(endpoint: EndpointIdentity) -> bool:
-    prefix = (
-        endpoint.identifier.split(":", maxsplit=1)[0]
-        if ":" in endpoint.identifier
-        else ""
-    )
-    return endpoint.system == "icdo" or prefix in _LICENSED_PREFIXES
-
 
 router = APIRouter(prefix="/api/v1/mappings", tags=["mappings"])
 
@@ -99,30 +84,15 @@ def _translate_entry(
     )
 
 
-def _is_eligible(
-    row: MappingResult, *, target: EndpointIdentity, licensed_allowed: bool
-) -> bool:
-    return row.lifecycle in _ACTIVE_LIFECYCLES and (
-        licensed_allowed or not _is_licensed(target)
-    )
-
-
 def _collect_entries(
     rows_by_key: dict[str, list[MappingResult]],
     *,
-    licensed_allowed: bool,
     seen: set[tuple[str, str, str, str]],
 ) -> list[TranslateEntry]:
     entries: list[TranslateEntry] = []
     for requested_identifier, rows in rows_by_key.items():
         for row in rows:
             target, predicate = mapping_relative_to(row, requested_identifier)
-            if not _is_eligible(
-                row,
-                target=target,
-                licensed_allowed=licensed_allowed,
-            ):
-                continue
             key = (target.system, target.version, target.identifier, predicate)
             if key in seen:
                 continue
@@ -176,6 +146,7 @@ async def _read_policy(
             if icdo is not None
             else None
         ),
+        allow_licensed=include_icdo,
     )
 
 
@@ -201,23 +172,14 @@ async def translate(
 
     expected = await _read_policy(metadata, include_icdo=licensed_allowed)
     try:
-        upstream = await xref_store.mappings_by_subjects({code}, expected=expected)
-        reverse = await xref_store.mappings_by_objects({code}, expected=expected)
+        mappings = await xref_store.mappings_for_identifiers({code}, expected=expected)
     except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
     seen: set[tuple[str, str, str, str]] = set()
     entries = _collect_entries(
-        upstream,
-        licensed_allowed=licensed_allowed,
+        mappings,
         seen=seen,
-    )
-    entries.extend(
-        _collect_entries(
-            reverse,
-            licensed_allowed=licensed_allowed,
-            seen=seen,
-        )
     )
 
     if not entries:

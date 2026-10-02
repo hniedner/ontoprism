@@ -127,15 +127,18 @@ def _icdo_identity_value(value: IcdoReadIdentity) -> IcdoReadIdentityValue:
 
 @dataclass(frozen=True, slots=True, init=False)
 class XrefReadPolicy:
-    """Sources relevant to one mapping read and their current identities."""
+    """Sources relevant to one mapping read and their serving policy."""
 
     uberon: UberonReadIdentityValue | None
     icdo: IcdoReadIdentityValue | None
+    allow_licensed: bool
 
     def __init__(
         self,
         uberon: UberonReadIdentity | None = None,
         icdo: IcdoReadIdentity | None = None,
+        *,
+        allow_licensed: bool = False,
     ) -> None:
         if uberon is None and icdo is None:
             raise ValueError("xref read policy must select at least one source family")
@@ -145,6 +148,13 @@ class XrefReadPolicy:
             _uberon_identity_value(uberon) if uberon else None,
         )
         object.__setattr__(self, "icdo", _icdo_identity_value(icdo) if icdo else None)
+        object.__setattr__(self, "allow_licensed", allow_licensed)
+
+    def serves(self, mapping: MappingResult) -> bool:
+        """Whether one current-generation mapping is eligible for consumers."""
+        return mapping.lifecycle in {"validated", "active"} and (
+            self.allow_licensed or not _mapping_is_licensed(mapping)
+        )
 
 
 class StaleXrefGenerationError(RuntimeError):
@@ -171,7 +181,7 @@ class EndpointIdentity:
 
 @dataclass(frozen=True)
 class MappingResult:
-    """One currently active mapping with both endpoint identities intact."""
+    """One mapping row with both endpoint identities intact."""
 
     subject: EndpointIdentity
     predicate: MappingPredicate
@@ -186,6 +196,17 @@ class MappingResult:
             raise ValueError(f"lifecycle not allowed: {self.lifecycle}")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"confidence out of range: {self.confidence}")
+
+
+_LICENSED_IDENTIFIER_PREFIXES = frozenset({"SNOMED", "ICD-O-3"})
+
+
+def _mapping_is_licensed(mapping: MappingResult) -> bool:
+    return any(
+        endpoint.system == "icdo"
+        or endpoint.identifier.partition(":")[0] in _LICENSED_IDENTIFIER_PREFIXES
+        for endpoint in (mapping.subject, mapping.object)
+    )
 
 
 @dataclass(frozen=True, order=True, slots=True)

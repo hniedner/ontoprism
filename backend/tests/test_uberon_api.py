@@ -23,6 +23,7 @@ from ontolib.repositories.xref.models import (
     EndpointIdentity,
     MappingResult,
     StaleXrefGenerationError,
+    XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
@@ -145,22 +146,19 @@ class _Xrefs:
         self.calls: list[set[str]] = []
 
     async def mappings_for_identifiers(
-        self, identifiers: set[str], **_kwargs: object
+        self, identifiers: set[str], *, expected: XrefReadPolicy
     ) -> dict[str, list[MappingResult]]:
         self.calls.append(identifiers)
-        return {
-            "UBERON:0002048": [
-                MappingResult(
-                    subject=EndpointIdentity(
-                        "uberon-cl", "uberon-2026-06-19", "UBERON:0002048"
-                    ),
-                    predicate=CLOSE_MATCH,
-                    object=EndpointIdentity("ncit", "26.07d", "C12468"),
-                    lifecycle="proposed",
-                    confidence=0.9,
-                )
-            ]
-        }
+        mapping = MappingResult(
+            subject=EndpointIdentity(
+                "uberon-cl", "uberon-2026-06-19", "UBERON:0002048"
+            ),
+            predicate=CLOSE_MATCH,
+            object=EndpointIdentity("ncit", "26.07d", "C12468"),
+            lifecycle="validated",
+            confidence=0.9,
+        )
+        return {"UBERON:0002048": [mapping] if expected.serves(mapping) else []}
 
 
 class _Metadata:
@@ -429,7 +427,7 @@ def test_detail_alignments_return_ncit_targets_in_one_indexed_lookup() -> None:
                 "system": "ncit",
                 "version": "26.07d",
                 "predicate": CLOSE_MATCH,
-                "lifecycle": "proposed",
+                "lifecycle": "validated",
             }
         ],
     }
@@ -457,7 +455,7 @@ def test_alignments_orient_directional_reverse_rows_to_requested_uberon(
                         object=EndpointIdentity(
                             "uberon-cl", "uberon-2026-06-19", "UBERON:0002048"
                         ),
-                        lifecycle="proposed",
+                        lifecycle="validated",
                         confidence=0.9,
                     )
                 ]
