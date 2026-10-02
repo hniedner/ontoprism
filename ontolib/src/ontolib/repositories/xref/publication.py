@@ -165,6 +165,17 @@ async def _write_pointer(
             raise
 
 
+def _candidate_context_rows(record: SSSOMRecord) -> list[dict[str, str]]:
+    return [
+        {
+            "source_role": context.source_role,
+            "source_filler": context.source_filler,
+            "normalized_axis": context.normalized_axis,
+        }
+        for context in record.candidate_contexts
+    ]
+
+
 def generation_identity(
     source: str,
     records: Sequence[SSSOMRecord],
@@ -183,6 +194,7 @@ def generation_identity(
             "review": r.review_status,
             "author": r.author,
             "evidence": [e.as_dict() for e in r.evidence],
+            "candidate_contexts": _candidate_context_rows(r),
         }
         for r in records
     ]

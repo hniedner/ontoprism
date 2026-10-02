@@ -1,7 +1,7 @@
 """Uberon/CL candidate ingest pipeline (PR-A3, issue #72).
 
-Generates closeMatch SSSOM records for NCIt filler concepts against Uberon/CL
-anatomy/cell-type codes using two independent sources:
+Generates closeMatch SSSOM records for routed NCIt anatomy and normal-cell fillers
+against Uberon/CL codes using two independent sources:
 
 1. **OBO xref annotations** — ``oboInOwl:hasDbXref`` with ``NCIT:`` prefix.
 2. **Lexical matching** — exact case-folded ``rdfs:label`` equality.
@@ -12,15 +12,28 @@ See ``docs/ARCHITECTURE.md`` §8.3 (ingoest step) for the design rationale.
 from __future__ import annotations
 
 import uuid
-from collections import Counter
-from typing import TYPE_CHECKING, Any
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
+    from ontolib.decomposition.complete_definition import SelectRows
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
+from ontolib.decomposition.axis_contracts import (
+    AXIS_CONTRACTS,
+    normalized_axis_for_role,
+)
+from ontolib.decomposition.complete_definition import (
+    AnchorDefinitionRowsCache,
+    UnsupportedDefinitionConstructorError,
+    read_complete_definition,
+)
+from ontolib.decomposition.scope import enumerate_scope_codes
 from ontolib.repositories.xref.models import (
+    CandidateContext,
     SSSOMRecord,
     UberonCandidateGenerationMetadata,
 )
@@ -38,7 +51,6 @@ from ontolib.repositories.xref.vocab import (
     UBERON_CL_CURIE_PREFIXES,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
-from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 
 class CandidateSourceInventoryError(RuntimeError):
@@ -62,12 +74,8 @@ _XREF_CONFIDENCE = 0.9
 _LEXICAL_CONFIDENCE = 0.5
 _COMPOSITE_CONFIDENCE = 0.95
 
-# ── Axis role codes (site / cell-origin) ────────────────────────────────
-# R101 = Disease_Has_Primary_Anatomic_Site      (op:PrimarySite)
-# R100 = Disease_Has_Associated_Anatomic_Site    (op:AssociatedSite)
-# R102 = Disease_Has_Metastatic_Anatomic_Site    (op:MetastaticSite)
-# R105 = Disease_Has_Abnormal_Cell               (op:CellOrigin)
-_TARGET_ROLES: frozenset[str] = frozenset({"R101", "R100", "R102", "R105"})
+_MAPPING_RANGE_CODES = frozenset({"C12219", "C12508"})
+_ABNORMAL_CELL_ROLE = "R105"
 
 # OBO xref format: "NCIT:C3262" -> NCIt code "C3262".
 #
@@ -83,47 +91,125 @@ _OBO_NCIT_PREFIX = "NCIT:"
 _OBO_BASE = "http://purl.obolibrary.org/obo/"
 _OBO_INOWL_NS = "http://www.geneontology.org/formats/oboInOwl#"
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
-_OWL_NS = "http://www.w3.org/2002/07/owl#"
 
 _LABEL_BATCH_SIZE = 500
+_NEOPLASM_ROOT = "C3262"
 
 
 # -- A3.1: Filler code extraction ---------------------------------------
 
 
-def build_filler_codes_query() -> str:
-    """Build SPARQL for distinct NCIt filler codes on target site/cell axes.
-
-    Queries the stated NCIt graph for ``owl:someValuesFrom`` restrictions
-    on the four anatomic-site / cell-origin roles.
-    """
-    role_iris = " ".join(f"<{NCIT_NS}{r}>" for r in sorted(_TARGET_ROLES))
-    return f"""\
-PREFIX rdfs: <{_RDFS_NS}>
-PREFIX owl: <{_OWL_NS}>
-SELECT DISTINCT ?fillerCode WHERE {{
-    GRAPH <{STATED_GRAPH_IRI}> {{
-        ?concept rdfs:subClassOf ?restriction .
-        ?restriction a owl:Restriction ;
-            owl:onProperty ?role ;
-            owl:someValuesFrom ?filler .
-        FILTER(STRSTARTS(STR(?filler), "{NCIT_NS}"))
-        VALUES ?role {{ {role_iris} }}
-    }}
-    BIND(REPLACE(STR(?filler), ".*#", "") AS ?fillerCode)
-}}
-"""
+def _canonical_positive_counts(
+    values: tuple[tuple[str, int], ...],
+    *,
+    label: str,
+    valid_key: Callable[[str], bool],
+) -> tuple[tuple[str, int], ...]:
+    counts = dict(values)
+    if len(counts) != len(values):
+        raise ValueError(f"{label} require unique keys")
+    for key, count in counts.items():
+        if not valid_key(key) or count < 1:
+            raise ValueError(f"{label} require valid keys and positive counts")
+    return tuple(sorted(counts.items()))
 
 
-async def get_filler_codes(client: SparqlSelectClient) -> set[str]:
-    """Query the NCIt store for distinct filler codes on target axes."""
-    rows = await client.select(build_filler_codes_query())
-    result: set[str] = set()
-    for row in rows:
-        code = row.get("fillerCode")
-        if code:
-            result.add(code)
-    return result
+@dataclass(frozen=True, slots=True)
+class CandidateInventory:
+    """Routed inputs, policy exclusions, and unreadable-definition counts."""
+
+    contexts: tuple[CandidateContext, ...]
+    excluded_counts: tuple[tuple[str, int], ...]
+    unknown_counts: tuple[tuple[str, int], ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "contexts", tuple(sorted(set(self.contexts))))
+        object.__setattr__(
+            self,
+            "excluded_counts",
+            _canonical_positive_counts(
+                self.excluded_counts,
+                label="excluded counts",
+                valid_key=lambda role: role.startswith("R") and role[1:].isdigit(),
+            ),
+        )
+        object.__setattr__(
+            self,
+            "unknown_counts",
+            _canonical_positive_counts(
+                self.unknown_counts,
+                label="unknown counts",
+                valid_key=bool,
+            ),
+        )
+
+    @property
+    def excluded_by_role(self) -> dict[str, int]:
+        return dict(self.excluded_counts)
+
+    @property
+    def unknown_by_reason(self) -> dict[str, int]:
+        return dict(self.unknown_counts)
+
+    @property
+    def fillers(self) -> set[str]:
+        return {context.source_filler for context in self.contexts}
+
+
+def _routed_mapping_axis(role_code: str) -> str | None:
+    axis = normalized_axis_for_role(role_code)
+    if axis is None:
+        return None
+    contract = AXIS_CONTRACTS[axis]
+    if role_code == _ABNORMAL_CELL_ROLE:
+        return axis
+    return axis if contract.range_code in _MAPPING_RANGE_CODES else None
+
+
+async def extract_candidate_inventory(
+    select_fn: SelectRows,
+    concept_codes: Iterable[str],
+) -> CandidateInventory:
+    """Read complete definitions and retain each role/filler/contract route."""
+    cache = AnchorDefinitionRowsCache()
+    included: set[CandidateContext] = set()
+    excluded: set[CandidateContext] = set()
+    unknown = Counter[str]()
+    for concept_code in sorted(set(concept_codes)):
+        try:
+            definition = await read_complete_definition(
+                select_fn,
+                concept_code,
+                anchor_rows_cache=cache,
+            )
+        except UnsupportedDefinitionConstructorError:
+            unknown["unsupported-definition-constructor"] += 1
+            continue
+        for occurrence in definition.occurrences:
+            axis = _routed_mapping_axis(occurrence.role_code)
+            if axis is None:
+                continue
+            context = CandidateContext(
+                source_role=occurrence.role_code,
+                source_filler=occurrence.filler_code,
+                normalized_axis=axis,
+            )
+            if occurrence.role_code == _ABNORMAL_CELL_ROLE:
+                excluded.add(context)
+            else:
+                included.add(context)
+    excluded_counts = Counter(context.source_role for context in excluded)
+    return CandidateInventory(
+        contexts=tuple(sorted(included)),
+        excluded_counts=tuple(sorted(excluded_counts.items())),
+        unknown_counts=tuple(sorted(unknown.items())),
+    )
+
+
+async def read_candidate_inventory(client: SparqlHttpClient) -> CandidateInventory:
+    """Read the Neoplasm branch through the shared scope and definition walkers."""
+    concept_codes = await enumerate_scope_codes(client, _NEOPLASM_ROOT)
+    return await extract_candidate_inventory(client.select, concept_codes)
 
 
 # -- A3.2: Candidate generation -----------------------------------------
@@ -269,9 +355,9 @@ def _provenance(*, from_xref: bool, from_lexical: bool) -> tuple[str, float]:
     independent processes** produced this pair, so neither of them is the pair's sole
     origin and each may corroborate the candidate the other generated (D34).  It has to
     live on the record, because the two passes cannot be kept as two rows:
-    ``concept_xref`` is keyed on ``(run_id, subject_id, predicate_id, object_id)`` and
-    both rows would be ``closeMatch``, so the second collides on the primary key and is
-    dropped — the agreement would be lost on the way to the database.
+    Both records would have the same typed mapping identity inside one generation, so
+    the second collides on the primary key and is dropped — the agreement would be lost
+    on the way to the database.
     """
     if from_xref and from_lexical:
         return COMPOSITE_MATCHING, _COMPOSITE_CONFIDENCE
@@ -287,6 +373,7 @@ def _records_for_filler(
     xref_curies: set[str],
     lexical_curies: set[str],
     versions: MappingSourceVersions,
+    contexts: tuple[CandidateContext, ...],
 ) -> list[SSSOMRecord]:
     """One candidate per distinct upstream class this filler matched, either way."""
     records: list[SSSOMRecord] = []
@@ -306,6 +393,7 @@ def _records_for_filler(
                 subject_source_version=versions.ncit,
                 object_source_version=versions.upstream_for(curie),
                 author="xref-ingest-A3",
+                candidate_contexts=contexts,
             )
         )
     return records
@@ -339,6 +427,7 @@ async def generate_candidates(
     versions: MappingSourceVersions,
     *,
     batch_size: int = _LABEL_BATCH_SIZE,
+    inventory: CandidateInventory | None = None,
 ) -> tuple[list[SSSOMRecord], dict[str, str]]:
     """Generate candidates for every filler, from **both** signals (#73, D33 Option 1).
 
@@ -351,7 +440,11 @@ async def generate_candidates(
     (:func:`_provenance`); where they disagree, both candidates are proposed and neither
     can promote alone.
     """
-    fillers = await get_filler_codes(ncit_client)
+    if inventory is None:
+        inventory = await read_candidate_inventory(
+            cast("SparqlHttpClient", ncit_client)
+        )
+    fillers = inventory.fillers
     if not fillers:
         return [], {}
 
@@ -361,6 +454,9 @@ async def generate_candidates(
 
     records: list[SSSOMRecord] = []
     filler_to_source: dict[str, str] = {}
+    contexts_by_filler: dict[str, list[CandidateContext]] = defaultdict(list)
+    for context in inventory.contexts:
+        contexts_by_filler[context.source_filler].append(context)
     for filler in sorted(fillers):
         xref_curies = set(xref_index.get(filler, ()))
         label = ncit_labels.get(filler)
@@ -372,6 +468,7 @@ async def generate_candidates(
                 xref_curies,
                 lexical_curies,
                 versions,
+                tuple(contexts_by_filler[filler]),
             )
         )
         filler_to_source[filler] = _filler_source(xref_curies, lexical_curies)
@@ -395,11 +492,12 @@ async def ingest_candidates(
     observe_source_identities: Callable[[], Awaitable[tuple[str, str, str]]],
     run_id: str | None = None,
     source: str = "uberon-cl",
+    inventory: CandidateInventory | None = None,
 ) -> dict[str, Any]:
     """Run the full candidate-ingest pipeline and persist results.
 
     1. Validates source identities and reads all three ontology versions.
-    2. Generates candidates via :func:`generate_candidates`.
+    2. Reads complete definitions, routes source roles, and generates candidates.
     3. Rechecks the source identities before creating an ``xref_run``.
     4. Publishes one immutable, source-specific PostgreSQL/RDF generation.
     5. Updates the run with the coverage report (metrics).
@@ -418,13 +516,19 @@ async def ingest_candidates(
         expected_ncit_version=ncit_version,
         expected_uberon_version=uberon_version,
     )
+    inventory = inventory or await read_candidate_inventory(ncit_client)
+    if (
+        not inventory.contexts
+        and not inventory.excluded_counts
+        and not inventory.unknown_counts
+    ):
+        raise CandidateSourceInventoryError("NCIt filler inventory is empty")
     records, filler_to_source = await generate_candidates(
         ncit_client,
         uberon_client,
         versions,
+        inventory=inventory,
     )
-    if not filler_to_source:
-        raise CandidateSourceInventoryError("NCIt filler inventory is empty")
     if await observe_source_identities() != (
         ncit_source_identity,
         uberon_source_identity,
@@ -449,7 +553,12 @@ async def ingest_candidates(
             source_metadata=source_metadata,
         )
 
-        report = candidate_coverage_report(fillers, records, filler_to_source)
+        report = candidate_coverage_report(
+            fillers,
+            records,
+            filler_to_source,
+            inventory,
+        )
         report["ncit_source_identity"] = ncit_source_identity
         report["uberon_source_identity"] = uberon_source_identity
         await store.update_run_metrics(rid, report)
@@ -464,12 +573,14 @@ def candidate_coverage_report(
     fillers: set[str],
     records: list[SSSOMRecord],
     filler_to_source: dict[str, str],
+    inventory: CandidateInventory,
 ) -> dict[str, Any]:
     """Filler-level ingest metrics, plus the pairs the two sources agree on.
 
-    ``via_xref`` / ``via_lexical_only`` / ``no_candidate`` partition the filler set, and
-    ``candidate_recall`` is the fraction with any candidate at all — unchanged
-    definitions, so the #72 recall baseline stays comparable across this change.
+    ``via_xref`` / ``via_lexical_only`` / ``no_candidate`` partition the routed filler
+    set, and ``candidate_recall`` is the fraction with any candidate at all. Role-level
+    metrics separately expose routed inputs, generated candidates, R105 exclusions, and
+    definitions whose unsupported constructors remain unknown.
 
     ``source_agreement_pairs`` is new and is the number that matters for #73: it counts
     the ``(subject, object)`` pairs BOTH passes produced, which is the only set that can
@@ -484,6 +595,13 @@ def candidate_coverage_report(
     via_lexical = source_counts.get(SOURCE_LEXICAL, 0)
     no_candidate = source_counts.get(SOURCE_NONE, 0)
     recall = (via_xref + via_lexical) / total if total > 0 else 0.0
+    extracted_by_role = Counter(context.source_role for context in inventory.contexts)
+    generated_by_role = Counter(
+        context.source_role
+        for record in records
+        for context in record.candidate_contexts
+    )
+    excluded_by_role = inventory.excluded_by_role
 
     return {
         "total_fillers": total,
@@ -494,4 +612,9 @@ def candidate_coverage_report(
         "source_agreement_pairs": sum(
             r.mapping_justification == COMPOSITE_MATCHING for r in records
         ),
+        "extracted_candidates_by_role": dict(sorted(extracted_by_role.items())),
+        "generated_candidates_by_role": dict(sorted(generated_by_role.items())),
+        "excluded_candidates_by_role": excluded_by_role,
+        "excluded_r105_candidates": excluded_by_role.get(_ABNORMAL_CELL_ROLE, 0),
+        "unknown_definitions_by_reason": inventory.unknown_by_reason,
     }

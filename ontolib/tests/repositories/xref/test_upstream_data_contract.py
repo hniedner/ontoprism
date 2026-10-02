@@ -480,6 +480,12 @@ async def test_the_real_stores_co_generate_source_agreeing_candidates() -> None:
         await uberon.aclose()
 
     assert filler_to_source, "the real NCIt store returned an empty filler inventory"
+    assert all(record.candidate_contexts for record in records)
+    assert {
+        context.source_role
+        for record in records
+        for context in record.candidate_contexts
+    }.isdisjoint({"R105"})
     composites = [r for r in records if r.mapping_justification == COMPOSITE_MATCHING]
     assert composites, (
         "no filler on the anatomic-site / cell-origin axes is BOTH xref'd by an "
