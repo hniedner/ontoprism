@@ -153,6 +153,26 @@ class ValidatedCadsrCandidate:
             raise ValueError("candidate CDE count must be positive")
 
 
+@dataclass(frozen=True, slots=True)
+class CadsrBuildResult:
+    """Validated candidate plus duplicate-collapse counts from its source export."""
+
+    candidate: ValidatedCadsrCandidate
+    record_count: int
+
+    def __post_init__(self) -> None:
+        if self.record_count < self.candidate.cde_count:
+            raise ValueError("source record count cannot be below distinct key count")
+
+    @property
+    def distinct_key_count(self) -> int:
+        return self.candidate.cde_count
+
+    @property
+    def collapsed_duplicate_count(self) -> int:
+        return self.record_count - self.distinct_key_count
+
+
 def _source_values(source: CadsrSource) -> tuple[str | int | None, ...]:
     return (
         source.url,
@@ -394,12 +414,53 @@ def iter_cdes(xml_path: Path) -> Iterator[ParsedCde]:
             document_root.clear()
 
 
-def _insert(conn: sqlite3.Connection, parsed: ParsedCde) -> None:
+def _concept_rows(parsed: ParsedCde) -> list[tuple[str, str, str, str, str, int]]:
     j = parsed.cde_json
-    conn.execute(
-        "INSERT OR REPLACE INTO cdes (public_id, version, short_name, long_name, "
+    return [
+        (
+            concept.code,
+            concept.name,
+            j["public_id"],
+            j["version"],
+            concept.concept_type,
+            int(concept.is_primary),
+        )
+        for concept in parsed.concepts
+    ]
+
+
+def _validate_identical_duplicate(conn: sqlite3.Connection, parsed: ParsedCde) -> None:
+    j = parsed.cde_json
+    key = (j["public_id"], j["version"])
+    existing = conn.execute(
+        "SELECT cde_json, search_text FROM cdes WHERE public_id = ? AND version = ?",
+        key,
+    ).fetchone()
+    if existing is None:
+        raise StorageError(f"duplicate caDSR key {key} could not be read")
+    existing_concepts = conn.execute(
+        "SELECT concept_code, concept_name, public_id, version, concept_type, "
+        "is_primary FROM cde_concepts WHERE public_id = ? AND version = ? "
+        "ORDER BY rowid",
+        key,
+    ).fetchall()
+    parsed_concepts = _concept_rows(parsed)
+    if existing != (json.dumps(j), parsed.search_text) or (
+        existing_concepts != parsed_concepts
+    ):
+        raise StorageError(
+            "duplicate caDSR key "
+            f"({j['public_id']}, {j['version']}) differs after parsing"
+        )
+
+
+def _insert(conn: sqlite3.Connection, parsed: ParsedCde) -> bool:
+    j = parsed.cde_json
+    inserted = conn.execute(
+        "INSERT INTO cdes (public_id, version, short_name, long_name, "
         "definition, context, workflow_status, registration_status, datatype, "
-        "value_domain_type, search_text, cde_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "value_domain_type, search_text, cde_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(public_id, version) DO NOTHING",
         (
             j["public_id"],
             j["version"],
@@ -415,25 +476,14 @@ def _insert(conn: sqlite3.Connection, parsed: ParsedCde) -> None:
             json.dumps(j),
         ),
     )
-    conn.execute(
-        "DELETE FROM cde_concepts WHERE public_id = ? AND version = ?",
-        (j["public_id"], j["version"]),
-    )
+    if inserted.rowcount == 0:
+        return False
     conn.executemany(
         "INSERT INTO cde_concepts (concept_code, concept_name, public_id, version, "
         "concept_type, is_primary) VALUES (?,?,?,?,?,?)",
-        [
-            (
-                c.code,
-                c.name,
-                j["public_id"],
-                j["version"],
-                c.concept_type,
-                int(c.is_primary),
-            )
-            for c in parsed.concepts
-        ],
+        _concept_rows(parsed),
     )
+    return True
 
 
 def _remove_database_artifacts(
@@ -468,7 +518,8 @@ def _load_database(
     conn: sqlite3.Connection,
     xml_paths: Sequence[Path],
     source: CadsrSource,
-) -> int:
+) -> tuple[int, int]:
+    record_count = 0
     with conn:  # single transaction
         conn.execute(
             "INSERT INTO cadsr_source "
@@ -480,8 +531,10 @@ def _load_database(
         for xml_path in xml_paths:
             member_count = 0
             for parsed in iter_cdes(xml_path):
-                _insert(conn, parsed)
                 member_count += 1
+                record_count += 1
+                if not _insert(conn, parsed):
+                    _validate_identical_duplicate(conn, parsed)
             if member_count == 0:
                 raise StorageError(
                     f"caDSR XML member contains no usable CDEs: {xml_path.name}"
@@ -491,15 +544,13 @@ def _load_database(
     count = int(conn.execute("SELECT COUNT(*) FROM cdes").fetchone()[0])
     if count == 0:
         raise StorageError("caDSR candidate contains no CDEs")
-    return count
+    return record_count, count
 
 
-def build_database(
-    archive: ExtractedCadsrArchive, db_path: Path
-) -> ValidatedCadsrCandidate:
+def build_database(archive: ExtractedCadsrArchive, db_path: Path) -> CadsrBuildResult:
     """Build and validate a publication candidate from one extracted release.
 
-    Returns a token carrying the final unique CDE count. Overwrites any existing DB.
+    Returns the validated candidate and source-key counts. Overwrites any existing DB.
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
     _remove_database_artifacts(db_path)
@@ -507,7 +558,7 @@ def build_database(
     closed = False
     try:
         _initialize_database(conn)
-        count = _load_database(conn, archive.xml_paths, archive.source)
+        record_count, count = _load_database(conn, archive.xml_paths, archive.source)
         conn.close()
         closed = True
         candidate = validate_database(
@@ -523,8 +574,15 @@ def build_database(
                 original.add_note(f"Failed to close caDSR candidate: {close_error}")
         _remove_database_artifacts(db_path, original)
         raise
-    logger.info("Built caDSR DB at %s with %d CDEs", db_path, count)
-    return candidate
+    result = CadsrBuildResult(candidate=candidate, record_count=record_count)
+    logger.info(
+        "Built caDSR DB at %s: records=%d distinct_keys=%d collapsed_duplicates=%d",
+        db_path,
+        result.record_count,
+        result.distinct_key_count,
+        result.collapsed_duplicate_count,
+    )
+    return result
 
 
 def _check_integrity(conn: sqlite3.Connection) -> None:

@@ -601,6 +601,7 @@ def test_cadsr_validation_failure_never_reaches_replacement(
 def test_cadsr_complete_candidate_replaces_source_through_coordinator_callback(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     archive = tmp_path / "cdes.zip"
     with zipfile.ZipFile(archive, "w") as stream:
@@ -671,6 +672,7 @@ def test_cadsr_complete_candidate_replaces_source_through_coordinator_callback(
     assert stale.read_text() == _cde_xml("999")
     assert old_reader_results == ["accepted"]
     assert events == ["enter", "prepared", "replaced", "exit"]
+    assert "records=1 distinct_keys=1 collapsed_duplicates=0" in capsys.readouterr().out
 
 
 @pytest.mark.unit
