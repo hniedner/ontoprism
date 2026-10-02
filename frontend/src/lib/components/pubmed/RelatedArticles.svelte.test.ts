@@ -11,13 +11,12 @@ describe('RelatedArticles', () => {
 	beforeEach(() => mock.mockClear());
 
 	it('renders related PMID links', async () => {
-		mock.mockResolvedValue({ pmid: '1', link_type: 'similar', related_pmids: ['2', '3'] });
+		mock.mockResolvedValue({ pmid: '1', link_type: 'similar', related_pmids: ['2', '2', '3'] });
 		render(RelatedArticles, { pmid: '1' });
 
-		expect(await screen.findByRole('link', { name: '2' })).toHaveAttribute(
-			'href',
-			'/repositories/pubmed/2'
-		);
+		const repeated = await screen.findAllByRole('link', { name: '2' });
+		expect(repeated).toHaveLength(2);
+		expect(repeated[0]).toHaveAttribute('href', '/repositories/pubmed/2');
 		expect(mock).toHaveBeenCalledWith('1', 'similar', undefined, expect.any(AbortSignal));
 	});
 

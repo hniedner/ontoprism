@@ -379,6 +379,7 @@ async def test_role_filler_routes_survive_generation_and_report_exclusions() -> 
         contexts=included,
         excluded_counts=(("R105", 2),),
         unrouted_counts=(("R999", 1),),
+        unknown_counts=(("unsupported-definition-constructor", 1),),
     )
     ncit = _MockClient({"SELECT ?code ?label WHERE": []})
     uberon = _MockClient(
@@ -411,6 +412,9 @@ async def test_role_filler_routes_survive_generation_and_report_exclusions() -> 
     assert report["excluded_candidates_by_role"] == {"R105": 2}
     assert report["excluded_r105_candidates"] == 2
     assert report["unrouted_candidates_by_role"] == {"R999": 1}
+    assert report["unknown_definitions_by_reason"] == {
+        "unsupported-definition-constructor": 1
+    }
 
 
 @pytest.mark.unit
@@ -946,8 +950,13 @@ async def test_ingest_refuses_empty_filler_inventory_before_writing() -> None:
             excluded_counts=(),
             unknown_counts=(("unsupported-definition-constructor", 1),),
         ),
+        CandidateInventory(
+            contexts=(),
+            excluded_counts=(),
+            unrouted_counts=(("R999", 1),),
+        ),
     ],
-    ids=("all-excluded", "all-unknown"),
+    ids=("all-excluded", "all-unknown", "all-unrouted"),
 )
 async def test_ingest_refuses_inventory_without_routed_fillers_before_writing(
     inventory: CandidateInventory,

@@ -56,7 +56,7 @@ describe('TrialOutcomes', () => {
 		expect(screen.queryByText(/·/)).not.toBeInTheDocument();
 	});
 
-	it('handles null measure in the each-block key for secondary outcomes', () => {
+	it('renders a secondary outcome whose measure is null', () => {
 		render(TrialOutcomes, {
 			trial: trialDetail({
 				secondary_outcomes: [{ measure: null as unknown as string, description: null, time_frame: null }]

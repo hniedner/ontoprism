@@ -48,4 +48,17 @@ describe('PubMedArticleBody', () => {
 		expect(screen.getByText('Humans')).toBeInTheDocument();
 		expect(screen.getByText('immunotherapy, BRAF')).toBeInTheDocument();
 	});
+
+	it('renders repeated upstream MeSH descriptors', () => {
+		render(PubMedArticleBody, {
+			article: article({
+				mesh_terms: [
+					{ descriptor: 'Melanoma', qualifiers: [], major_topic: true },
+					{ descriptor: 'Melanoma', qualifiers: ['therapy'], major_topic: false }
+				]
+			})
+		});
+
+		expect(screen.getAllByText('Melanoma')).toHaveLength(2);
+	});
 });

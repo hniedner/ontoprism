@@ -121,7 +121,7 @@ def test_mapping_serving_policy_preserves_reciprocal_source_assertions() -> None
     )
     ncit = EndpointIdentity("ncit", "26.07d", "C1")
     uberon = EndpointIdentity("uberon-cl", "2026-07-22", "UBERON:1")
-    ncit_assertion = MappingResult(ncit, CLOSE_MATCH, uberon, "proposed", 0.7)
+    ncit_assertion = MappingResult(ncit, CLOSE_MATCH, uberon, "validated", 0.7)
     publisher_assertion = MappingResult(uberon, CLOSE_MATCH, ncit, "proposed", 0.9)
 
     assert policy.admitted((ncit_assertion, publisher_assertion)) == (
