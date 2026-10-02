@@ -1,6 +1,6 @@
 [project]
 name = "ontoprism"
-version = "0.25.1"
+dynamic = ["version"]
 description = "Current enhanced NCIt storage, exploration, alignment, and decomposition product with an ontology-generic framework target."
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
@@ -40,6 +40,9 @@ data-build = [
 
 [tool.pdm]
 distribution = false
+
+[tool.pdm.version]
+source = "scm"
 
 [tool.pdm.dev-dependencies]
 # Editable installs of the keep-names local packages. This makes `import ontolib`

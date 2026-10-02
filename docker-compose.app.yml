@@ -11,6 +11,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        ONTOPRISM_VERSION: ${ONTOPRISM_VERSION:-}
     container_name: ontoprism-api
     environment:
       # Point at the compose-network service names, not the host-published ports.

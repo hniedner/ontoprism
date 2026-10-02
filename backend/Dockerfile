@@ -12,6 +12,7 @@ RUN pdm export --prod --no-hashes -o /tmp/requirements.txt
 
 FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
 WORKDIR /app
+ARG ONTOPRISM_VERSION
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -20,7 +21,8 @@ RUN pip install -r /tmp/requirements.txt
 # Local packages installed without deps (their deps came from requirements above).
 COPY ontolib ./ontolib
 COPY backend ./backend
-RUN pip install --no-deps ./ontolib ./backend
+RUN test -n "$ONTOPRISM_VERSION" || (echo "ONTOPRISM_VERSION build argument is required" >&2; exit 1)
+RUN PDM_BUILD_SCM_VERSION="$ONTOPRISM_VERSION" pip install --no-deps ./ontolib ./backend
 # Non-root runtime user; /app/refresh is the writable target for refresh downloads.
 RUN mkdir -p /app/refresh && useradd --create-home --uid 10001 app && chown -R app /app
 USER app
