@@ -206,21 +206,20 @@ class _Metadata:
 
 class _Xrefs:
     async def mappings_for_identifiers(
-        self, identifiers: set[str], **_kwargs: object
+        self, identifiers: set[str], *, expected: XrefReadPolicy
     ) -> dict[str, list[MappingResult]]:
         code = next(iter(identifiers))
-        return {
-            code: [
-                MappingResult(
-                    subject=EndpointIdentity("ncit", "26.07d", code),
-                    predicate=CLOSE_MATCH,
-                    object=EndpointIdentity("icdo", "3.2", value),
-                    lifecycle="proposed",
-                    confidence=0.9,
-                )
-                for value in ("8240/3", "8241/3", "8248/1")
-            ]
-        }
+        mappings = [
+            MappingResult(
+                subject=EndpointIdentity("ncit", "26.07d", code),
+                predicate=CLOSE_MATCH,
+                object=EndpointIdentity("icdo", "3.2", value),
+                lifecycle="validated",
+                confidence=0.9,
+            )
+            for value in ("8240/3", "8241/3", "8248/1")
+        ]
+        return {code: [mapping for mapping in mappings if expected.serves(mapping)]}
 
 
 @pytest.mark.unit
@@ -558,7 +557,7 @@ def test_ncit_mapping_detail_preserves_three_resolved_codes_with_typed_edition(
     assert all(
         row["system"] == "icdo"
         and row["version"] == "3.2"
-        and row["lifecycle"] == "proposed"
+        and row["lifecycle"] == "validated"
         and row["is_identity"] is False
         for row in response.json()["mappings"]
     )

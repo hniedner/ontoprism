@@ -19,6 +19,7 @@ from ontolib.repositories.xref.models import (
     EndpointIdentity,
     MappingResult,
     UnavailableXrefGenerationError,
+    XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
@@ -139,22 +140,16 @@ class _FakeXrefStore:
         }
         self.lookup_calls = 0
 
-    async def mappings_by_subjects(
-        self, codes: set[str], **_kwargs: object
-    ) -> dict[str, list[MappingResult]]:
-        return {c: self.mappings.get(c, []) for c in codes if c in self.mappings}
-
-    async def mappings_by_objects(
-        self, curies: set[str], **_kwargs: object
-    ) -> dict[str, list[MappingResult]]:
-        return {c: self.reverse.get(c, []) for c in curies if c in self.reverse}
-
     async def mappings_for_identifiers(
-        self, identifiers: set[str], **_kwargs: object
+        self, identifiers: set[str], *, expected: XrefReadPolicy
     ) -> dict[str, list[MappingResult]]:
         self.lookup_calls += 1
         return {
-            code: [*self.mappings.get(code, []), *self.reverse.get(code, [])]
+            code: [
+                row
+                for row in [*self.mappings.get(code, []), *self.reverse.get(code, [])]
+                if expected.serves(row)
+            ]
             for code in identifiers
             if code in self.mappings or code in self.reverse
         }
@@ -177,7 +172,7 @@ def test_concept_mappings_returns_forward_mappings() -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["code"] == "C12400"
-    assert len(body["mappings"]) == 2
+    assert len(body["mappings"]) == 1
     m0 = body["mappings"][0]
     assert m0["object_id"] == "UBERON:0002046"
     assert m0["system"] == "uberon"
@@ -231,7 +226,7 @@ def test_concept_mappings_preserves_reverse_many_to_one_in_one_indexed_query() -
             subject=EndpointIdentity("uberon-cl", "2026-06-19", code),
             predicate=CLOSE_MATCH,
             object=EndpointIdentity("ncit", "26.07d", "C12468"),
-            lifecycle="proposed",
+            lifecycle="validated",
             confidence=0.9,
         )
         for code in ("UBERON:0000171", "UBERON:0002048")
@@ -273,7 +268,7 @@ def test_concept_mappings_orients_directional_reverse_rows_to_requested_ncit(
             subject=EndpointIdentity("uberon-cl", "2026-06-19", "UBERON:0002048"),
             predicate=stored,
             object=EndpointIdentity("ncit", "26.07d", "C12468"),
-            lifecycle="proposed",
+            lifecycle="validated",
             confidence=0.9,
         )
     ]
@@ -301,7 +296,7 @@ def test_concept_mappings_preserve_direction_for_requested_subject(
             subject=EndpointIdentity("ncit", "26.07d", "C12468"),
             predicate=predicate,
             object=EndpointIdentity("uberon-cl", "2026-06-19", "UBERON:0002048"),
-            lifecycle="proposed",
+            lifecycle="validated",
             confidence=0.9,
         )
     ]
@@ -319,17 +314,11 @@ def test_concept_mappings_preserve_direction_for_requested_subject(
 
 
 @pytest.mark.api
-def test_concept_mappings_exact_match_with_nonactive_lifecycle_is_not_identity() -> (
-    None
-):
+def test_concept_mappings_excludes_nonactive_lifecycle() -> None:
     client = next(_client())
     resp = client.get("/api/v1/ncit/concepts/C50000/mappings")
     assert resp.status_code == 200
-    entry = resp.json()["mappings"][0]
-    assert entry["predicate"] == EXACT_MATCH
-    assert entry["lifecycle"] == "quarantined"
-    # exactMatch alone is not identity; the lifecycle must be validated/active.
-    assert entry["is_identity"] is False
+    assert resp.json()["mappings"] == []
 
 
 @pytest.mark.api
@@ -586,10 +575,10 @@ def test_translate_refuses_each_requested_uncertified_family(
 @pytest.mark.api
 def test_translate_maps_missing_requested_family_to_503() -> None:
     class _Unavailable(_FakeXrefStore):
-        async def mappings_by_subjects(
-            self, codes: set[str], **_kwargs: object
+        async def mappings_for_identifiers(
+            self, identifiers: set[str], **_kwargs: object
         ) -> dict[str, list[MappingResult]]:
-            del codes
+            del identifiers
             raise UnavailableXrefGenerationError(
                 "no active certified Uberon alignment generation"
             )

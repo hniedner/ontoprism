@@ -374,8 +374,12 @@ async def test_promotion_persists_as_validated_exact_match(
         expected=XrefReadPolicy(uberon=_CANDIDATE_IDENTITY)
     )
     assert (EXACT_MATCH, "validated") in strength["C12468"]
-    # … and the candidate it came from is still there, untouched and auditable
-    assert (CLOSE_MATCH, "proposed") in strength["C12468"]
+    assert (CLOSE_MATCH, "proposed") not in strength["C12468"]
+    # The unserved candidate remains available to its explicit validation reader.
+    candidates = await xref_store.proposed_candidates(expected=_CANDIDATE_IDENTITY)
+    assert [(row.subject_id, row.object_id) for row in candidates] == [
+        ("C12468", "UBERON:0002048")
+    ]
 
 
 @pytest.mark.integration

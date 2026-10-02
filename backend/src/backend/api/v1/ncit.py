@@ -96,6 +96,7 @@ async def _xref_expected(
             if icdo is not None
             else None
         ),
+        allow_licensed=include_icdo,
     )
 
 
@@ -143,14 +144,10 @@ class ConceptMappings(StrictBoundaryModel):
     mappings: list[MappingEntry]
 
 
-def _mapping_entries(
-    code: str, rows: list[MappingResult], *, entitled_to_icdo: bool
-) -> list[MappingEntry]:
+def _mapping_entries(code: str, rows: list[MappingResult]) -> list[MappingEntry]:
     entries: list[MappingEntry] = []
     for row in rows:
         target, predicate = mapping_relative_to(row, code)
-        if target.system == "icdo" and not entitled_to_icdo:
-            continue
         entries.append(
             MappingEntry(
                 object_id=target.identifier,
@@ -170,7 +167,6 @@ async def _attach_xref_upstream(
     filler_codes: list[str],
     *,
     expected: XrefReadPolicy,
-    entitled_to_icdo: bool,
 ) -> ConceptDecomposition:
     if filler_codes:
         upstream_rows = await xref_store.mappings_for_identifiers(
@@ -186,7 +182,6 @@ async def _attach_xref_upstream(
                 )
                 for row in rows
                 for target, predicate in [mapping_relative_to(row, code)]
-                if target.system != "icdo" or entitled_to_icdo
             ]
             for code, rows in upstream_rows.items()
         }
@@ -401,9 +396,7 @@ async def concept_mappings(
         rows = await xref_store.mappings_for_identifiers({code}, expected=expected)
     except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-    entries = _mapping_entries(
-        code, rows.get(code, []), entitled_to_icdo=entitled_to_icdo
-    )
+    entries = _mapping_entries(code, rows.get(code, []))
     return ConceptMappings(
         code=code,
         repository_source_identity=repository.source_identity,
@@ -451,7 +444,6 @@ async def concept_decomposition(
             xref_store,
             filler_codes,
             expected=expected,
-            entitled_to_icdo=entitled_to_icdo,
         )
     except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
