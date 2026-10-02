@@ -207,7 +207,7 @@ async def extract_candidate_inventory(
     select_fn: SelectRows,
     concept_codes: Iterable[str],
 ) -> CandidateInventory:
-    """Retain mapped routes, counting R105 exclusions and unrouted roles."""
+    """Retain routes and count exclusions, unrouted roles, and unreadable inputs."""
     cache = AnchorDefinitionRowsCache()
     included: set[CandidateContext] = set()
     excluded: set[CandidateContext] = set()
@@ -545,7 +545,8 @@ async def ingest_candidates(
 ) -> dict[str, Any]:
     """Run the full candidate-ingest pipeline and persist results.
 
-    1. Reads and cross-checks all three ontology versions against certified releases.
+    1. Reads all three ontology versions, cross-checking certified NCIt and Uberon
+       releases and validating the CL release-IRI shape.
     2. Reads complete definitions, routes source roles, and generates candidates.
     3. Checks source identities after generation and before creating an ``xref_run``.
     4. Publishes one immutable, source-specific PostgreSQL/RDF generation.

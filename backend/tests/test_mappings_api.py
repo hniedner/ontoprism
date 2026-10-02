@@ -565,6 +565,7 @@ def test_translate_upstream_to_ncit_selects_subject_and_inverts_direction() -> N
                 "version": "26.07d",
             },
             "confidence": 0.8,
+            "lifecycle": "validated",
         }
     ]
 
@@ -585,6 +586,7 @@ def test_translate_reverse_narrow_match_becomes_broad() -> None:
                 "version": "26.07d",
             },
             "confidence": 0.75,
+            "lifecycle": "validated",
         }
     ]
 
@@ -701,6 +703,10 @@ def test_translate_serves_proposed_and_filters_quarantined() -> None:
         "UBERON:0002046",
         "UBERON:0002048",
     }
+    assert {e["concept"]["code"]: e["lifecycle"] for e in results} == {
+        "UBERON:0002046": "validated",
+        "UBERON:0002048": "proposed",
+    }
 
 
 @pytest.mark.api
@@ -742,6 +748,7 @@ def test_translate_filters_typed_p334_icdo_endpoint_without_prefix() -> None:
             "equivalence": "unmatched",
             "concept": {"code": "C188218", "system": None, "version": None},
             "confidence": 0.0,
+            "lifecycle": None,
         }
     ]
 

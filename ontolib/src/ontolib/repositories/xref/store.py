@@ -770,8 +770,8 @@ class XrefStore:
         "conflicting identity", and then quarantine (C, U1) moments later — leaving C
         with no bridge at all, and blaming a row the same run invalidated.
 
-        Unknown object namespaces are marked stale so the promotion path fails loudly
-        when it tries to resolve their expected upstream version.
+        Unknown object namespaces cannot claim endpoints during conflict detection; the
+        promotion path independently rejects them when resolving their upstream version.
         """
         sql = text(
             "SELECT DISTINCT subject_id, object_id FROM concept_xref "

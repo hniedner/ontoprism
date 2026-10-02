@@ -121,7 +121,7 @@ async def read_mapping_source_versions(
     expected_ncit_version: str,
     expected_uberon_version: str,
 ) -> MappingSourceVersions:
-    """Read and cross-check NCIt, Uberon, and CL's own ontology headers."""
+    """Read ontology headers, cross-check NCIt/Uberon, and validate CL's release IRI."""
     ncit_rows = await ncit_client.select(_build_ncit_versions_query())
     ncit_default = _version_by_key(
         ncit_rows,

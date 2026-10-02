@@ -26,6 +26,7 @@ from ontolib.repositories.xref.vocab import (
     EXACT_MATCH,
     NARROW_MATCH,
     RELATED_MATCH,
+    MappingLifecycle,
     MappingPredicate,
 )
 
@@ -77,6 +78,7 @@ class TranslateEntry(StrictBoundaryModel):
     equivalence: FhirR4ConceptMapEquivalence
     concept: TranslateConcept
     confidence: float = Field(ge=0.0, le=1.0)
+    lifecycle: MappingLifecycle | None
 
 
 class TranslateResponse(StrictBoundaryModel):
@@ -93,6 +95,7 @@ def _translate_entry(
     *,
     system: str | None = None,
     version: str | None = None,
+    lifecycle: MappingLifecycle | None = None,
 ) -> TranslateEntry:
     return TranslateEntry(
         equivalence=(
@@ -100,6 +103,7 @@ def _translate_entry(
         ),
         concept=TranslateConcept(code=code, system=system, version=version),
         confidence=confidence,
+        lifecycle=lifecycle,
     )
 
 
@@ -123,6 +127,7 @@ def _collect_entries(
                     row.confidence,
                     system=target.system,
                     version=target.version,
+                    lifecycle=row.lifecycle,
                 )
             )
     return entries
@@ -178,9 +183,10 @@ async def translate(
     """FHIR-style ConceptMap ``$translate`` for NCIt↔upstream.
 
     Serves current ``proposed``/``validated``/``active`` mappings while filtering
-    ``quarantined`` and ``retired`` mappings. Licensed sources (SNOMED, ICD-O-3) require
-    both server capability and valid consumer entitlement (D26, D71). Returns
-    ``unmatched`` when no valid mapping exists.
+    ``quarantined`` and ``retired`` mappings. A proposal superseded by a resolved
+    mapping for the same directed pair is not served. Licensed sources (SNOMED,
+    ICD-O-3) require both server capability and valid consumer entitlement (D26,
+    D71). Returns ``unmatched`` when no valid mapping exists.
     """
     settings = get_settings()
     code = body.code

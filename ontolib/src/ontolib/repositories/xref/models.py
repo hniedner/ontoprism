@@ -182,7 +182,7 @@ class XrefReadPolicy:
         )
 
     def admitted(self, mappings: Iterable[MappingResult]) -> tuple[MappingResult, ...]:
-        """Serve unresolved proposals unless the same pair is already resolved."""
+        """Apply gates, hiding proposals for already-resolved directed pairs."""
         eligible = tuple(filter(self.serves, mappings))
         resolved_pairs = set(map(_mapping_pair, filter(_mapping_is_resolved, eligible)))
         remains_visible = partial(
