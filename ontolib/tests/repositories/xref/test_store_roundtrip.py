@@ -10,8 +10,12 @@ from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from ontolib.repositories.xref.candidate_ingest import generate_candidates
+from ontolib.repositories.xref.candidate_ingest import (
+    CandidateInventory,
+    generate_candidates,
+)
 from ontolib.repositories.xref.models import (
+    CandidateContext,
     SSSOMRecord,
     StaleXrefGenerationError,
     UberonCandidateGenerationMetadata,
@@ -148,6 +152,10 @@ async def test_generated_candidates_persist_each_source_ontology_version() -> No
         uberon="http://purl.obolibrary.org/obo/uberon/releases/2026-06-19/uberon.owl",
         cl="http://purl.obolibrary.org/obo/cl/releases/2026-06-08/cl.owl",
     )
+    contexts = (
+        CandidateContext("R101", "C3262", "op:PrimarySite"),
+        CandidateContext("R104", "C12345", "op:CellOrigin"),
+    )
     try:
         records, _ = await generate_candidates(
             _CandidateClient(
@@ -176,6 +184,7 @@ async def test_generated_candidates_persist_each_source_ontology_version() -> No
                 }
             ),
             versions,
+            inventory=CandidateInventory(contexts=contexts, excluded_counts=()),
         )
         store = XrefStore(sf)
         await store.upsert_run(
@@ -199,6 +208,16 @@ async def test_generated_candidates_persist_each_source_ontology_version() -> No
             "UBERON:0002107": versions.uberon,
             "CL:0000057": versions.cl,
         }
+        loaded = await store.proposed_candidates(
+            expected=UberonReadIdentity(
+                ncit_source_identity="a" * 64,
+                uberon_source_identity="b" * 64,
+                uberon_serving_identity="c" * 64,
+            )
+        )
+        assert {
+            context for record in loaded for context in record.candidate_contexts
+        } == set(contexts)
     finally:
         await _clear_xref_tables(sf)
         await dispose_engine(engine)

@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ontolib.repositories.xref.evidence import Evidence
 from ontolib.repositories.xref.models import (
+    CandidateContext,
     EndpointIdentity,
     GenerationSourceMetadata,
     MappingResult,
@@ -103,6 +104,16 @@ def _generation_rows(
             "review_status": record.review_status,
             "author": record.author,
             "evidence": json.dumps([e.as_dict() for e in record.evidence]),
+            "candidate_contexts": json.dumps(
+                [
+                    {
+                        "source_role": context.source_role,
+                        "source_filler": context.source_filler,
+                        "normalized_axis": context.normalized_axis,
+                    }
+                    for context in record.candidate_contexts
+                ]
+            ),
         }
         for record, originating_run in zip(records, originating_runs, strict=True)
     ]
@@ -114,7 +125,8 @@ def _canonical_generation_rows(rows: Sequence[dict[str, Any]]) -> list[str]:
             {
                 key: (
                     json.loads(value)
-                    if key == "evidence" and isinstance(value, str)
+                    if key in {"evidence", "candidate_contexts"}
+                    and isinstance(value, str)
                     else value
                 )
                 for key, value in row.items()
@@ -139,7 +151,7 @@ async def _validate_persisted_generation_rows(
             "SELECT run_id, subject_system, subject_version, subject_id, "
             "predicate_id, object_system, object_version, object_id, "
             "mapping_justification, confidence, lifecycle_state, "
-            "review_status, author, evidence FROM concept_xref "
+            "review_status, author, evidence, candidate_contexts FROM concept_xref "
             "WHERE generation_id = :id AND generation_source = :source FOR UPDATE"
         ),
         {"id": generation_id, "source": source},
@@ -278,13 +290,14 @@ class XrefStore:
                         "subject_version, "
                         "subject_id, predicate_id, object_system, object_version, "
                         "object_id, mapping_justification, confidence, "
-                        "lifecycle_state, review_status, author, evidence) VALUES "
+                        "lifecycle_state, review_status, author, evidence, "
+                        "candidate_contexts) VALUES "
                         "(:generation_id, :generation_source, :run_id, "
                         ":subject_system, :subject_version, "
                         ":subject_id, :predicate_id, :object_system, :object_version, "
                         ":object_id, :mapping_justification, :confidence, "
                         ":lifecycle_state, :review_status, :author, "
-                        "CAST(:evidence AS jsonb))"
+                        "CAST(:evidence AS jsonb), CAST(:candidate_contexts AS jsonb))"
                     ),
                     rows,
                 )
@@ -656,12 +669,14 @@ class XrefStore:
             "SELECT DISTINCT x.subject_id, x.subject_system, x.predicate_id, "
             "x.object_id, x.object_system, "
             "mapping_justification, confidence, subject_source_version, "
-            "object_source_version, lifecycle_state, review_status, author "
+            "object_source_version, lifecycle_state, review_status, author, "
+            "candidate_contexts "
             "FROM (SELECT subject_id, subject_system, predicate_id, object_id, "
             "object_system, mapping_justification, confidence, "
             "subject_version AS subject_source_version, "
             "object_version AS object_source_version, lifecycle_state, "
-            "review_status, author, generation_id FROM concept_xref) x "
+            "review_status, author, candidate_contexts, generation_id "
+            "FROM concept_xref) x "
             "WHERE generation_id = :generation_id "
             "AND lifecycle_state = 'proposed' AND predicate_id = :close "
             "ORDER BY subject_id, object_id"
@@ -671,7 +686,14 @@ class XrefStore:
             result = await s.execute(
                 sql, {"close": CLOSE_MATCH, "generation_id": generation_id}
             )
-            return [SSSOMRecord(**dict(row)) for row in result.mappings().all()]
+            records: list[SSSOMRecord] = []
+            for row in result.mappings().all():
+                values = dict(row)
+                values["candidate_contexts"] = tuple(
+                    CandidateContext(**item) for item in values["candidate_contexts"]
+                )
+                records.append(SSSOMRecord(**values))
+            return records
 
     async def validated_anchors(
         self, *, source: str | None = None, generation_id: str | None = None
@@ -776,7 +798,8 @@ class XrefStore:
                     "object_system, mapping_justification, confidence, "
                     "subject_version AS subject_source_version, "
                     "object_version AS object_source_version, lifecycle_state, "
-                    "review_status, author, evidence, run_id FROM concept_xref "
+                    "review_status, author, evidence, candidate_contexts, run_id "
+                    "FROM concept_xref "
                     "WHERE generation_id = :generation_id "
                     "ORDER BY subject_id, object_id"
                 ),
@@ -788,6 +811,9 @@ class XrefStore:
                 run_id = str(values.pop("run_id"))
                 values["evidence"] = tuple(
                     Evidence(**item) for item in values["evidence"]
+                )
+                values["candidate_contexts"] = tuple(
+                    CandidateContext(**item) for item in values["candidate_contexts"]
                 )
                 records.append((SSSOMRecord(**values), run_id))
             return records

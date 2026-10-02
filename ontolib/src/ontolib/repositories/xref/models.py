@@ -188,12 +188,43 @@ class MappingResult:
             raise ValueError(f"confidence out of range: {self.confidence}")
 
 
+@dataclass(frozen=True, order=True, slots=True)
+class CandidateContext:
+    """Source-role route that made one NCIt filler eligible for mapping."""
+
+    source_role: str
+    source_filler: str
+    normalized_axis: str
+
+    def __post_init__(self) -> None:
+        if not self.source_role.startswith("R") or not self.source_role[1:].isdigit():
+            raise ValueError("source_role must be an NCIt role code")
+        if (
+            not self.source_filler.startswith("C")
+            or not self.source_filler[1:].isdigit()
+        ):
+            raise ValueError("source_filler must be an NCIt concept code")
+        if not self.normalized_axis.startswith("op:"):
+            raise ValueError("normalized_axis must be an OntoPrism axis")
+
+
+def _canonical_candidate_contexts(
+    subject_id: str, contexts: tuple[CandidateContext, ...]
+) -> tuple[CandidateContext, ...]:
+    canonical = tuple(sorted(set(contexts)))
+    for context in canonical:
+        if context.source_filler != subject_id:
+            raise ValueError("candidate context filler must match the mapping subject")
+    return canonical
+
+
 @dataclass(frozen=True)
 class SSSOMRecord:
     """NCIt<->upstream mapping with provenance.
 
     IDs, source versions, predicate, justification, and confidence are required;
-    systems, lifecycle, review status, author, and evidence carry defaults.
+    systems, lifecycle, review status, author, evidence, and candidate context carry
+    defaults.
     """
 
     subject_id: str
@@ -214,6 +245,7 @@ class SSSOMRecord:
     # `compare=False` affects only dataclass equality and hashing. Publication
     # explicitly serializes evidence, so it remains part of generation identity.
     evidence: tuple[Evidence, ...] = field(default=(), compare=False)
+    candidate_contexts: tuple[CandidateContext, ...] = ()
 
     @property
     def subject(self) -> EndpointIdentity:
@@ -247,5 +279,10 @@ class SSSOMRecord:
             raise ValueError(f"predicate_id not allowed: {self.predicate_id}")
         if self.lifecycle_state not in LIFECYCLE_STATES:
             raise ValueError(f"lifecycle_state not allowed: {self.lifecycle_state}")
+        object.__setattr__(
+            self,
+            "candidate_contexts",
+            _canonical_candidate_contexts(self.subject_id, self.candidate_contexts),
+        )
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"confidence out of range: {self.confidence}")

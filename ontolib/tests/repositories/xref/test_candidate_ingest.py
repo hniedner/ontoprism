@@ -11,18 +11,19 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from ontolib.repositories.xref import candidate_ingest as candidate_ingest_module
 from ontolib.repositories.xref.candidate_ingest import (
+    CandidateInventory,
     CandidateSourceInventoryError,
     _build_xref_index,
     _iri_to_curie,
-    build_filler_codes_query,
     build_uberon_xref_query,
     candidate_coverage_report,
     fetch_uberon_xrefs,
     generate_candidates,
     ingest_candidates,
 )
-from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.models import CandidateContext, SSSOMRecord
 from ontolib.repositories.xref.source_versions import (
     MappingSourceVersionError,
     MappingSourceVersions,
@@ -34,6 +35,9 @@ from ontolib.repositories.xref.vocab import (
     DATABASE_CROSS_REFERENCE,
     LEXICAL_MATCHING,
 )
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDFS_NS
+from ontolib.terminologies.ncit.client import ncit_sparql_client
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 # -- Mock SPARQL client -------------------------------------------------
 
@@ -111,6 +115,27 @@ def _upstream_version_rows() -> list[dict[str, str]]:
     ]
 
 
+def _inventory(*fillers: str, role: str = "R101") -> CandidateInventory:
+    routes = {
+        "R100": "op:AssociatedSite",
+        "R101": "op:PrimarySite",
+        "R102": "op:MetastaticSite",
+        "R103": "op:NormalTissueOrigin",
+        "R104": "op:CellOrigin",
+    }
+    return CandidateInventory(
+        contexts=tuple(
+            CandidateContext(
+                source_role=role,
+                source_filler=filler,
+                normalized_axis=routes[role],
+            )
+            for filler in fillers
+        ),
+        excluded_counts=(),
+    )
+
+
 # Small hand-built fixture of known xref pairs.
 _XREF_FIXTURE: list[tuple[str, str, str, str]] = [
     (
@@ -135,20 +160,77 @@ _LEXICAL_FIXTURE: list[tuple[str, str, str, str]] = [
 _ALL_FILLERS = {row[0] for row in _XREF_FIXTURE} | {row[0] for row in _LEXICAL_FIXTURE}
 
 
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_candidate_inventory_routes_direct_nested_and_mixed_roles(
+    isolated_qlever_url: str,
+) -> None:
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
+
+        ncit:C99751 owl:equivalentClass [
+            owl:intersectionOf (
+                ncit:C99760
+                [ a owl:Restriction ; owl:onProperty ncit:R103 ;
+                  owl:someValuesFrom ncit:C99761 ]
+            )
+        ] .
+        ncit:C99752 owl:equivalentClass [
+            owl:intersectionOf (
+                ncit:C99760
+                [ a owl:Class ; owl:equivalentClass [
+                    owl:intersectionOf ([
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R104 ;
+                        owl:someValuesFrom ncit:C99762
+                    ])
+                ] ]
+            )
+        ] .
+        ncit:C99753 owl:equivalentClass [
+            owl:intersectionOf (
+                ncit:C99760
+                [ a owl:Restriction ; owl:onProperty ncit:R101 ;
+                  owl:someValuesFrom ncit:C99763 ]
+                [ a owl:Restriction ; owl:onProperty ncit:R105 ;
+                  owl:someValuesFrom ncit:C99764 ]
+            )
+        ] .
+        ncit:C99754 owl:equivalentClass [
+            owl:intersectionOf (
+                ncit:C99760
+                [ owl:unionOf (ncit:C99763 ncit:C99764) ]
+            )
+        ] .
+    """
+
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        inventory = await candidate_ingest_module.extract_candidate_inventory(
+            client.select,
+            ("C99751", "C99752", "C99753", "C99754"),
+        )
+
+    assert {
+        (context.source_role, context.source_filler, context.normalized_axis)
+        for context in inventory.contexts
+    } == {
+        ("R103", "C99761", "op:NormalTissueOrigin"),
+        ("R104", "C99762", "op:CellOrigin"),
+        ("R101", "C99763", "op:PrimarySite"),
+    }
+    assert inventory.excluded_by_role == {"R105": 1}
+    assert inventory.unknown_by_reason == {"unsupported-definition-constructor": 1}
+
+
 # -- Tests: Query structure ---------------------------------------------
-
-
-@pytest.mark.unit
-def test_filler_query_has_expected_shape() -> None:
-    """The filler SPARQL query contains the target roles and a DISTINCT."""
-    query = build_filler_codes_query()
-    assert "R101" in query
-    assert "R100" in query
-    assert "R102" in query
-    assert "R105" in query
-    assert "DISTINCT" in query
-    assert "owl:someValuesFrom" in query
-    assert "owl:Restriction" in query
 
 
 @pytest.mark.unit
@@ -210,7 +292,9 @@ async def test_xref_candidates_are_closematch_only() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, *_ = await generate_candidates(ncit, uberon, _VERSIONS)
+    records, *_ = await generate_candidates(
+        ncit, uberon, _VERSIONS, inventory=_inventory(*(t[0] for t in _XREF_FIXTURE))
+    )
     assert all(r.predicate_id == CLOSE_MATCH for r in records)
 
 
@@ -227,7 +311,9 @@ async def test_every_record_has_versions_and_justification() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, *_ = await generate_candidates(ncit, uberon, _VERSIONS)
+    records, *_ = await generate_candidates(
+        ncit, uberon, _VERSIONS, inventory=_inventory(*(t[0] for t in _XREF_FIXTURE))
+    )
     for r in records:
         assert r.subject_source_version == _NCIT_VERSION
         expected = _CL_VERSION if r.object_id.startswith("CL:") else _UBERON_VERSION
@@ -259,12 +345,55 @@ async def test_each_candidate_has_its_own_source_ontology_version() -> None:
         ncit,
         uberon,
         _VERSIONS,
+        inventory=_inventory("C3262", "C12345"),
     )
 
     assert {record.object_id: record.object_source_version for record in records} == {
         "UBERON:0002107": _UBERON_VERSION,
         "CL:0000057": _CL_VERSION,
     }
+
+
+@pytest.mark.unit
+async def test_role_filler_routes_survive_generation_and_report_exclusions() -> None:
+    included = (
+        CandidateContext("R101", "C3262", "op:PrimarySite"),
+        CandidateContext("R103", "C3262", "op:NormalTissueOrigin"),
+    )
+    inventory = CandidateInventory(
+        contexts=included,
+        excluded_counts=(("R105", 2),),
+    )
+    ncit = _MockClient({"SELECT ?code ?label WHERE": []})
+    uberon = _MockClient(
+        {
+            "hasDbXref": [
+                {
+                    "upstream": "http://purl.obolibrary.org/obo/UBERON_0002107",
+                    "xref": "NCIT:C3262",
+                }
+            ]
+        }
+    )
+
+    records, filler_to_source = await generate_candidates(
+        ncit,
+        uberon,
+        _VERSIONS,
+        inventory=inventory,
+    )
+    report = candidate_coverage_report(
+        inventory.fillers,
+        records,
+        filler_to_source,
+        inventory,
+    )
+
+    assert records[0].candidate_contexts == included
+    assert report["extracted_candidates_by_role"] == {"R101": 1, "R103": 1}
+    assert report["generated_candidates_by_role"] == {"R101": 1, "R103": 1}
+    assert report["excluded_candidates_by_role"] == {"R105": 2}
+    assert report["excluded_r105_candidates"] == 2
 
 
 @pytest.mark.unit
@@ -415,6 +544,7 @@ async def test_changed_source_identity_refuses_ingest_before_any_write() -> None
             observe_source_identities=AsyncMock(
                 return_value=("a" * 64, "d" * 64, "c" * 64)
             ),
+            inventory=_inventory("C3262"),
         )
 
     store.upsert_run.assert_not_awaited()
@@ -471,6 +601,7 @@ async def test_partial_upstream_row_refuses_ingest_before_any_write() -> None:
             observe_source_identities=AsyncMock(
                 return_value=("a" * 64, "b" * 64, "c" * 64)
             ),
+            inventory=_inventory("C3262"),
         )
 
     store.upsert_run.assert_not_awaited()
@@ -500,6 +631,7 @@ async def test_unknown_obo_iri_is_not_misclassified_as_an_uberon_mapping() -> No
             ncit,
             uberon,
             _VERSIONS,
+            inventory=_inventory("C1"),
         )
 
 
@@ -516,7 +648,9 @@ async def test_xref_sourced_candidates_are_high_precision() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
+    records, filler_to_source = await generate_candidates(
+        ncit, uberon, _VERSIONS, inventory=_inventory(*(t[0] for t in _XREF_FIXTURE))
+    )
 
     # Build lookup: subject_id -> set of object_ids
     subjects: dict[str, set[str]] = {}
@@ -547,7 +681,12 @@ async def test_lexical_candidates_have_correct_justification() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
+    records, filler_to_source = await generate_candidates(
+        ncit,
+        uberon,
+        _VERSIONS,
+        inventory=_inventory(*(t[0] for t in _LEXICAL_FIXTURE)),
+    )
 
     assert len(records) == 1
     r = records[0]
@@ -581,7 +720,9 @@ async def test_lexical_candidates_exclude_foreign_obo_prefixes() -> None:
         }
     )
 
-    records, _ = await generate_candidates(ncit, uberon, _VERSIONS)
+    records, _ = await generate_candidates(
+        ncit, uberon, _VERSIONS, inventory=_inventory("C54321")
+    )
 
     assert [(row.object_system, row.object_id) for row in records] == [
         ("uberon-cl", "UBERON:0000948")
@@ -607,7 +748,9 @@ async def test_filler_with_label_not_found_in_upstream() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
+    records, filler_to_source = await generate_candidates(
+        ncit, uberon, _VERSIONS, inventory=_inventory("C99999")
+    )
 
     assert len(records) == 0
     assert filler_to_source.get("C99999") == "none"
@@ -632,7 +775,9 @@ async def test_filler_without_label_is_none() -> None:
     ncit = _MockClient(ncit_responses)
     uberon = _MockClient(uberon_responses)
 
-    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
+    records, filler_to_source = await generate_candidates(
+        ncit, uberon, _VERSIONS, inventory=_inventory("C77777")
+    )
 
     assert len(records) == 0
     assert filler_to_source.get("C77777") == "none"
@@ -667,7 +812,9 @@ async def test_agreeing_xref_and_label_yield_one_composite_candidate() -> None:
         }
     )
 
-    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
+    records, filler_to_source = await generate_candidates(
+        ncit, uberon, _VERSIONS, inventory=_inventory("C12468")
+    )
 
     assert len(records) == 1, "one pair must yield one row, or the store drops one"
     assert records[0].subject_id == "C12468"
@@ -699,7 +846,9 @@ async def test_the_lexical_pass_also_runs_over_a_filler_that_has_an_xref() -> No
         }
     )
 
-    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
+    records, filler_to_source = await generate_candidates(
+        ncit, uberon, _VERSIONS, inventory=_inventory("C12468")
+    )
 
     assert {(r.object_id, r.mapping_justification) for r in records} == {
         ("UBERON:0002048", DATABASE_CROSS_REFERENCE),
@@ -724,7 +873,9 @@ async def test_an_xref_filler_whose_label_matches_nothing_stays_xref() -> None:
         }
     )
 
-    records, filler_to_source = await generate_candidates(ncit, uberon, _VERSIONS)
+    records, filler_to_source = await generate_candidates(
+        ncit, uberon, _VERSIONS, inventory=_inventory("C12468")
+    )
 
     assert len(records) == 1
     assert records[0].mapping_justification == DATABASE_CROSS_REFERENCE
@@ -763,6 +914,7 @@ async def test_ingest_refuses_empty_filler_inventory_before_writing() -> None:
             observe_source_identities=AsyncMock(
                 return_value=("a" * 64, "b" * 64, "c" * 64)
             ),
+            inventory=_inventory(),
         )
     store.upsert_run.assert_not_awaited()
 
@@ -800,7 +952,12 @@ def test_coverage_report_shape() -> None:
         "C10": "none",
     }
 
-    report = candidate_coverage_report(fillers, records, filler_to_source)
+    report = candidate_coverage_report(
+        fillers,
+        records,
+        filler_to_source,
+        _inventory(*sorted(fillers)),
+    )
     assert report["total_fillers"] == 10
     assert report["via_xref"] == 5
     assert report["via_lexical_only"] == 2
@@ -837,7 +994,12 @@ def test_coverage_report_counts_the_pairs_two_sources_agree_on() -> None:
     ]
     source = {"C1": "both", "C2": "xref", "C3": "lexical", "C4": "none"}
 
-    report = candidate_coverage_report(fillers, records, source)
+    report = candidate_coverage_report(
+        fillers,
+        records,
+        source,
+        _inventory(*sorted(fillers)),
+    )
 
     assert report["source_agreement_pairs"] == 1
     # a "both" filler holds an xref candidate, so it still counts under via_xref —
@@ -855,7 +1017,7 @@ def test_coverage_report_counts_the_pairs_two_sources_agree_on() -> None:
 @pytest.mark.unit
 def test_coverage_report_empty_fillers() -> None:
     """Empty filler set produces zero counts and 0.0 recall."""
-    report = candidate_coverage_report(set(), [], {})
+    report = candidate_coverage_report(set(), [], {}, _inventory())
     assert report["total_fillers"] == 0
     assert report["via_xref"] == 0
     assert report["via_lexical_only"] == 0

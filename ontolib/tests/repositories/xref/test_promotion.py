@@ -35,7 +35,7 @@ from ontolib.repositories.xref.evidence import (
     STRUCTURAL_CORROBORATION,
     Evidence,
 )
-from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.models import CandidateContext, SSSOMRecord
 from ontolib.repositories.xref.promotion import (
     CORROBORATED,
     NO_ANCHORED_ANCESTOR,
@@ -253,12 +253,18 @@ def test_known_equivalent_pair_is_promoted() -> None:
 
 @pytest.mark.unit
 def test_promoted_record_keeps_its_provenance() -> None:
-    outcome = validate_candidate(_record(), _context(), reasoner=_ElkLikeReasoner())
+    candidate_contexts = (CandidateContext("R101", "C12468", "op:PrimarySite"),)
+    outcome = validate_candidate(
+        replace(_record(), candidate_contexts=candidate_contexts),
+        _context(),
+        reasoner=_ElkLikeReasoner(),
+    )
     assert outcome.promoted is not None
     assert outcome.promoted.subject_source_version == _NCIT_VERSION
     assert outcome.promoted.object_source_version == _UBERON_VERSION
     assert outcome.promoted.subject_id == "C12468"
     assert outcome.promoted.object_id == "UBERON:0002048"
+    assert outcome.promoted.candidate_contexts == candidate_contexts
 
 
 @pytest.mark.unit
