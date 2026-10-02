@@ -90,11 +90,11 @@ built code, not only a forward plan. Verified against the tree:
 | Golden mapping set + `exactMatch` precision scorer (#76) | **Done** | `golden/mappings.json` (12 verified pairs) + `repositories/xref/mapping_score.py` (`score_mappings`, `load_golden_mappings`) |
 | caDSR *CDE-level* coverage report (§13.3 `COV`) generator (#76) | **Done** | `repositories/xref/coverage.py` (`cde_anchor_map`, `build_coverage_report`, `generate_coverage_report`) |
 | xref orchestration CLI + `data-build` stage + Uberon-client wiring (#76) | **Done** | `scripts/data_build.py` `xref` / `xref-coverage` commands (wires `uberon_sparql_url`) |
-| Read-side: `upstream` on decomposed `op:` constituents (#77) | **Done** | `decomposition/read_models.py` (`UpstreamMapping`), `read.py` (`attach_upstream`), `XrefStore.mappings_by_subjects` — PR #115 |
+| Read-side: `upstream` on decomposed `op:` constituents (#77) | **Done** | `decomposition/read_models.py` (`UpstreamMapping`), `read.py` (`attach_upstream`), `XrefStore.mappings_for_identifiers` — PR #115 |
 | Validation machinery — evidence policy, merged-EL bridge, ELK gate, D29 lifecycle (#73) | **Code landed (PR #117); promotion unblocked (D33 Option 1 / D34)** | `repositories/xref/evidence.py`, `bridge.py`, `promotion.py`, `store.py`; `data-build xref-promote`. The gate promoted **only curated pairs** until D33/D34: the xref pass filtered on the prefix `NCI:` while Uberon writes `NCIT:` (so `XREF_ASSERTION` never fired at all), and ingest partitioned the fillers so no candidate could hold two signals. Both fixed; a pair both passes produce is now one `semapv:CompositeMatching` candidate and promotes on **source agreement**. Option 2 (make #78 `part_of` an *effective* second signal) still open. |
 | `op:Morphology` from taxonomic parent (#81) | **Done** | delivered via #59 / PR #116; current resolution uses `decomposition/stated_queries.py::resolve_morphology_fillers` and `filler_selection.py` |
 | Uberon `part_of` structural corroboration (#78) | **Landed (PR #117); does not yet fire** | the mixed `subClassOf`/`part_of` walk exists (D32) but rarely fires on cold data. Now **D33 Option 2**: the second signal for pairs source agreement cannot reach — no longer the sole lever, since #119 made source agreement a live promotion path |
-| **Backend serve** `/api/v1/ncit/concepts/{code}/mappings` + `$translate` (#82) | **Landed & wired** | `backend/api/v1/mappings.py` (`$translate`), `GET mappings` via `ncit.py`; D26 capability flag, D71 consumer entitlement, D29 lifecycle filter. **Caveat:** `$translate` emits **non-FHIR-standard** equivalence codes (`equivalent/close/broad/narrow`) and the test re-encodes that same invented shape — no FHIR ConceptMap contract test (the "guessed-in-both" trap). Tracked as **#120**. |
+| **Backend serve** `/api/v1/ncit/concepts/{code}/mappings` + `$translate` (#82) | **Landed & wired** | `backend/api/v1/mappings.py` (`$translate`), `GET mappings` via `ncit.py`; D26 capability flag, D71 consumer entitlement, D29 lifecycle filter. `$translate` declares FHIR R4 and restricts `equivalence` to the published R4 ConceptMapEquivalence value set (#120). |
 | **Published** caDSR coverage number (#83) | **Landed (PR #118)** | `coverage.py` (`fetch_role_codes`, `save_coverage_baseline`, `detect_coverage_regression`); `data-build xref-coverage` fails on a drop. Whole-corpus, not a sample. **Gaps (#124):** no breakdown by target ontology, no `permissible_value.meaning_code` cross-check. The regression gate is inert until a real run commits `data/cov-baseline.json` (#121). |
 | **Reserved (design-heavy; historical upstream-IRI shape superseded by D60)**: cross-product write-side; Mondo genus alignment (#79); SNOMED/ICD-O-3 provenance (#80, licensing); value/qualifier mapping (#75); grammar (#84/#6). Any emitted concepts and definition values are NCIt; other terminology IDs are provenance/alignment only. | **Not started** | needs design/SME/licensing |
 
@@ -775,8 +775,8 @@ mapping enriches the `op:` axes, it does not substitute for de-overloading them.
    curated figure as if raw NCIm xrefs achieved it.
 
 **Correctness of the new surfaces (distinct from additivity):**
-4. `$translate` returns the **honest FHIR predicate** (equivalent/broader/narrower/unmatched; declare
-   R4 vs R5) for a held-out translation test set; `unmatched` where no identity-grade link exists —
+4. `$translate` returns the **honest FHIR R4 equivalence** (`equivalent`, `inexact`, `wider`,
+   `narrower`, `relatedto`, or `unmatched`) for a held-out translation test set; `unmatched` where no identity-grade link exists —
    never a fabricated equivalence.
 5. After #153 enables exact emission, NCIt `--emit-equivalence` cross-products validate by the §4.4 **non-circular** gate (curated
    `owl:equivalentClass` bridge, EL-profiled reasoner *or* materialized-definition structural check) —

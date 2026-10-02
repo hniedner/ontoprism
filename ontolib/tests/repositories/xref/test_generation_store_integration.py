@@ -37,7 +37,7 @@ from ontolib.repositories.xref.publication import (
     publish_generation as _publish_generation,
 )
 from ontolib.repositories.xref.store import XrefStore
-from ontolib.repositories.xref.vocab import CLOSE_MATCH
+from ontolib.repositories.xref.vocab import CLOSE_MATCH, MappingLifecycle
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 pytestmark = [
@@ -96,7 +96,13 @@ def _pointer_row(source: str, graph: str | None) -> list[dict[str, str]]:
     ]
 
 
-def _record(subject: str, obj: str, version: str) -> SSSOMRecord:
+def _record(
+    subject: str,
+    obj: str,
+    version: str,
+    *,
+    lifecycle: MappingLifecycle = "active",
+) -> SSSOMRecord:
     return SSSOMRecord(
         subject_id=subject,
         subject_system="ncit",
@@ -107,6 +113,7 @@ def _record(subject: str, obj: str, version: str) -> SSSOMRecord:
         confidence=0.9,
         subject_source_version="26.07d",
         object_source_version=version,
+        lifecycle_state=lifecycle,
     )
 
 
@@ -181,8 +188,12 @@ async def test_active_reads_are_typed_many_to_many_and_rollback_is_source_local(
             ],
         )
 
-        forward = await store.mappings_by_subjects({"C1", "C2"}, expected=_READ_POLICY)
-        reverse = await store.mappings_by_objects({"UBERON:2"}, expected=_READ_POLICY)
+        forward = await store.mappings_for_identifiers(
+            {"C1", "C2"}, expected=_READ_POLICY
+        )
+        reverse = await store.mappings_for_identifiers(
+            {"UBERON:2"}, expected=_READ_POLICY
+        )
         assert {row.object.identifier for row in forward["C2"]} == {
             "UBERON:2",
             "UBERON:3",
@@ -200,7 +211,7 @@ async def test_active_reads_are_typed_many_to_many_and_rollback_is_source_local(
         assert (
             await rollback_generation(store, client, "uberon-cl") == first.generation_id
         )
-        rolled_back = await store.mappings_by_subjects(
+        rolled_back = await store.mappings_for_identifiers(
             {"C1", "C2", "C9"}, expected=_READ_POLICY
         )
         assert {row.object.identifier for row in rolled_back["C1"]} == {"UBERON:1"}
@@ -237,7 +248,7 @@ async def test_crash_reconciliation_is_idempotent_without_pointer_churn(
                     failpoint=failpoint,
                 )
             with pytest.raises(UnavailableXrefGenerationError):
-                await store.mappings_by_subjects({"C7"}, expected=_READ_POLICY)
+                await store.mappings_for_identifiers({"C7"}, expected=_READ_POLICY)
 
         result = await publish_generation(
             store, client, source=source, run_id=run_id, records=records
@@ -421,7 +432,7 @@ async def test_rdf_pointer_failure_restores_previous_postgres_generation() -> No
         )
     assert await store.active_generation(source) is None
     with pytest.raises(UnavailableXrefGenerationError):
-        await store.mappings_by_subjects({"FAIL"}, expected=_READ_POLICY)
+        await store.mappings_for_identifiers({"FAIL"}, expected=_READ_POLICY)
     await dispose_engine(engine)
 
 
@@ -467,7 +478,7 @@ async def test_rollback_pointer_failure_restores_newer_postgres_generation() -> 
     assert await store.active_generation(source) == second.generation_id
     assert first.generation_id != second.generation_id
     assert set(
-        await store.mappings_by_subjects({"RB1", "RB2"}, expected=_READ_POLICY)
+        await store.mappings_for_identifiers({"RB1", "RB2"}, expected=_READ_POLICY)
     ) == {"RB2"}
     await dispose_engine(engine)
 
@@ -814,7 +825,7 @@ async def test_forward_and_reverse_queries_use_dedicated_indexes() -> None:
     assert "idx_concept_xref_forward" in forward
     assert "idx_concept_xref_reverse" in reverse
     reverse_rows = (
-        await store.mappings_by_objects({"UBERON:fanout"}, expected=_READ_POLICY)
+        await store.mappings_for_identifiers({"UBERON:fanout"}, expected=_READ_POLICY)
     )["UBERON:fanout"]
     assert len(reverse_rows) == 300
     await dispose_engine(engine)
@@ -842,7 +853,7 @@ async def test_concurrent_publishers_and_reader_observe_complete_generations(
 
         async def reader() -> None:
             while not stop.is_set():
-                rows = await store.mappings_by_subjects(
+                rows = await store.mappings_for_identifiers(
                     {"CON0", "CON1", "CON2"}, expected=_READ_POLICY
                 )
                 observations.append(frozenset(rows))
@@ -982,6 +993,7 @@ async def test_mixed_active_sources_validate_only_their_certified_inputs() -> No
                 confidence=0.9,
                 subject_source_version="u1",
                 object_source_version="26.07d",
+                lifecycle_state="active",
             ),
         ),
         (
@@ -1010,6 +1022,7 @@ async def test_mixed_active_sources_validate_only_their_certified_inputs() -> No
                 confidence=1.0,
                 subject_source_version="26.07d",
                 object_source_version="3.2",
+                lifecycle_state="active",
             ),
         ),
     )
@@ -1028,7 +1041,12 @@ async def test_mixed_active_sources_validate_only_their_certified_inputs() -> No
         await store.activate_generation(source, generation_id)
 
     rows = await store.mappings_for_identifiers(
-        {"MIX-CANDIDATE", "MIX-PUBLISHER", "MIX-PROMOTION", "MIX-P334"},
+        {
+            "MIX-CANDIDATE",
+            "MIX-PUBLISHER",
+            "MIX-PROMOTION",
+            "MIX-P334",
+        },
         expected=expected,
     )
     assert set(rows) == {
@@ -1037,20 +1055,42 @@ async def test_mixed_active_sources_validate_only_their_certified_inputs() -> No
         "MIX-PROMOTION",
         "MIX-P334",
     }
+    public_rows = await store.mappings_for_identifiers(
+        {
+            "MIX-CANDIDATE",
+            "MIX-PUBLISHER",
+            "MIX-PROMOTION",
+            "MIX-P334",
+        },
+        expected=XrefReadPolicy(
+            uberon=UberonReadIdentity(
+                ncit_source_identity="1" * 64,
+                uberon_source_identity="2" * 64,
+                uberon_serving_identity="3" * 64,
+            ),
+        ),
+    )
+    assert set(public_rows) == {"MIX-CANDIDATE", "MIX-PUBLISHER", "MIX-PROMOTION"}
+    assert set(await store.mappings_for_identifiers({"8140/3"}, expected=expected)) == {
+        "8140/3"
+    }
+    assert (
+        await store.mappings_for_identifiers(
+            {"8140/3"},
+            expected=XrefReadPolicy(
+                uberon=UberonReadIdentity(
+                    ncit_source_identity="1" * 64,
+                    uberon_source_identity="2" * 64,
+                    uberon_serving_identity="3" * 64,
+                ),
+            ),
+        )
+        == {}
+    )
     await dispose_engine(engine)
 
 
-@pytest.mark.parametrize(
-    ("read_name", "lookup", "expected_key"),
-    [
-        ("mappings_by_subjects", {"CAPTURED"}, "CAPTURED"),
-        ("mappings_by_objects", {"UBERON:CAPTURED"}, "UBERON:CAPTURED"),
-        ("mappings_for_identifiers", {"CAPTURED"}, "CAPTURED"),
-    ],
-)
-async def test_general_mapping_reads_pin_the_generation_validated_before_pointer_switch(
-    read_name: str, lookup: set[str], expected_key: str
-) -> None:
+async def test_served_mapping_read_pins_validated_generation() -> None:
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     normal_store = XrefStore(sf)
@@ -1103,9 +1143,9 @@ async def test_general_mapping_reads_pin_the_generation_validated_before_pointer
             return await self._context.__aexit__(*args)
 
     store = XrefStore(SwitchingContext)  # type: ignore[arg-type]
-    rows = await getattr(store, read_name)(lookup, expected=_READ_POLICY)
+    rows = await store.mappings_for_identifiers({"CAPTURED"}, expected=_READ_POLICY)
 
-    assert set(rows) == {expected_key}
+    assert set(rows) == {"CAPTURED"}
     assert execution_count == 2
     assert await normal_store.active_generation(source) == generations[1]
     await dispose_engine(engine)
@@ -1118,7 +1158,12 @@ async def test_candidates_pin_validated_generation_across_pointer_switch() -> No
     source = "uberon-cl"
     generations: list[str] = []
     for suffix in ("CAPTURED-CANDIDATE", "REPLACEMENT-CANDIDATE"):
-        record = _record(suffix, f"UBERON:{suffix}", "u1")
+        record = _record(
+            suffix,
+            f"UBERON:{suffix}",
+            "u1",
+            lifecycle="proposed",
+        )
         generation_id, content = _generation_identity(
             source, [record], _SOURCE_METADATA
         )
@@ -1207,7 +1252,7 @@ async def test_stale_active_generation_refuses_even_without_a_matching_row(
     await store.activate_generation(source, generation_id)
 
     with pytest.raises(StaleXrefGenerationError, match="uberon_source_identity"):
-        await store.mappings_by_subjects(
+        await store.mappings_for_identifiers(
             {"STALE"},
             expected=XrefReadPolicy(
                 uberon=UberonReadIdentity(
@@ -1267,7 +1312,7 @@ async def test_read_validates_only_sources_relevant_to_expected_contract() -> No
         )
         await store.activate_generation(source, generation_id)
 
-    rows = await store.mappings_by_subjects(
+    rows = await store.mappings_for_identifiers(
         {"RELEVANT", "IRRELEVANT"},
         expected=XrefReadPolicy(
             uberon=UberonReadIdentity(
@@ -1305,7 +1350,7 @@ async def test_promotion_requires_all_read_identities() -> None:
     await store.activate_generation(source, generation_id)
 
     with pytest.raises(StaleXrefGenerationError, match="uberon_serving_identity"):
-        await store.mappings_by_subjects(
+        await store.mappings_for_identifiers(
             {"PROMOTION-METADATA"},
             expected=XrefReadPolicy(
                 uberon=UberonReadIdentity(
@@ -1324,7 +1369,7 @@ async def test_nonempty_lookup_without_requested_active_family_fails_closed() ->
     store = XrefStore(make_sessionmaker(engine))
 
     with pytest.raises(UnavailableXrefGenerationError, match="Uberon"):
-        await store.mappings_by_subjects({"ABSENT"}, expected=_READ_POLICY)
+        await store.mappings_for_identifiers({"ABSENT"}, expected=_READ_POLICY)
     await dispose_engine(engine)
 
 
@@ -1346,7 +1391,7 @@ async def test_active_certified_family_with_no_matching_mapping_returns_empty() 
     )
     await store.activate_generation(source, generation_id)
 
-    assert await store.mappings_by_subjects({"ABSENT"}, expected=_READ_POLICY) == {}
+    assert await store.mappings_for_identifiers({"ABSENT"}, expected=_READ_POLICY) == {}
     await dispose_engine(engine)
 
 

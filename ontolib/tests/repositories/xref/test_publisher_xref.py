@@ -9,7 +9,6 @@ from ontolib.repositories.xref.publisher_xref import (
     EXPECTED_SOURCE_CLASSES,
     PublisherXrefCountDriftError,
     PublisherXrefSourceError,
-    _observed_version,
     _parse_assertions,
 )
 from ontolib.repositories.xref.publisher_xref import (
@@ -18,14 +17,17 @@ from ontolib.repositories.xref.publisher_xref import (
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, DATABASE_CROSS_REFERENCE
 
 
-async def publish_uberon_xrefs(*args: object, **kwargs: object) -> object:
+async def publish_uberon_xrefs(*args: object, **kwargs: object) -> Any:
     kwargs.setdefault("ncit_source_identity", "a" * 64)
     kwargs.setdefault("uberon_source_identity", "b" * 64)
     kwargs.setdefault("uberon_serving_identity", "c" * 64)
+    kwargs.setdefault("expected_ncit_version", _NCIT_VERSION)
+    kwargs.setdefault("expected_uberon_version", _UBERON_VERSION)
     return await _publish_uberon_xrefs(*args, **kwargs)  # type: ignore[arg-type]
 
 
 _UBERON_VERSION = "http://purl.obolibrary.org/obo/uberon/releases/2026-06-19/uberon.owl"
+_CL_VERSION = "http://purl.obolibrary.org/obo/cl/releases/2026-06-08/cl.owl"
 _NCIT_VERSION = "26.07d"
 
 
@@ -40,8 +42,22 @@ class _Client:
         self.select_calls.append(query)
         if "active/" in query:
             return []
-        if "owl:Ontology" in query:
-            return [{"v": _UBERON_VERSION}]
+        if "SELECT DISTINCT ?location ?version" in query:
+            return [
+                {"location": "default", "version": _NCIT_VERSION},
+                {"location": "stated", "version": _NCIT_VERSION},
+            ]
+        if "SELECT DISTINCT ?ontology ?version" in query:
+            return [
+                {
+                    "ontology": "http://purl.obolibrary.org/obo/uberon.owl",
+                    "version": _UBERON_VERSION,
+                },
+                {
+                    "ontology": "http://purl.obolibrary.org/obo/cl.owl",
+                    "version": _CL_VERSION,
+                },
+            ]
         if "hasDbXref" in query:
             return self.xrefs
         return [{"code": code} for code in sorted(self.resolved)]
@@ -68,28 +84,6 @@ def test_publisher_xref_refuses_unsupported_concept_namespace() -> None:
         _parse_assertions(
             [{"upstream": "https://example.test/not-uberon", "xref": "NCIT:C1"}]
         )
-
-
-@pytest.mark.unit
-async def test_ncit_version_falls_back_to_unique_ontology_identity() -> None:
-    class Client:
-        async def version(self) -> None:
-            return None
-
-        async def select(self, _query: str) -> list[dict[str, str]]:
-            return [{"v": "26.07d"}]
-
-    assert await _observed_version(Client(), "NCIt") == "26.07d"  # type: ignore[arg-type]
-
-
-@pytest.mark.unit
-async def test_source_version_refuses_ambiguous_ontology_identities() -> None:
-    class Client:
-        async def select(self, _query: str) -> list[dict[str, str]]:
-            return [{"v": "one"}, {"v": "two"}]
-
-    with pytest.raises(PublisherXrefSourceError, match="unique release identity"):
-        await _observed_version(Client(), "Uberon")  # type: ignore[arg-type]
 
 
 class _Lock:
@@ -151,6 +145,10 @@ async def test_publisher_xrefs_validate_once_and_report_unresolved() -> None:
             "upstream": "http://purl.obolibrary.org/obo/UBERON_0002048",
             "xref": "NCIT:C99999",
         },
+        {
+            "upstream": "http://purl.obolibrary.org/obo/CL_0000057",
+            "xref": "NCIT:C12468",
+        },
     ]
     uberon = _Client(xrefs, set())
     ncit = _Client([], {"C12468"})
@@ -160,7 +158,7 @@ async def test_publisher_xrefs_validate_once_and_report_unresolved() -> None:
         store,
         ncit,
         uberon,
-        expected_counts=(2, 3),
+        expected_counts=(3, 4),
         run_id="publisher-run",
     )
 
@@ -170,10 +168,15 @@ async def test_publisher_xrefs_validate_once_and_report_unresolved() -> None:
     assert {(r.subject_id, r.object_id) for r in store.records} == {
         ("UBERON:0000171", "C12468"),
         ("UBERON:0002048", "C12468"),
+        ("CL:0000057", "C12468"),
+    }
+    assert {r.subject_id: r.subject_source_version for r in store.records} == {
+        "UBERON:0000171": _UBERON_VERSION,
+        "UBERON:0002048": _UBERON_VERSION,
+        "CL:0000057": _CL_VERSION,
     }
     assert all(
         r.subject_system == "uberon-cl"
-        and r.subject_source_version == _UBERON_VERSION
         and r.object_system == "ncit"
         and r.object_source_version == _NCIT_VERSION
         and r.predicate_id == CLOSE_MATCH
@@ -186,7 +189,7 @@ async def test_publisher_xrefs_validate_once_and_report_unresolved() -> None:
         "ncit_release": _NCIT_VERSION,
         "uberon_assertion_identity": report.uberon_assertion_identity,
         "ncit_target_identity": report.ncit_target_identity,
-        "published_assertion_count": 2,
+        "published_assertion_count": 3,
         "unresolved": [
             {
                 "uberon_id": "UBERON:0002048",
@@ -195,14 +198,14 @@ async def test_publisher_xrefs_validate_once_and_report_unresolved() -> None:
             }
         ],
         "source_class_count": {
-            "expected": 2,
-            "observed": 2,
+            "expected": 3,
+            "observed": 3,
             "delta": 0,
             "classification": "unchanged",
         },
         "assertion_count": {
-            "expected": 3,
-            "observed": 3,
+            "expected": 4,
+            "observed": 4,
             "delta": 0,
             "classification": "unchanged",
         },
@@ -296,11 +299,32 @@ async def test_publisher_refuses_nonunique_observed_uberon_release_before_writes
     async def _ambiguous(query: str) -> list[dict[str, str]]:
         if "hasDbXref" in query:
             return [row]
-        return [{"v": "v1"}, {"v": "v2"}]
+        if "SELECT DISTINCT ?location ?version" in query:
+            return [
+                {"location": "default", "version": _NCIT_VERSION},
+                {"location": "stated", "version": _NCIT_VERSION},
+            ]
+        return [
+            {
+                "ontology": "http://purl.obolibrary.org/obo/uberon.owl",
+                "version": _UBERON_VERSION,
+            },
+            {
+                "ontology": "http://purl.obolibrary.org/obo/uberon.owl",
+                "version": (
+                    "http://purl.obolibrary.org/obo/uberon/releases/"
+                    "2026-05-01/uberon.owl"
+                ),
+            },
+            {
+                "ontology": "http://purl.obolibrary.org/obo/cl.owl",
+                "version": _CL_VERSION,
+            },
+        ]
 
     uberon.select = _ambiguous  # type: ignore[method-assign]
     store = _Store()
-    with pytest.raises(PublisherXrefSourceError, match="no unique release identity"):
+    with pytest.raises(PublisherXrefSourceError, match="ambiguous Uberon version"):
         await publish_uberon_xrefs(
             store,
             _Client([], {"C12468"}),
@@ -317,14 +341,24 @@ async def test_publisher_refuses_source_pointer_switch_during_validation() -> No
         "xref": "NCIT:C12468",
     }
     ncit = _Client([], {"C12468"})
-    versions = iter(("26.07d", "26.08a"))
+    versions = iter((_NCIT_VERSION, "26.08a"))
+    original_select = ncit.select
 
-    async def switching_version() -> str:
-        return next(versions)
+    async def switching_version(query: str) -> list[dict[str, str]]:
+        if "SELECT DISTINCT ?location ?version" in query:
+            version = next(versions)
+            return [
+                {"location": "default", "version": version},
+                {"location": "stated", "version": version},
+            ]
+        return await original_select(query)
 
-    ncit.version = switching_version  # type: ignore[method-assign]
+    ncit.select = switching_version  # type: ignore[method-assign]
     store = _Store()
-    with pytest.raises(PublisherXrefSourceError, match="changed during validation"):
+    with pytest.raises(
+        PublisherXrefSourceError,
+        match="NCIt ontology version does not match its certified source",
+    ):
         await publish_uberon_xrefs(
             store,
             ncit,

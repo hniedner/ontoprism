@@ -37,6 +37,7 @@ from ontolib.repositories.xref.models import (
     EndpointIdentity,
     MappingResult,
     StaleXrefGenerationError,
+    XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
@@ -174,22 +175,21 @@ class _Xrefs:
         self.calls = 0
 
     async def mappings_for_identifiers(
-        self, identifiers: set[str], **_kwargs: object
+        self, identifiers: set[str], *, expected: XrefReadPolicy
     ) -> dict[str, list[MappingResult]]:
         self.calls += 1
         assert identifiers == {"8503/0"}
-        return {
-            "8503/0": [
-                MappingResult(
-                    subject=EndpointIdentity("ncit", "26.07d", code),
-                    predicate=CLOSE_MATCH,
-                    object=EndpointIdentity("icdo", "3.2", "8503/0"),
-                    lifecycle="proposed",
-                    confidence=0.9,
-                )
-                for code in ("C1", "C2", "C3")
-            ]
-        }
+        mappings = [
+            MappingResult(
+                subject=EndpointIdentity("ncit", "26.07d", code),
+                predicate=CLOSE_MATCH,
+                object=EndpointIdentity("icdo", "3.2", "8503/0"),
+                lifecycle="validated",
+                confidence=0.9,
+            )
+            for code in ("C1", "C2", "C3")
+        ]
+        return {"8503/0": [row for row in mappings if expected.serves(row)]}
 
 
 def _client(
@@ -634,7 +634,7 @@ def test_detail_orients_directional_reverse_rows_to_requested_icdo(
                         subject=EndpointIdentity("ncit", "26.07d", "C1"),
                         predicate=stored,
                         object=EndpointIdentity("icdo", "3.2", "8503/0"),
-                        lifecycle="proposed",
+                        lifecycle="validated",
                         confidence=0.9,
                     )
                 ]

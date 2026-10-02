@@ -25,7 +25,7 @@
 		<p class="text-sm italic text-subtle">No alignments.</p>
 	{:else}
 		<ul class="flex flex-col gap-2">
-			{#each alignments as alignment (alignment.system + alignment.code)}
+			{#each alignments as alignment, i (i)}
 				<li class="flex flex-wrap items-baseline gap-2 text-sm">
 					{#if alignment.system === 'ncit'}
 						<a

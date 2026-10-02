@@ -49,6 +49,8 @@ class CdeAnchors:
 
 
 class CoverageReport(BaseModel):
+    """Coverage partitioned into identity, non-identity mapping, and no mapping."""
+
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     n_cdes: int

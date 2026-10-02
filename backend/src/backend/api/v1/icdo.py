@@ -525,7 +525,7 @@ async def detail(
                         ncit_source_identity=ncit.source_identity,
                         icdo_generation_identity=ready.activation_identity,
                         icdo_serving_identity=ready.serving_identity,
-                    )
+                    ),
                 ),
             )
         except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:

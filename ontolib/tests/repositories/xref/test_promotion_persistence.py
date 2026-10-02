@@ -49,6 +49,7 @@ from ontolib.repositories.xref.publication import (
     generation_graph_iri,
     generation_identity,
 )
+from ontolib.repositories.xref.source_versions import MappingSourceVersions
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.validation import ReasonerUnavailableError
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH, NARROW_MATCH
@@ -60,6 +61,12 @@ if TYPE_CHECKING:
 
 _NCIT_VERSION = "26.02d"
 _UBERON_VERSION = "uberon-2026-01"
+_CL_VERSION = "cl-2026-01"
+_VERSIONS = MappingSourceVersions(
+    ncit=_NCIT_VERSION,
+    uberon=_UBERON_VERSION,
+    cl=_CL_VERSION,
+)
 _SOURCE_METADATA = UberonPromotionGenerationMetadata(
     ncit_source_identity="a" * 64,
     uberon_source_identity="b" * 64,
@@ -85,11 +92,21 @@ _REASONER_TOOL = DataBuildToolIdentity(
 
 async def persist_promotions(*args: object, **kwargs: object) -> str:
     kwargs.setdefault("source_metadata", _SOURCE_METADATA)
+    kwargs["versions"] = MappingSourceVersions(
+        ncit=str(kwargs.pop("ncit_version", _NCIT_VERSION)),
+        uberon=str(kwargs.pop("source_version", _UBERON_VERSION)),
+        cl=str(kwargs.pop("cl_version", _CL_VERSION)),
+    )
     return await _persist_promotions(*args, **kwargs)  # type: ignore[arg-type]
 
 
 async def run_promotion(*args: object, **kwargs: object) -> dict[str, object]:
     kwargs.setdefault("source_metadata", _SOURCE_METADATA)
+    kwargs["versions"] = MappingSourceVersions(
+        ncit=str(kwargs.pop("ncit_version", _NCIT_VERSION)),
+        uberon=str(kwargs.pop("source_version", _UBERON_VERSION)),
+        cl=str(kwargs.pop("cl_version", _CL_VERSION)),
+    )
     return await _run_promotion(*args, **kwargs)  # type: ignore[arg-type]
 
 
@@ -371,8 +388,12 @@ async def test_promotion_persists_as_validated_exact_match(
         expected=XrefReadPolicy(uberon=_CANDIDATE_IDENTITY)
     )
     assert (EXACT_MATCH, "validated") in strength["C12468"]
-    # … and the candidate it came from is still there, untouched and auditable
-    assert (CLOSE_MATCH, "proposed") in strength["C12468"]
+    assert (CLOSE_MATCH, "proposed") not in strength["C12468"]
+    # The unserved candidate remains available to its explicit validation reader.
+    candidates = await xref_store.proposed_candidates(expected=_CANDIDATE_IDENTITY)
+    assert [(row.subject_id, row.object_id) for row in candidates] == [
+        ("C12468", "UBERON:0002048")
+    ]
 
 
 @pytest.mark.integration
@@ -563,8 +584,7 @@ async def test_an_endpoint_release_plans_stale_bridges_without_mutating_publishe
 
     original_generation = await xref_store.active_generation("uberon-cl-promotion")
     stale = await xref_store.stale_anchors(
-        ncit_version=_NCIT_VERSION,
-        source_version=_UBERON_VERSION,
+        versions=_VERSIONS,
         source="uberon-cl-promotion",
         generation_id=original_generation,
     )
@@ -601,8 +621,7 @@ async def test_stale_planning_is_scoped_to_its_own_upstream_source(
     )
 
     stale = await xref_store.stale_anchors(
-        ncit_version=_NCIT_VERSION,
-        source_version=_UBERON_VERSION,
+        versions=_VERSIONS,
         source="uberon-cl-promotion",
     )
 
@@ -699,14 +718,48 @@ async def test_a_promotion_run_does_not_quarantine_what_it_just_promoted(
         tool_identity=_REASONER_TOOL,
     )
     stale = await xref_store.stale_anchors(
-        ncit_version=_NCIT_VERSION,
-        source_version=_UBERON_VERSION,
+        versions=_VERSIONS,
         source="uberon-cl-promotion",
     )
 
     # the bridge this run just validated must survive its own staleness sweep
     assert ("C12971", "UBERON:0000310") in await xref_store.validated_anchors()
     assert stale == set()
+
+
+@pytest.mark.integration
+async def test_a_cl_promotion_is_stamped_with_the_cl_release(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    xref_store, run_ids = store
+    run_id = f"test-cl-version-{uuid.uuid4().hex}"
+    run_ids.append(run_id)
+    promoted = _promoted("C12345", "CL:0000057", object_version="wrong-version")
+
+    await persist_promotions(
+        xref_store,
+        _PublicationClient(),  # type: ignore[arg-type]
+        [promoted],
+        PromotionReport(considered=1, promoted=1, insufficient_evidence=0, refuted=0),
+        ncit_version=_NCIT_VERSION,
+        source_version=_UBERON_VERSION,
+        cl_version=_CL_VERSION,
+        source="uberon-cl-promotion",
+        run_id=run_id,
+    )
+
+    generation = await xref_store.active_generation("uberon-cl-promotion")
+    assert generation is not None
+    stored = await xref_store.records_for_generation(generation)
+    assert len(stored) == 1
+    assert stored[0][0].object_source_version == _CL_VERSION
+    assert (
+        await xref_store.stale_anchors(
+            versions=_VERSIONS,
+            source="uberon-cl-promotion",
+        )
+        == set()
+    )
 
 
 @pytest.mark.integration

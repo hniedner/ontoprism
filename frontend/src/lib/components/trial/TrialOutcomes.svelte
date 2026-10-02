@@ -11,14 +11,14 @@
 	<div class={card}>
 		<h2 class={sectionTitle}>Outcomes</h2>
 		<ul class="space-y-1.5 text-sm">
-			{#each trial.primary_outcomes as o (o.measure)}
+			{#each trial.primary_outcomes as o, i (i)}
 				<li>
 					<span class="font-medium text-default">{o.measure}</span>
 					<span class="ml-1 text-xs text-primary-600">primary</span>
 					{#if o.time_frame}<span class="ml-1 text-xs text-subtle">· {o.time_frame}</span>{/if}
 				</li>
 			{/each}
-			{#each trial.secondary_outcomes as o (o.measure)}
+			{#each trial.secondary_outcomes as o, i (i)}
 				<li>
 					<span class="font-medium text-default">{o.measure}</span>
 					<span class="ml-1 text-xs text-muted">secondary</span>

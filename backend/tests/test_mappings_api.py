@@ -19,6 +19,7 @@ from ontolib.repositories.xref.models import (
     EndpointIdentity,
     MappingResult,
     UnavailableXrefGenerationError,
+    XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
@@ -139,22 +140,16 @@ class _FakeXrefStore:
         }
         self.lookup_calls = 0
 
-    async def mappings_by_subjects(
-        self, codes: set[str], **_kwargs: object
-    ) -> dict[str, list[MappingResult]]:
-        return {c: self.mappings.get(c, []) for c in codes if c in self.mappings}
-
-    async def mappings_by_objects(
-        self, curies: set[str], **_kwargs: object
-    ) -> dict[str, list[MappingResult]]:
-        return {c: self.reverse.get(c, []) for c in curies if c in self.reverse}
-
     async def mappings_for_identifiers(
-        self, identifiers: set[str], **_kwargs: object
+        self, identifiers: set[str], *, expected: XrefReadPolicy
     ) -> dict[str, list[MappingResult]]:
         self.lookup_calls += 1
         return {
-            code: [*self.mappings.get(code, []), *self.reverse.get(code, [])]
+            code: [
+                row
+                for row in [*self.mappings.get(code, []), *self.reverse.get(code, [])]
+                if expected.serves(row)
+            ]
             for code in identifiers
             if code in self.mappings or code in self.reverse
         }
@@ -231,7 +226,7 @@ def test_concept_mappings_preserves_reverse_many_to_one_in_one_indexed_query() -
             subject=EndpointIdentity("uberon-cl", "2026-06-19", code),
             predicate=CLOSE_MATCH,
             object=EndpointIdentity("ncit", "26.07d", "C12468"),
-            lifecycle="proposed",
+            lifecycle="validated",
             confidence=0.9,
         )
         for code in ("UBERON:0000171", "UBERON:0002048")
@@ -273,7 +268,7 @@ def test_concept_mappings_orients_directional_reverse_rows_to_requested_ncit(
             subject=EndpointIdentity("uberon-cl", "2026-06-19", "UBERON:0002048"),
             predicate=stored,
             object=EndpointIdentity("ncit", "26.07d", "C12468"),
-            lifecycle="proposed",
+            lifecycle="validated",
             confidence=0.9,
         )
     ]
@@ -301,7 +296,7 @@ def test_concept_mappings_preserve_direction_for_requested_subject(
             subject=EndpointIdentity("ncit", "26.07d", "C12468"),
             predicate=predicate,
             object=EndpointIdentity("uberon-cl", "2026-06-19", "UBERON:0002048"),
-            lifecycle="proposed",
+            lifecycle="validated",
             confidence=0.9,
         )
     ]
@@ -319,17 +314,11 @@ def test_concept_mappings_preserve_direction_for_requested_subject(
 
 
 @pytest.mark.api
-def test_concept_mappings_exact_match_with_nonactive_lifecycle_is_not_identity() -> (
-    None
-):
+def test_concept_mappings_excludes_nonactive_lifecycle() -> None:
     client = next(_client())
     resp = client.get("/api/v1/ncit/concepts/C50000/mappings")
     assert resp.status_code == 200
-    entry = resp.json()["mappings"][0]
-    assert entry["predicate"] == EXACT_MATCH
-    assert entry["lifecycle"] == "quarantined"
-    # exactMatch alone is not identity; the lifecycle must be validated/active.
-    assert entry["is_identity"] is False
+    assert resp.json()["mappings"] == []
 
 
 @pytest.mark.api
@@ -476,6 +465,71 @@ def test_entitled_concept_mappings_refuses_uncertified_licensed_family(
 
 
 @pytest.mark.api
+def test_translate_uses_fhir_r4_concept_map_equivalence_codes() -> None:
+    # Published FHIR R4 ConceptMapEquivalence value set:
+    # https://hl7.org/fhir/R4/valueset-concept-map-equivalence.html
+    fhir_r4_codes = frozenset(
+        {
+            "relatedto",
+            "equivalent",
+            "equal",
+            "wider",
+            "subsumes",
+            "narrower",
+            "specializes",
+            "inexact",
+            "unmatched",
+            "disjoint",
+        }
+    )
+    expected: dict[MappingPredicate, str] = {
+        EXACT_MATCH: "equivalent",
+        CLOSE_MATCH: "inexact",
+        BROAD_MATCH: "wider",
+        NARROW_MATCH: "narrower",
+        RELATED_MATCH: "relatedto",
+    }
+    store = _FakeXrefStore()
+    store.mappings["C120"] = [
+        MappingResult(
+            subject=EndpointIdentity("ncit", "26.07d", "C120"),
+            predicate=predicate,
+            object=EndpointIdentity("uberon", "2026-06-19", f"UBERON:{index}"),
+            lifecycle="active",
+            confidence=1.0,
+        )
+        for index, predicate in enumerate(expected, start=1)
+    ]
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _FakeClient
+    app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_xref_store] = lambda: store
+    app.dependency_overrides[get_repository_metadata] = _FakeMetadata
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/mappings/$translate", json={"code": "C120"})
+        unmatched = client.post(
+            "/api/v1/mappings/$translate", json={"code": "C-NOT-MAPPED"}
+        )
+
+    assert response.status_code == unmatched.status_code == 200
+    body = response.json()
+    assert body["fhir_release"] == "R4"
+    assert unmatched.json()["fhir_release"] == "R4"
+    equivalence_by_code = {
+        row["concept"]["code"]: row["equivalence"] for row in body["result"]
+    }
+    assert equivalence_by_code == {
+        f"UBERON:{index}": equivalence
+        for index, equivalence in enumerate(expected.values(), start=1)
+    }
+    emitted_codes = set(equivalence_by_code.values()) | {
+        unmatched.json()["result"][0]["equivalence"]
+    }
+    assert emitted_codes <= fhir_r4_codes
+
+
+@pytest.mark.api
 def test_translate_ncit_to_upstream() -> None:
     client = next(_client())
     resp = client.post(
@@ -504,13 +558,14 @@ def test_translate_upstream_to_ncit_selects_subject_and_inverts_direction() -> N
     assert response.status_code == 200
     assert response.json()["result"] == [
         {
-            "equivalence": "narrow",
+            "equivalence": "narrower",
             "concept": {
                 "code": "C70000",
                 "system": "ncit",
                 "version": "26.07d",
             },
             "confidence": 0.8,
+            "lifecycle": "validated",
         }
     ]
 
@@ -524,13 +579,14 @@ def test_translate_reverse_narrow_match_becomes_broad() -> None:
     assert response.status_code == 200
     assert response.json()["result"] == [
         {
-            "equivalence": "broad",
+            "equivalence": "wider",
             "concept": {
                 "code": "C70001",
                 "system": "ncit",
                 "version": "26.07d",
             },
             "confidence": 0.75,
+            "lifecycle": "validated",
         }
     ]
 
@@ -586,10 +642,10 @@ def test_translate_refuses_each_requested_uncertified_family(
 @pytest.mark.api
 def test_translate_maps_missing_requested_family_to_503() -> None:
     class _Unavailable(_FakeXrefStore):
-        async def mappings_by_subjects(
-            self, codes: set[str], **_kwargs: object
+        async def mappings_for_identifiers(
+            self, identifiers: set[str], **_kwargs: object
         ) -> dict[str, list[MappingResult]]:
-            del codes
+            del identifiers
             raise UnavailableXrefGenerationError(
                 "no active certified Uberon alignment generation"
             )
@@ -634,8 +690,8 @@ def test_translate_preserves_same_identifier_across_systems_and_versions() -> No
 
 
 @pytest.mark.api
-def test_translate_filters_proposed_and_quarantined() -> None:
-    """$translate must never serve proposed or quarantined lifecycles."""
+def test_translate_serves_proposed_and_filters_quarantined() -> None:
+    """$translate exposes unresolved proposals but never quarantined mappings."""
     client = next(_client())
     resp = client.post(
         "/api/v1/mappings/$translate",
@@ -643,10 +699,14 @@ def test_translate_filters_proposed_and_quarantined() -> None:
     )
     assert resp.status_code == 200
     results = resp.json()["result"]
-    # UBERON:0002048 is proposed — must be filtered
-    assert not any(e["concept"]["code"] == "UBERON:0002048" for e in results)
-    # UBERON:0002046 is validated — survives
-    assert any(e["concept"]["code"] == "UBERON:0002046" for e in results)
+    assert {e["concept"]["code"] for e in results} == {
+        "UBERON:0002046",
+        "UBERON:0002048",
+    }
+    assert {e["concept"]["code"]: e["lifecycle"] for e in results} == {
+        "UBERON:0002046": "validated",
+        "UBERON:0002048": "proposed",
+    }
 
 
 @pytest.mark.api
@@ -688,6 +748,7 @@ def test_translate_filters_typed_p334_icdo_endpoint_without_prefix() -> None:
             "equivalence": "unmatched",
             "concept": {"code": "C188218", "system": None, "version": None},
             "confidence": 0.0,
+            "lifecycle": None,
         }
     ]
 

@@ -10,13 +10,19 @@ from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.repositories.xref.candidate_ingest import (
+    CandidateInventory,
+    generate_candidates,
+)
 from ontolib.repositories.xref.models import (
+    CandidateContext,
     SSSOMRecord,
     StaleXrefGenerationError,
     UberonCandidateGenerationMetadata,
     UberonReadIdentity,
     XrefReadPolicy,
 )
+from ontolib.repositories.xref.source_versions import MappingSourceVersions
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
@@ -38,6 +44,16 @@ _READ_POLICY = XrefReadPolicy(
         uberon_serving_identity="c" * 64,
     )
 )
+
+
+class _CandidateClient:
+    def __init__(self, responses: dict[str, list[dict[str, str]]]) -> None:
+        self._responses = responses
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        return next(
+            (rows for marker, rows in self._responses.items() if marker in query), []
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -109,6 +125,99 @@ async def test_store_roundtrip() -> None:
         assert {r["subject_id"] for r in read_back} == {"C3262", "C12345"}
         assert all(r["predicate_id"] == CLOSE_MATCH for r in read_back)
         assert all(r["confidence"] in (0.7, 1.0) for r in read_back)
+        async with sf() as session:
+            persisted = await session.execute(
+                text(
+                    "SELECT object_id, object_version FROM concept_xref "
+                    "WHERE run_id = :run_id"
+                ),
+                {"run_id": run_id},
+            )
+        assert {row.object_id: row.object_version for row in persisted} == {
+            "UBERON:0002107": "uberon-2026-01",
+            "CL:0000057": "cl-2026-01",
+        }
+    finally:
+        await _clear_xref_tables(sf)
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_generated_candidates_persist_each_source_ontology_version() -> None:
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    run_id = f"test-generated-versions-{uuid.uuid4().hex}"
+    versions = MappingSourceVersions(
+        ncit="26.07d",
+        uberon="http://purl.obolibrary.org/obo/uberon/releases/2026-06-19/uberon.owl",
+        cl="http://purl.obolibrary.org/obo/cl/releases/2026-06-08/cl.owl",
+    )
+    contexts = (
+        CandidateContext("R101", "C3262", "op:PrimarySite"),
+        CandidateContext("R104", "C12345", "op:CellOrigin"),
+    )
+    try:
+        records, _ = await generate_candidates(
+            _CandidateClient(
+                {
+                    "SELECT DISTINCT ?fillerCode": [
+                        {"fillerCode": "C3262"},
+                        {"fillerCode": "C12345"},
+                    ],
+                    "SELECT ?code ?label WHERE": [],
+                }
+            ),
+            _CandidateClient(
+                {
+                    "hasDbXref": [
+                        {
+                            "upstream": (
+                                "http://purl.obolibrary.org/obo/UBERON_0002107"
+                            ),
+                            "xref": "NCIT:C3262",
+                        },
+                        {
+                            "upstream": "http://purl.obolibrary.org/obo/CL_0000057",
+                            "xref": "NCIT:C12345",
+                        },
+                    ]
+                }
+            ),
+            versions,
+            inventory=CandidateInventory(contexts=contexts, excluded_counts=()),
+        )
+        store = XrefStore(sf)
+        await store.upsert_run(
+            run_id=run_id,
+            source="uberon-cl",
+            ncit_version=versions.ncit,
+            source_version=versions.uberon,
+        )
+        await activate_records(
+            store, source="uberon-cl", run_id=run_id, records=records
+        )
+        async with sf() as session:
+            persisted = await session.execute(
+                text(
+                    "SELECT object_id, object_version FROM concept_xref "
+                    "WHERE run_id = :run_id"
+                ),
+                {"run_id": run_id},
+            )
+        assert {row.object_id: row.object_version for row in persisted} == {
+            "UBERON:0002107": versions.uberon,
+            "CL:0000057": versions.cl,
+        }
+        loaded = await store.proposed_candidates(
+            expected=UberonReadIdentity(
+                ncit_source_identity="a" * 64,
+                uberon_source_identity="b" * 64,
+                uberon_serving_identity="c" * 64,
+            )
+        )
+        assert {
+            context for record in loaded for context in record.candidate_contexts
+        } == set(contexts)
     finally:
         await _clear_xref_tables(sf)
         await dispose_engine(engine)
@@ -226,7 +335,7 @@ async def test_failed_run_cannot_be_reset_or_overwritten() -> None:
 
 
 @pytest.mark.integration
-async def test_mapping_strength_by_subject() -> None:
+async def test_mapping_strength_applies_serving_lifecycle_policy() -> None:
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     run_id = f"test-strength-{uuid.uuid4().hex}"
@@ -267,11 +376,10 @@ async def test_mapping_strength_by_subject() -> None:
             store, source="uberon-cl", run_id=run_id, records=records
         )
         strength = await store.mapping_strength_by_subject(expected=_READ_POLICY)
-        assert "C3262" in strength
-        assert (EXACT_MATCH, "validated") in strength["C3262"]
-        assert (CLOSE_MATCH, "proposed") in strength["C3262"]
-        assert "C12345" in strength
-        assert (CLOSE_MATCH, "proposed") in strength["C12345"]
+        assert strength == {
+            "C3262": {(EXACT_MATCH, "validated"), (CLOSE_MATCH, "proposed")},
+            "C12345": {(CLOSE_MATCH, "proposed")},
+        }
     finally:
         await _clear_xref_tables(sf)
         await dispose_engine(engine)
@@ -318,7 +426,7 @@ async def test_mapping_strength_rejects_stale_active_generation() -> None:
 
 
 @pytest.mark.integration
-async def test_mappings_by_subjects_filters_by_codes() -> None:
+async def test_served_mappings_filter_by_subject_identifier() -> None:
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     run_id = f"test-mbs-{uuid.uuid4().hex}"
@@ -351,7 +459,7 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
         )
         await _retain_only_active_source(sf, "uberon-cl")
 
-        result = await store.mappings_by_subjects({"C3262"}, expected=_READ_POLICY)
+        result = await store.mappings_for_identifiers({"C3262"}, expected=_READ_POLICY)
         assert "C3262" in result
         assert len(result["C3262"]) == 1
         mapping = result["C3262"][0]
@@ -366,19 +474,19 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
 
 
 @pytest.mark.integration
-async def test_mappings_by_subjects_empty_returns_empty() -> None:
+async def test_served_mappings_empty_lookup_returns_empty() -> None:
     engine = make_engine(get_settings().database_url)
     try:
         sf = make_sessionmaker(engine)
         store = XrefStore(sf)
-        result = await store.mappings_by_subjects(set(), expected=_READ_POLICY)
+        result = await store.mappings_for_identifiers(set(), expected=_READ_POLICY)
         assert result == {}
     finally:
         await dispose_engine(engine)
 
 
 @pytest.mark.integration
-async def test_mappings_by_objects_reverse_lookup() -> None:
+async def test_served_mappings_reverse_lookup() -> None:
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     run_id = f"test-mbo-{uuid.uuid4().hex}"
@@ -411,7 +519,7 @@ async def test_mappings_by_objects_reverse_lookup() -> None:
         )
         await _retain_only_active_source(sf, "uberon-cl")
 
-        result = await store.mappings_by_objects(
+        result = await store.mappings_for_identifiers(
             {"UBERON:0002107"}, expected=_READ_POLICY
         )
         assert "UBERON:0002107" in result
@@ -424,16 +532,4 @@ async def test_mappings_by_objects_reverse_lookup() -> None:
         assert "UBERON:0002046" not in result
     finally:
         await _clear_xref_tables(sf)
-        await dispose_engine(engine)
-
-
-@pytest.mark.integration
-async def test_mappings_by_objects_empty_returns_empty() -> None:
-    engine = make_engine(get_settings().database_url)
-    try:
-        sf = make_sessionmaker(engine)
-        store = XrefStore(sf)
-        result = await store.mappings_by_objects(set(), expected=_READ_POLICY)
-        assert result == {}
-    finally:
         await dispose_engine(engine)

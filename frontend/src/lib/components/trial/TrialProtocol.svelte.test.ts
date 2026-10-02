@@ -35,4 +35,19 @@ describe('TrialProtocol', () => {
 		});
 		expect(screen.getByText('Placebo')).toBeInTheDocument();
 	});
+
+	it('renders repeated upstream conditions and intervention names', () => {
+		render(TrialProtocol, {
+			trial: trialDetail({
+				conditions: ['Melanoma', 'Melanoma'],
+				interventions: [
+					{ name: 'Placebo', type: 'Drug', description: null },
+					{ name: 'Placebo', type: 'Other', description: null }
+				]
+			})
+		});
+
+		expect(screen.getAllByText('Melanoma')).toHaveLength(2);
+		expect(screen.getAllByText('Placebo')).toHaveLength(2);
+	});
 });

@@ -59,6 +59,11 @@ from ontolib.repositories.xref.publisher_xref import (
 from ontolib.repositories.xref.publisher_xref import (
     _parse_assertions as parse_publisher_assertions,
 )
+from ontolib.repositories.xref.source_versions import (
+    MappingSourceVersionError,
+    MappingSourceVersions,
+    read_mapping_source_versions,
+)
 from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES
 from ontolib.repositories.xref.vocab import COMPOSITE_MATCHING
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
@@ -283,6 +288,35 @@ async def test_the_upstream_store_can_name_its_own_version() -> None:
     )
 
 
+async def test_mapping_ingest_refuses_configured_store_without_a_cl_header() -> None:
+    """The retained Uberon artifact cites CL but does not carry CL's own header."""
+    ncit = await _ncit()
+    uberon = await _uberon()
+    if ncit is None or uberon is None:
+        for client in (ncit, uberon):
+            if client is not None:
+                await client.aclose()
+        pytest.skip("NCIt (:7888) and/or Uberon (:7889) store not loaded")
+    try:
+        expected_ncit = await ncit.version()
+        assert expected_ncit is not None, (
+            "NCIt store lacks its default ontology version"
+        )
+        with pytest.raises(MappingSourceVersionError, match="missing CL version"):
+            await read_mapping_source_versions(
+                ncit,
+                uberon,
+                expected_ncit_version=expected_ncit,
+                expected_uberon_version=(
+                    "http://purl.obolibrary.org/obo/uberon/releases/"
+                    "2026-06-19/uberon.owl"
+                ),
+            )
+    finally:
+        await ncit.aclose()
+        await uberon.aclose()
+
+
 # ── #78: the facts the mixed subClassOf / part_of corroboration walk relies on ──
 
 
@@ -433,13 +467,25 @@ async def test_the_real_stores_co_generate_source_agreeing_candidates() -> None:
         pytest.skip("NCIt (:7888) and/or Uberon (:7889) store not loaded")
     try:
         records, filler_to_source = await generate_candidates(
-            ncit, uberon, "ncit-contract", "uberon-contract"
+            ncit,
+            uberon,
+            MappingSourceVersions(
+                ncit="ncit-contract",
+                uberon="uberon-contract",
+                cl="cl-contract",
+            ),
         )
     finally:
         await ncit.aclose()
         await uberon.aclose()
 
     assert filler_to_source, "the real NCIt store returned an empty filler inventory"
+    assert all(record.candidate_contexts for record in records)
+    assert {
+        context.source_role
+        for record in records
+        for context in record.candidate_contexts
+    }.isdisjoint({"R105"})
     composites = [r for r in records if r.mapping_justification == COMPOSITE_MATCHING]
     assert composites, (
         "no filler on the anatomic-site / cell-origin axes is BOTH xref'd by an "

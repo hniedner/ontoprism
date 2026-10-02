@@ -84,6 +84,7 @@ from ontolib.repositories.xref.models import (
 from ontolib.repositories.xref.p334_alignment import publish_p334_alignments
 from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.publisher_xref import publish_uberon_xrefs
+from ontolib.repositories.xref.source_versions import read_mapping_source_versions
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.ncit.activation import (
@@ -131,7 +132,7 @@ from ontolib.terminologies.uberon.store import (
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
-    from ontolib.repositories.cadsr.build import ValidatedCadsrCandidate
+    from ontolib.repositories.cadsr.build import CadsrBuildResult
 
 logger = get_logger(__name__)
 app = typer.Typer(help="Standalone data build for ontoprism.", no_args_is_help=True)
@@ -475,7 +476,7 @@ def _build_cadsr() -> None:
         f".{destination.name}.{uuid4().hex}.candidate"
     )
 
-    async def _prepare() -> ValidatedCadsrCandidate:
+    async def _prepare() -> CadsrBuildResult:
         sidecars = _cadsr_sidecars(destination)
         if sidecars:
             raise RuntimeError(
@@ -492,13 +493,13 @@ def _build_cadsr() -> None:
         ) as extracted:
             return build_database(extracted, candidate_path)
 
-    def _replace_source(candidate: ValidatedCadsrCandidate) -> None:
-        candidate.path.replace(destination)
+    def _replace_source(result: CadsrBuildResult) -> None:
+        result.candidate.path.replace(destination)
 
-    async def _run() -> int:
+    async def _run() -> CadsrBuildResult:
         engine = make_engine(settings.database_url)
         try:
-            candidate = await coordinate_corpus_source_replacement(
+            result = await coordinate_corpus_source_replacement(
                 make_sessionmaker(engine),
                 Corpus.CADSR,
                 prepare=_prepare,
@@ -508,15 +509,20 @@ def _build_cadsr() -> None:
             await _dispose_cadsr_engine(engine, original)
             raise
         await _dispose_cadsr_engine(engine)
-        return candidate.cde_count
+        return result
 
     try:
-        count = asyncio.run(_run())
+        result = asyncio.run(_run())
     except BaseException as original:
         _cleanup_cadsr_candidate(candidate_path, original)
         raise
     _cleanup_cadsr_candidate(candidate_path)
-    typer.echo(f"Built caDSR DB with {count} CDEs at {settings.cadsr_db_path}")
+    typer.echo(
+        f"Built caDSR DB at {settings.cadsr_db_path}: "
+        f"records={result.record_count} "
+        f"distinct_keys={result.distinct_key_count} "
+        f"collapsed_duplicates={result.collapsed_duplicate_count}"
+    )
 
 
 def _sha256(path: Path) -> str:
@@ -818,6 +824,8 @@ async def _build_uberon_publisher_xrefs() -> None:
                 ncit_source_identity=ncit_ready.source_identity,
                 uberon_source_identity=uberon_ready.source_identity,
                 uberon_serving_identity=uberon_ready.observation.serving.sha256,
+                expected_ncit_version=ncit_ready.release,
+                expected_uberon_version=uberon_ready.version_iri,
             )
     finally:
         await dispose_engine(engine)
@@ -943,58 +951,6 @@ def _curated_pairs(
     )
 
 
-async def _endpoint_version(client: SparqlHttpClient) -> str | None:
-    """The endpoint's version, from ``owl:versionInfo`` or else ``owl:versionIRI``.
-
-    Uberon (and most OBO releases) carry no ``owl:versionInfo`` — they carry a
-    ``owl:versionIRI`` like ``…/uberon/releases/2026-04-01/uberon.owl``.  That release
-    date is a *real* version, not a fabrication, so falling back to it is honest.
-    Without the fallback the documented happy path (`data-build xref-promote`) refuses
-    to run, and the only escape is hand-typing a version — which is exactly what makes
-    the D29 sweep self-consistent forever.
-    """
-    rows = await client.select(
-        "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
-        "SELECT ?v WHERE { ?ont a owl:Ontology . "
-        "{ ?ont owl:versionInfo ?v } UNION { ?ont owl:versionIRI ?v } }"
-    )
-    versions = sorted({str(r["v"]) for r in rows if r.get("v")})
-    if not versions:
-        return None
-    # Deterministic, and it does NOT silently pick one: a store holding two ontology
-    # headers (Uberon + CL in one endpoint — `SUPPORTED_PREFIXES` already admits CL)
-    # would otherwise return an arbitrary version per run under `LIMIT 1`. The version
-    # drives a *destructive* comparison: if it flips between runs, the D29 sweep
-    # quarantines every validated bridge and reports a normal-looking `quarantined: N`.
-    return " + ".join(versions)
-
-
-async def _endpoint_versions(
-    ncit_client: SparqlHttpClient, uberon_client: SparqlHttpClient
-) -> tuple[str, str]:
-    """The endpoint versions this run validates against — never fabricated.
-
-    A promoted bridge asserts "validated against these endpoint versions", and the D29
-    staleness sweep compares exactly those strings. A fabricated version (`"unknown"`,
-    or a hardcoded CLI default) is *self-consistent forever*: `"unknown" <> "unknown"`
-    is never true, so the sweep can never fire again, and stale bridges keep being
-    served and counted — with a coverage number that simply never goes down.
-    """
-    ncit = await _endpoint_version(ncit_client)
-    upstream = await _endpoint_version(uberon_client)
-    missing = [name for name, v in (("NCIt", ncit), ("Uberon", upstream)) if not v]
-    if missing:
-        typer.echo(
-            f"No owl:versionInfo or owl:versionIRI on: {', '.join(missing)}. A"
-            " promotion run must be able to name what it validated against, or D29"
-            " staleness can never be detected. Load the store from a versioned release"
-            " (see docs/DATA_SETUP.md), or pass --uberon-version explicitly.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-    return str(ncit), str(upstream)
-
-
 async def _build_xref_promote(
     golden: Path | None, uberon_version: str | None, trust_unsigned: bool = False
 ) -> None:
@@ -1025,15 +981,17 @@ async def _build_xref_promote(
                 uberon_ready, RepositoryUnhealthy
             ):
                 raise RuntimeError("promotion sources are not certified ready")
-            ncit_version, endpoint_uberon = await _endpoint_versions(
-                ncit_client, uberon_client
+            versions = await read_mapping_source_versions(
+                ncit_client,
+                uberon_client,
+                expected_ncit_version=ncit_ready.release,
+                expected_uberon_version=uberon_version or uberon_ready.version_iri,
             )
             report = await run_promotion(
                 XrefStore(sf),
                 ncit_client,
                 uberon_client,
-                ncit_version=ncit_version,
-                source_version=uberon_version or endpoint_uberon,
+                versions=versions,
                 # Named explicitly: the D29 sweep is scoped by source, and a shared
                 # default would let a Uberon run quarantine every Mondo bridge.
                 source="uberon-cl-promotion",
@@ -1163,9 +1121,8 @@ def xref_promote(
     ),
     uberon_version: str | None = typer.Option(
         None,
-        help="Override the upstream release this run validates against. Defaults to "
-        "the endpoint's own owl:versionInfo — do not fabricate one, or the D29 "
-        "staleness sweep can never fire.",
+        help="Assert the exact Uberon versionIRI this run expects. Defaults to the "
+        "certified source release; a mismatch refuses the run.",
     ),
 ) -> None:
     """Promote validated candidates to exactMatch (needs `robot` on PATH)."""

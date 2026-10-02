@@ -156,7 +156,7 @@ def _extracted(tmp_path: Path, members: list[str]) -> Iterator[ExtractedCadsrArc
 def built_candidate(tmp_path: Path) -> ValidatedCadsrCandidate:
     db = tmp_path / "cde_repository.db"
     with _extracted(tmp_path, [_XML]) as extracted:
-        candidate = build_database(extracted, db)
+        candidate = build_database(extracted, db).candidate
     assert candidate.cde_count == 2
     return candidate
 
@@ -247,20 +247,41 @@ def test_build_rejects_empty_member_after_a_valid_member(tmp_path: Path) -> None
 
 
 @pytest.mark.unit
-def test_build_orders_members_by_sequence_and_counts_final_unique_cdes(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("first_fields", "second_fields"),
+    [
+        ("<LONGNAME>First</LONGNAME>", "<LONGNAME>Second</LONGNAME>"),
+        (
+            "<DATAELEMENTCONCEPT><LongName>First</LongName></DATAELEMENTCONCEPT>",
+            "<DATAELEMENTCONCEPT><LongName>Second</LongName></DATAELEMENTCONCEPT>",
+        ),
+        (
+            "<DATAELEMENTCONCEPT><ObjectClass><ConceptDetails>"
+            "<ConceptDetails_ITEM><PREFERRED_NAME>C1</PREFERRED_NAME>"
+            "<LONG_NAME>Same</LONG_NAME><PRIMARY_FLAG_IND>Yes</PRIMARY_FLAG_IND>"
+            "</ConceptDetails_ITEM></ConceptDetails></ObjectClass></DATAELEMENTCONCEPT>",
+            "<DATAELEMENTCONCEPT><ObjectClass><ConceptDetails>"
+            "<ConceptDetails_ITEM><PREFERRED_NAME>C1</PREFERRED_NAME>"
+            "<LONG_NAME>Same</LONG_NAME><PRIMARY_FLAG_IND>No</PRIMARY_FLAG_IND>"
+            "</ConceptDetails_ITEM></ConceptDetails></ObjectClass></DATAELEMENTCONCEPT>",
+        ),
+    ],
+    ids=("cde-json", "search-text", "concept-row"),
+)
+def test_build_rejects_differing_duplicate_keys(
+    tmp_path: Path, first_fields: str, second_fields: str
 ) -> None:
-    def member(long_name: str) -> str:
+    def member(fields: str) -> str:
         return (
             "<DataElementsList><DataElement><PUBLICID>100</PUBLICID>"
-            f"<VERSION>1</VERSION><LONGNAME>{long_name}</LONGNAME>"
+            f"<VERSION>1</VERSION>{fields}"
             "</DataElement></DataElementsList>"
         )
 
     archive = tmp_path / "source.zip"
     with zipfile.ZipFile(archive, "w") as stream:
-        stream.writestr("cde_xml_20260701120000_2.xml", member("Second"))
-        stream.writestr("cde_xml_20260701120000_1.xml", member("First"))
+        stream.writestr("cde_xml_20260701120000_2.xml", member(second_fields))
+        stream.writestr("cde_xml_20260701120000_1.xml", member(first_fields))
     outcome = DownloadOutcome(
         path=str(archive),
         status="downloaded",
@@ -271,15 +292,34 @@ def test_build_orders_members_by_sequence_and_counts_final_unique_cdes(
         ),
     )
 
-    with extract_cadsr_archive(
-        outcome, expected_url=_SOURCE.url, workspace_parent=tmp_path / "workspaces"
-    ) as extracted:
-        candidate = build_database(extracted, tmp_path / "candidate.db")
+    with (
+        extract_cadsr_archive(
+            outcome, expected_url=_SOURCE.url, workspace_parent=tmp_path / "workspaces"
+        ) as extracted,
+        pytest.raises(StorageError, match=r"duplicate caDSR key \(100, 1\) differs"),
+    ):
+        build_database(extracted, tmp_path / "candidate.db")
 
-    assert candidate.cde_count == 1
-    detail = CdeRepository(candidate.path).get_cde("100", "1")
-    assert detail is not None
-    assert detail.long_name == "Second"
+    assert not (tmp_path / "candidate.db").exists()
+
+
+@pytest.mark.unit
+def test_build_counts_identical_duplicate_keys(
+    tmp_path: Path,
+) -> None:
+    member = (
+        "<DataElementsList><DataElement><PUBLICID>100</PUBLICID>"
+        "<VERSION>1</VERSION><LONGNAME>Same</LONGNAME>"
+        "</DataElement></DataElementsList>"
+    )
+
+    with _extracted(tmp_path, [member, member]) as extracted:
+        result = build_database(extracted, tmp_path / "candidate.db")
+
+    assert result.candidate.cde_count == 1
+    assert result.record_count == 2
+    assert result.distinct_key_count == 1
+    assert result.collapsed_duplicate_count == 1
 
 
 @pytest.mark.unit

@@ -218,6 +218,7 @@ def test_close_match_not_covered() -> None:
     )
     assert report.cde_coverage == 0.0
     assert report.anchors_close_only == 1
+    assert report.anchors_unmapped == 0
     assert report.anchors_identity_mapped == 0
 
 

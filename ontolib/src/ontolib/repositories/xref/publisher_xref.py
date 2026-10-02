@@ -16,6 +16,11 @@ from ontolib.repositories.xref.models import (
     UberonPublisherGenerationMetadata,
 )
 from ontolib.repositories.xref.publication import fail_run_on_error, publish_generation
+from ontolib.repositories.xref.source_versions import (
+    MappingSourceVersionError,
+    MappingSourceVersions,
+    read_mapping_source_versions,
+)
 from ontolib.repositories.xref.vocab import (
     CLOSE_MATCH,
     DATABASE_CROSS_REFERENCE,
@@ -110,7 +115,7 @@ def _rows_identity(rows: object) -> str:
 
 
 def _record(
-    upstream: str, code: str, *, ncit_version: str, uberon_version: str
+    upstream: str, code: str, *, versions: MappingSourceVersions
 ) -> SSSOMRecord:
     return SSSOMRecord(
         subject_id=upstream,
@@ -120,8 +125,8 @@ def _record(
         object_system="ncit",
         mapping_justification=DATABASE_CROSS_REFERENCE,
         confidence=0.9,
-        subject_source_version=uberon_version,
-        object_source_version=ncit_version,
+        subject_source_version=versions.upstream_for(upstream),
+        object_source_version=versions.ncit,
         author="uberon-publisher-xref",
     )
 
@@ -166,19 +171,22 @@ def _delta(expected: int, observed: int) -> CountDelta:
     )
 
 
-async def _observed_version(client: SparqlHttpClient, name: str) -> str:
-    if name == "NCIt":
-        version = await client.version()
-        if version:
-            return version
-    rows = await client.select(
-        "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
-        "SELECT ?v WHERE { ?ont a owl:Ontology; owl:versionIRI ?v }"
-    )
-    versions = sorted({str(row["v"]) for row in rows if row.get("v")})
-    if len(versions) != 1:
-        raise PublisherXrefSourceError(f"{name} source has no unique release identity")
-    return versions[0]
+async def _source_versions(
+    ncit_client: SparqlHttpClient,
+    uberon_client: SparqlHttpClient,
+    *,
+    expected_ncit_version: str,
+    expected_uberon_version: str,
+) -> MappingSourceVersions:
+    try:
+        return await read_mapping_source_versions(
+            ncit_client,
+            uberon_client,
+            expected_ncit_version=expected_ncit_version,
+            expected_uberon_version=expected_uberon_version,
+        )
+    except MappingSourceVersionError as exc:
+        raise PublisherXrefSourceError(str(exc)) from exc
 
 
 def _require_unchanged_counts(
@@ -210,17 +218,21 @@ async def _sources_changed(
     uberon_client: SparqlHttpClient,
     assertions: list[tuple[str, str]],
     *,
-    ncit_version: str,
-    uberon_version: str,
+    versions: MappingSourceVersions,
     uberon_assertion_identity: str,
     ncit_target_identity: str,
 ) -> bool:
     assertions_after = _parse_assertions(await fetch_uberon_xrefs(uberon_client))
     resolved_after = await _resolved_targets(ncit_client, assertions)
+    versions_after = await _source_versions(
+        ncit_client,
+        uberon_client,
+        expected_ncit_version=versions.ncit,
+        expected_uberon_version=versions.uberon,
+    )
     return any(
         (
-            await _observed_version(ncit_client, "NCIt") != ncit_version,
-            await _observed_version(uberon_client, "Uberon") != uberon_version,
+            versions_after != versions,
             _rows_identity(assertions_after) != uberon_assertion_identity,
             _rows_identity(sorted(resolved_after)) != ncit_target_identity,
         )
@@ -236,6 +248,8 @@ async def publish_uberon_xrefs(
     ncit_source_identity: str,
     uberon_source_identity: str,
     uberon_serving_identity: str,
+    expected_ncit_version: str,
+    expected_uberon_version: str,
     run_id: str | None = None,
 ) -> PublisherXrefReport:
     """Validate and publish every resolvable Uberon-authored NCIt assertion."""
@@ -245,16 +259,26 @@ async def publish_uberon_xrefs(
     source_class_count, assertion_count = _require_unchanged_counts(
         assertions, expected_counts
     )
-    ncit_version = await _observed_version(ncit_client, "NCIt")
-    uberon_version = await _observed_version(uberon_client, "Uberon")
+    versions = await _source_versions(
+        ncit_client,
+        uberon_client,
+        expected_ncit_version=expected_ncit_version,
+        expected_uberon_version=expected_uberon_version,
+    )
     resolved = await _resolved_targets(ncit_client, assertions)
     ncit_target_identity = _rows_identity(sorted(resolved))
+    source_metadata = UberonPublisherGenerationMetadata(
+        ncit_source_identity=ncit_source_identity,
+        uberon_source_identity=uberon_source_identity,
+        uberon_serving_identity=uberon_serving_identity,
+        uberon_assertion_identity=uberon_assertion_identity,
+        ncit_target_identity=ncit_target_identity,
+    )
     if await _sources_changed(
         ncit_client,
         uberon_client,
         assertions,
-        ncit_version=ncit_version,
-        uberon_version=uberon_version,
+        versions=versions,
         uberon_assertion_identity=uberon_assertion_identity,
         ncit_target_identity=ncit_target_identity,
     ):
@@ -263,8 +287,7 @@ async def publish_uberon_xrefs(
         _record(
             upstream,
             code,
-            ncit_version=ncit_version,
-            uberon_version=uberon_version,
+            versions=versions,
         )
         for upstream, code in assertions
         if code in resolved
@@ -273,8 +296,8 @@ async def publish_uberon_xrefs(
         assertions,
         records,
         resolved,
-        ncit_version=ncit_version,
-        uberon_version=uberon_version,
+        ncit_version=versions.ncit,
+        uberon_version=versions.uberon,
         source_class_count=source_class_count,
         assertion_count=assertion_count,
         uberon_assertion_identity=uberon_assertion_identity,
@@ -283,8 +306,8 @@ async def publish_uberon_xrefs(
     await store.upsert_run(
         run_id=rid,
         source=PUBLISHER_XREF_SOURCE,
-        ncit_version=ncit_version,
-        source_version=uberon_version,
+        ncit_version=versions.ncit,
+        source_version=versions.uberon,
     )
     async with fail_run_on_error(store, rid):
         await publish_generation(
@@ -293,13 +316,7 @@ async def publish_uberon_xrefs(
             source=PUBLISHER_XREF_SOURCE,
             run_id=rid,
             records=records,
-            source_metadata=UberonPublisherGenerationMetadata(
-                ncit_source_identity=ncit_source_identity,
-                uberon_source_identity=uberon_source_identity,
-                uberon_serving_identity=uberon_serving_identity,
-                uberon_assertion_identity=uberon_assertion_identity,
-                ncit_target_identity=ncit_target_identity,
-            ),
+            source_metadata=source_metadata,
         )
         await store.update_run_metrics(rid, report.model_dump(mode="json"))
     return report

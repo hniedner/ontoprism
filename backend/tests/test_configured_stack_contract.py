@@ -40,6 +40,7 @@ _XREF_COLUMNS = {
         "review_status",
         "author",
         "evidence",
+        "candidate_contexts",
     },
 }
 

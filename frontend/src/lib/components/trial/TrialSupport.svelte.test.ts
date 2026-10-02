@@ -67,4 +67,22 @@ describe('TrialSupport', () => {
 		// The null name renders as empty string in Svelte; the role still shows.
 		expect(screen.getByText('Lead')).toBeInTheDocument();
 	});
+
+	it('renders repeated upstream sponsors and reference citations', () => {
+		render(TrialSupport, {
+			trial: trialDetail({
+				sponsors: [
+					{ name: 'NCI', role: 'Lead' },
+					{ name: 'NCI', role: 'Collaborator' }
+				],
+				references: [
+					{ pmid: '1', citation: 'Smith et al.', reference_type: 'result' },
+					{ pmid: '2', citation: 'Smith et al.', reference_type: 'background' }
+				]
+			})
+		});
+
+		expect(screen.getAllByText('NCI')).toHaveLength(2);
+		expect(screen.getAllByText('Smith et al.')).toHaveLength(2);
+	});
 });

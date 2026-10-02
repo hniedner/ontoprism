@@ -279,6 +279,11 @@ path = "ontolib/tests/repositories/xref/test_additivity_integration.py"
 fixtures = ["isolated_qlever_settings"]
 
 [[mutator]]
+path = "ontolib/tests/repositories/xref/test_candidate_ingest.py"
+tests = ["test_candidate_inventory_routes_direct_nested_and_mixed_roles"]
+fixtures = ["isolated_qlever_url"]
+
+[[mutator]]
 path = "ontolib/tests/repositories/xref/test_migration_roundtrip.py"
 fixtures = ["isolated_migration_postgres_settings"]
 

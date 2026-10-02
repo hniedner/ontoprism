@@ -1,6 +1,6 @@
 """Mappings + FHIR-style $translate endpoints (issue #82, design §8.4)."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import Field
@@ -13,7 +13,6 @@ from backend.repository_metadata import RepositoryUnhealthy
 from backend.security import has_icdo_entitlement
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.repositories.xref.models import (
-    EndpointIdentity,
     IcdoReadIdentity,
     MappingResult,
     StaleXrefGenerationError,
@@ -26,28 +25,31 @@ from ontolib.repositories.xref.vocab import (
     CLOSE_MATCH,
     EXACT_MATCH,
     NARROW_MATCH,
+    RELATED_MATCH,
+    MappingLifecycle,
+    MappingPredicate,
 )
 
-_LICENSED_PREFIXES = frozenset({"SNOMED", "ICD-O-3"})
+FhirR4ConceptMapEquivalence = Literal[
+    "relatedto",
+    "equivalent",
+    "equal",
+    "wider",
+    "subsumes",
+    "narrower",
+    "specializes",
+    "inexact",
+    "unmatched",
+    "disjoint",
+]
 
-_SKOS_TO_EQUIVALENCE: dict[str, str] = {
+_SKOS_TO_EQUIVALENCE: dict[MappingPredicate, FhirR4ConceptMapEquivalence] = {
     EXACT_MATCH: "equivalent",
-    CLOSE_MATCH: "close",
-    BROAD_MATCH: "broad",
-    NARROW_MATCH: "narrow",
+    CLOSE_MATCH: "inexact",
+    BROAD_MATCH: "wider",
+    NARROW_MATCH: "narrower",
+    RELATED_MATCH: "relatedto",
 }
-
-_ACTIVE_LIFECYCLES = frozenset({"validated", "active"})
-
-
-def _is_licensed(endpoint: EndpointIdentity) -> bool:
-    prefix = (
-        endpoint.identifier.split(":", maxsplit=1)[0]
-        if ":" in endpoint.identifier
-        else ""
-    )
-    return endpoint.system == "icdo" or prefix in _LICENSED_PREFIXES
-
 
 router = APIRouter(prefix="/api/v1/mappings", tags=["mappings"])
 
@@ -71,58 +73,49 @@ class TranslateConcept(StrictBoundaryModel):
 
 
 class TranslateEntry(StrictBoundaryModel):
-    """One translate result — the equivalence and target concept."""
+    """One translate result using FHIR R4 ConceptMap equivalence codes."""
 
-    equivalence: str
+    equivalence: FhirR4ConceptMapEquivalence
     concept: TranslateConcept
     confidence: float = Field(ge=0.0, le=1.0)
+    lifecycle: MappingLifecycle | None
 
 
 class TranslateResponse(StrictBoundaryModel):
     """Result of a ``$translate`` lookup."""
 
+    fhir_release: Literal["R4"] = "R4"
     result: list[TranslateEntry]
 
 
 def _translate_entry(
     code: str,
-    pred: str,
+    predicate: MappingPredicate | None,
     confidence: float,
     *,
     system: str | None = None,
     version: str | None = None,
+    lifecycle: MappingLifecycle | None = None,
 ) -> TranslateEntry:
     return TranslateEntry(
-        equivalence=_SKOS_TO_EQUIVALENCE.get(pred, "unmatched"),
+        equivalence=(
+            _SKOS_TO_EQUIVALENCE[predicate] if predicate is not None else "unmatched"
+        ),
         concept=TranslateConcept(code=code, system=system, version=version),
         confidence=confidence,
-    )
-
-
-def _is_eligible(
-    row: MappingResult, *, target: EndpointIdentity, licensed_allowed: bool
-) -> bool:
-    return row.lifecycle in _ACTIVE_LIFECYCLES and (
-        licensed_allowed or not _is_licensed(target)
+        lifecycle=lifecycle,
     )
 
 
 def _collect_entries(
     rows_by_key: dict[str, list[MappingResult]],
     *,
-    licensed_allowed: bool,
     seen: set[tuple[str, str, str, str]],
 ) -> list[TranslateEntry]:
     entries: list[TranslateEntry] = []
     for requested_identifier, rows in rows_by_key.items():
         for row in rows:
             target, predicate = mapping_relative_to(row, requested_identifier)
-            if not _is_eligible(
-                row,
-                target=target,
-                licensed_allowed=licensed_allowed,
-            ):
-                continue
             key = (target.system, target.version, target.identifier, predicate)
             if key in seen:
                 continue
@@ -134,6 +127,7 @@ def _collect_entries(
                     row.confidence,
                     system=target.system,
                     version=target.version,
+                    lifecycle=row.lifecycle,
                 )
             )
     return entries
@@ -188,10 +182,11 @@ async def translate(
 ) -> TranslateResponse:
     """FHIR-style ConceptMap ``$translate`` for NCIt↔upstream.
 
-    Serves ``validated``/``active`` mappings, filtering
-    ``proposed``, ``quarantined``, and other non-active lifecycles.  Licensed sources
-    (SNOMED, ICD-O-3) require both server capability and valid consumer
-    entitlement (D26, D71). Returns ``unmatched`` when no valid mapping exists.
+    Serves current ``proposed``/``validated``/``active`` mappings while filtering
+    ``quarantined`` and ``retired`` mappings. A proposal superseded by a resolved
+    mapping for the same directed pair is not served. Licensed sources (SNOMED,
+    ICD-O-3) require both server capability and valid consumer entitlement (D26,
+    D71). Returns ``unmatched`` when no valid mapping exists.
     """
     settings = get_settings()
     code = body.code
@@ -201,26 +196,17 @@ async def translate(
 
     expected = await _read_policy(metadata, include_icdo=licensed_allowed)
     try:
-        upstream = await xref_store.mappings_by_subjects({code}, expected=expected)
-        reverse = await xref_store.mappings_by_objects({code}, expected=expected)
+        mappings = await xref_store.mappings_for_identifiers({code}, expected=expected)
     except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
     seen: set[tuple[str, str, str, str]] = set()
     entries = _collect_entries(
-        upstream,
-        licensed_allowed=licensed_allowed,
+        mappings,
         seen=seen,
-    )
-    entries.extend(
-        _collect_entries(
-            reverse,
-            licensed_allowed=licensed_allowed,
-            seen=seen,
-        )
     )
 
     if not entries:
-        entries.append(_translate_entry(code, "", 0.0))
+        entries.append(_translate_entry(code, None, 0.0))
 
     return TranslateResponse(result=entries)

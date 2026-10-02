@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -15,6 +16,8 @@ from ontolib.repositories.xref.vocab import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from ontolib.repositories.xref.evidence import Evidence
 
 
@@ -125,12 +128,37 @@ def _icdo_identity_value(value: IcdoReadIdentity) -> IcdoReadIdentityValue:
     )
 
 
+def _mapping_pair(
+    mapping: MappingResult,
+) -> tuple[EndpointIdentity, EndpointIdentity]:
+    return mapping.subject, mapping.object
+
+
+def _mapping_is_resolved(mapping: MappingResult) -> bool:
+    return mapping.lifecycle in {"validated", "active"}
+
+
+def _mapping_remains_visible(
+    mapping: MappingResult,
+    *,
+    resolved_pairs: set[tuple[EndpointIdentity, EndpointIdentity]],
+) -> bool:
+    return (
+        mapping.lifecycle != "proposed" or _mapping_pair(mapping) not in resolved_pairs
+    )
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class XrefReadPolicy:
-    """Sources relevant to one mapping read and their current identities."""
+    """Sources relevant to one mapping read and their serving policy.
+
+    Selecting the ICD-O family conveys licence entitlement; ``allow_licensed`` is
+    derived from that certified identity rather than supplied independently.
+    """
 
     uberon: UberonReadIdentityValue | None
     icdo: IcdoReadIdentityValue | None
+    allow_licensed: bool
 
     def __init__(
         self,
@@ -145,6 +173,23 @@ class XrefReadPolicy:
             _uberon_identity_value(uberon) if uberon else None,
         )
         object.__setattr__(self, "icdo", _icdo_identity_value(icdo) if icdo else None)
+        object.__setattr__(self, "allow_licensed", icdo is not None)
+
+    def serves(self, mapping: MappingResult) -> bool:
+        """Whether one current-generation mapping is eligible for consumers."""
+        return mapping.lifecycle in {"proposed", "validated", "active"} and (
+            self.allow_licensed or not _mapping_is_licensed(mapping)
+        )
+
+    def admitted(self, mappings: Iterable[MappingResult]) -> tuple[MappingResult, ...]:
+        """Apply gates, hiding proposals for already-resolved directed pairs."""
+        eligible = tuple(filter(self.serves, mappings))
+        resolved_pairs = set(map(_mapping_pair, filter(_mapping_is_resolved, eligible)))
+        remains_visible = partial(
+            _mapping_remains_visible,
+            resolved_pairs=resolved_pairs,
+        )
+        return tuple(filter(remains_visible, eligible))
 
 
 class StaleXrefGenerationError(RuntimeError):
@@ -171,7 +216,7 @@ class EndpointIdentity:
 
 @dataclass(frozen=True)
 class MappingResult:
-    """One currently active mapping with both endpoint identities intact."""
+    """One mapping row with both endpoint identities intact."""
 
     subject: EndpointIdentity
     predicate: MappingPredicate
@@ -188,12 +233,54 @@ class MappingResult:
             raise ValueError(f"confidence out of range: {self.confidence}")
 
 
+_LICENSED_IDENTIFIER_PREFIXES = frozenset({"SNOMED", "ICD-O-3"})
+
+
+def _mapping_is_licensed(mapping: MappingResult) -> bool:
+    return any(
+        endpoint.system == "icdo"
+        or endpoint.identifier.partition(":")[0] in _LICENSED_IDENTIFIER_PREFIXES
+        for endpoint in (mapping.subject, mapping.object)
+    )
+
+
+@dataclass(frozen=True, order=True, slots=True)
+class CandidateContext:
+    """Source-role route that made one NCIt filler eligible for mapping."""
+
+    source_role: str
+    source_filler: str
+    normalized_axis: str
+
+    def __post_init__(self) -> None:
+        if not self.source_role.startswith("R") or not self.source_role[1:].isdigit():
+            raise ValueError("source_role must be an NCIt role code")
+        if (
+            not self.source_filler.startswith("C")
+            or not self.source_filler[1:].isdigit()
+        ):
+            raise ValueError("source_filler must be an NCIt concept code")
+        if not self.normalized_axis.startswith("op:"):
+            raise ValueError("normalized_axis must be an OntoPrism axis")
+
+
+def _canonical_candidate_contexts(
+    subject_id: str, contexts: tuple[CandidateContext, ...]
+) -> tuple[CandidateContext, ...]:
+    canonical = tuple(sorted(set(contexts)))
+    for context in canonical:
+        if context.source_filler != subject_id:
+            raise ValueError("candidate context filler must match the mapping subject")
+    return canonical
+
+
 @dataclass(frozen=True)
 class SSSOMRecord:
     """NCIt<->upstream mapping with provenance.
 
     IDs, source versions, predicate, justification, and confidence are required;
-    systems, lifecycle, review status, author, and evidence carry defaults.
+    systems, lifecycle, review status, author, evidence, and candidate context carry
+    defaults.
     """
 
     subject_id: str
@@ -214,6 +301,7 @@ class SSSOMRecord:
     # `compare=False` affects only dataclass equality and hashing. Publication
     # explicitly serializes evidence, so it remains part of generation identity.
     evidence: tuple[Evidence, ...] = field(default=(), compare=False)
+    candidate_contexts: tuple[CandidateContext, ...] = ()
 
     @property
     def subject(self) -> EndpointIdentity:
@@ -247,5 +335,10 @@ class SSSOMRecord:
             raise ValueError(f"predicate_id not allowed: {self.predicate_id}")
         if self.lifecycle_state not in LIFECYCLE_STATES:
             raise ValueError(f"lifecycle_state not allowed: {self.lifecycle_state}")
+        object.__setattr__(
+            self,
+            "candidate_contexts",
+            _canonical_candidate_contexts(self.subject_id, self.candidate_contexts),
+        )
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"confidence out of range: {self.confidence}")
