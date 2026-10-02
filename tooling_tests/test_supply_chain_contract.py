@@ -200,25 +200,47 @@ def test_runtime_image_version_inputs_are_explicit() -> None:
     }
     dockerfile = (_ROOT / "backend/Dockerfile").read_text()
     assert "ARG ONTOPRISM_VERSION=0+unknown" in dockerfile
+    assert 'PDM_BUILD_SCM_VERSION="$ONTOPRISM_VERSION" pip install' in dockerfile
+    assert "version(name) == sys.argv[1]" in dockerfile
+    assert "('ontolib', 'ontoprism-backend')" in dockerfile
+
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    runtime_check = next(
+        step
+        for step in workflow["jobs"]["docker-build"]["steps"]
+        if step.get("name") == "Verify image runtimes"
+    )
+    assert "EXPECTED_BACKEND_VERSION" in runtime_check["env"]
+    assert "assert body['version'] == sys.argv[1]" in runtime_check["run"]
 
 
 def test_ci_fetches_tags_for_scm_backed_package_installation() -> None:
     workflow = yaml.safe_load((_ROOT / ".github/workflows/ci.yml").read_text())
+    checked_jobs = 0
     for job in workflow["jobs"].values():
         steps = job.get("steps", [])
         installs_local_package = any(
             isinstance(step.get("run"), str)
-            and ("pdm sync" in step["run"] or "pdm build -p backend" in step["run"])
+            and any(
+                command in step["run"]
+                for command in ("pdm sync", "pdm install", "pdm build")
+            )
             for step in steps
         )
         if not installs_local_package:
             continue
+        checked_jobs += 1
         checkout = next(
-            step
-            for step in steps
-            if str(step.get("uses", "")).startswith("actions/checkout@")
+            (
+                step
+                for step in steps
+                if str(step.get("uses", "")).startswith("actions/checkout@")
+            ),
+            None,
         )
+        assert checkout is not None
         assert checkout["with"]["fetch-depth"] == 0
+    assert checked_jobs >= 2
 
 
 @pytest.fixture
