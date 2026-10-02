@@ -171,6 +171,14 @@ State facts only from commands run in this session; otherwise say `not verified`
 credentials/home files or modify stores, repository data or artifacts. A plan names
 checked inputs. Dry-run downstream paths before requesting sign-off.
 
+Clean up what you created under `tmp/` once it is obsolete and you are sure: scratch
+scripts when their issue is merged into the milestone branch, demo and PR-body files
+when their comment is posted and the milestone PR is merged, screenshots when they are
+attached or replaced, and temporary worktrees and remote branches when their work is
+merged. Keep what an open issue, the current milestone or a tracked test still reads,
+and anything that is human review work or source data. If unsure, keep it and ask. Do
+this at each milestone completion, after the merge to `main` is green.
+
 ## Testing tiers
 
 Quality stays strict; only timing is tiered:
