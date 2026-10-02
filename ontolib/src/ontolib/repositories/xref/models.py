@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -15,6 +16,8 @@ from ontolib.repositories.xref.vocab import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from ontolib.repositories.xref.evidence import Evidence
 
 
@@ -125,9 +128,33 @@ def _icdo_identity_value(value: IcdoReadIdentity) -> IcdoReadIdentityValue:
     )
 
 
+def _mapping_pair(
+    mapping: MappingResult,
+) -> tuple[EndpointIdentity, EndpointIdentity]:
+    return mapping.subject, mapping.object
+
+
+def _mapping_is_resolved(mapping: MappingResult) -> bool:
+    return mapping.lifecycle in {"validated", "active"}
+
+
+def _mapping_remains_visible(
+    mapping: MappingResult,
+    *,
+    resolved_pairs: set[tuple[EndpointIdentity, EndpointIdentity]],
+) -> bool:
+    return (
+        mapping.lifecycle != "proposed" or _mapping_pair(mapping) not in resolved_pairs
+    )
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class XrefReadPolicy:
-    """Sources relevant to one mapping read and their serving policy."""
+    """Sources relevant to one mapping read and their serving policy.
+
+    Selecting the ICD-O family conveys licence entitlement; ``allow_licensed`` is
+    derived from that certified identity rather than supplied independently.
+    """
 
     uberon: UberonReadIdentityValue | None
     icdo: IcdoReadIdentityValue | None
@@ -150,9 +177,19 @@ class XrefReadPolicy:
 
     def serves(self, mapping: MappingResult) -> bool:
         """Whether one current-generation mapping is eligible for consumers."""
-        return mapping.lifecycle in {"validated", "active"} and (
+        return mapping.lifecycle in {"proposed", "validated", "active"} and (
             self.allow_licensed or not _mapping_is_licensed(mapping)
         )
+
+    def admitted(self, mappings: Iterable[MappingResult]) -> tuple[MappingResult, ...]:
+        """Serve unresolved proposals unless the same pair is already resolved."""
+        eligible = tuple(filter(self.serves, mappings))
+        resolved_pairs = set(map(_mapping_pair, filter(_mapping_is_resolved, eligible)))
+        remains_visible = partial(
+            _mapping_remains_visible,
+            resolved_pairs=resolved_pairs,
+        )
+        return tuple(filter(remains_visible, eligible))
 
 
 class StaleXrefGenerationError(RuntimeError):

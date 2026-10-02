@@ -25,6 +25,19 @@ describe('TrialOutcomes', () => {
 		expect(screen.getByText('secondary')).toBeInTheDocument();
 	});
 
+	it('renders repeated secondary outcome measures from the upstream trial', () => {
+		render(TrialOutcomes, {
+			trial: trialDetail({
+				secondary_outcomes: [
+					{ measure: 'Evaluation of Antiviral Immunity', description: 'First assay', time_frame: null },
+					{ measure: 'Evaluation of Antiviral Immunity', description: 'Second assay', time_frame: null }
+				]
+			})
+		});
+
+		expect(screen.getAllByText('Evaluation of Antiviral Immunity')).toHaveLength(2);
+	});
+
 	it('renders the eligibility criteria when present', () => {
 		render(TrialOutcomes, {
 			trial: trialDetail({ eligibility_criteria: 'Age >= 18 years.' })

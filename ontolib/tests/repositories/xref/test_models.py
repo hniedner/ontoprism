@@ -65,7 +65,7 @@ def test_xref_read_policy_requires_a_source_family() -> None:
 @pytest.mark.parametrize(
     ("lifecycle", "served"),
     [
-        ("proposed", False),
+        ("proposed", True),
         ("validated", True),
         ("active", True),
         ("quarantined", False),
@@ -91,6 +91,43 @@ def test_mapping_serving_policy_applies_every_lifecycle(
     )
 
     assert policy.serves(mapping) is served
+
+
+@pytest.mark.unit
+def test_mapping_serving_policy_hides_a_proposal_resolved_for_the_same_pair() -> None:
+    policy = XrefReadPolicy(
+        uberon=UberonReadIdentity(
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+        )
+    )
+    subject = EndpointIdentity("ncit", "26.07d", "C1")
+    obj = EndpointIdentity("uberon-cl", "2026-07-22", "UBERON:1")
+    proposed = MappingResult(subject, CLOSE_MATCH, obj, "proposed", 0.7)
+    validated = MappingResult(subject, EXACT_MATCH, obj, "validated", 1.0)
+
+    assert policy.admitted((proposed, validated)) == (validated,)
+
+
+@pytest.mark.unit
+def test_mapping_serving_policy_preserves_reciprocal_source_assertions() -> None:
+    policy = XrefReadPolicy(
+        uberon=UberonReadIdentity(
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+        )
+    )
+    ncit = EndpointIdentity("ncit", "26.07d", "C1")
+    uberon = EndpointIdentity("uberon-cl", "2026-07-22", "UBERON:1")
+    ncit_assertion = MappingResult(ncit, CLOSE_MATCH, uberon, "proposed", 0.7)
+    publisher_assertion = MappingResult(uberon, CLOSE_MATCH, ncit, "proposed", 0.9)
+
+    assert policy.admitted((ncit_assertion, publisher_assertion)) == (
+        ncit_assertion,
+        publisher_assertion,
+    )
 
 
 @pytest.mark.unit

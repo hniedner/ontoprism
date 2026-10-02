@@ -211,6 +211,13 @@ async def test_candidate_inventory_routes_direct_nested_and_mixed_roles(
                   owl:someValuesFrom ncit:C99765 ]
             )
         ] .
+        ncit:C99756 owl:equivalentClass [
+            owl:intersectionOf (
+                ncit:C99760
+                [ a owl:Restriction ; owl:onProperty ncit:R999 ;
+                  owl:someValuesFrom ncit:C99765 ]
+            )
+        ] .
     """
 
     async with ncit_sparql_client(isolated_qlever_url) as client:
@@ -222,7 +229,7 @@ async def test_candidate_inventory_routes_direct_nested_and_mixed_roles(
         )
         inventory = await candidate_ingest_module.extract_candidate_inventory(
             client.select,
-            ("C99751", "C99752", "C99753", "C99754", "C99755"),
+            ("C99751", "C99752", "C99753", "C99754", "C99755", "C99756"),
         )
 
     assert {
@@ -234,10 +241,8 @@ async def test_candidate_inventory_routes_direct_nested_and_mixed_roles(
         ("R101", "C99763", "op:PrimarySite"),
     }
     assert inventory.excluded_by_role == {"R105": 1}
-    assert inventory.unknown_by_reason == {
-        "unrouted-role:R999": 1,
-        "unsupported-definition-constructor": 1,
-    }
+    assert inventory.unrouted_by_role == {"R999": 1}
+    assert inventory.unknown_by_reason == {"unsupported-definition-constructor": 1}
 
 
 # -- Tests: Query structure ---------------------------------------------
@@ -373,6 +378,7 @@ async def test_role_filler_routes_survive_generation_and_report_exclusions() -> 
     inventory = CandidateInventory(
         contexts=included,
         excluded_counts=(("R105", 2),),
+        unrouted_counts=(("R999", 1),),
     )
     ncit = _MockClient({"SELECT ?code ?label WHERE": []})
     uberon = _MockClient(
@@ -404,6 +410,7 @@ async def test_role_filler_routes_survive_generation_and_report_exclusions() -> 
     assert report["generated_candidates_by_role"] == {"R101": 1, "R103": 1}
     assert report["excluded_candidates_by_role"] == {"R105": 2}
     assert report["excluded_r105_candidates"] == 2
+    assert report["unrouted_candidates_by_role"] == {"R999": 1}
 
 
 @pytest.mark.unit

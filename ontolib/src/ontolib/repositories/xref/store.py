@@ -651,11 +651,12 @@ class XrefStore:
                 sql, {"generation_ids": tuple(generation_ids.values())}
             )
             out: dict[str, set[tuple[str, str]]] = {}
-            for r in result.mappings().all():
-                mapping = _mapping_result(r)
-                if expected.serves(mapping):
-                    pair = (mapping.predicate, mapping.lifecycle)
-                    out.setdefault(mapping.subject.identifier, set()).add(pair)
+            mappings = expected.admitted(
+                _mapping_result(row) for row in result.mappings().all()
+            )
+            for mapping in mappings:
+                pair = (mapping.predicate, mapping.lifecycle)
+                out.setdefault(mapping.subject.identifier, set()).add(pair)
             return out
 
     async def proposed_candidates(
@@ -768,6 +769,9 @@ class XrefStore:
         would otherwise see the stale (C, U1) block the correct new (C, U2) as a
         "conflicting identity", and then quarantine (C, U1) moments later — leaving C
         with no bridge at all, and blaming a row the same run invalidated.
+
+        Unknown object namespaces are marked stale so the promotion path fails loudly
+        when it tries to resolve their expected upstream version.
         """
         sql = text(
             "SELECT DISTINCT subject_id, object_id FROM concept_xref "
@@ -775,10 +779,9 @@ class XrefStore:
             "AND generation_id = COALESCE(:generation_id, ("
             "SELECT generation_id FROM xref_active_generation WHERE source = :source)) "
             "AND (subject_version <> :ncit_version "
-            "     OR object_version <> CASE "
-            "       WHEN object_id LIKE 'UBERON:%' THEN :source_version "
-            "       WHEN object_id LIKE 'CL:%' THEN :cl_version "
-            "       ELSE NULL END)"
+            "     OR (object_id LIKE 'UBERON:%' AND object_version <> :source_version) "
+            "     OR (object_id LIKE 'CL:%' AND object_version <> :cl_version) "
+            "     OR (object_id NOT LIKE 'UBERON:%' AND object_id NOT LIKE 'CL:%'))"
         )
         async with self._sf() as s:
             result = await s.execute(
@@ -857,10 +860,7 @@ class XrefStore:
             )
             rows = result.mappings().all()
             out: dict[str, list[MappingResult]] = {}
-            for row in rows:
-                mapping = _mapping_result(row)
-                if not expected.serves(mapping):
-                    continue
+            for mapping in expected.admitted(_mapping_result(row) for row in rows):
                 key = (
                     mapping.subject.identifier
                     if mapping.subject.identifier in identifiers

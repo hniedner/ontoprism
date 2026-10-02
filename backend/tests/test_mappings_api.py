@@ -172,7 +172,7 @@ def test_concept_mappings_returns_forward_mappings() -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["code"] == "C12400"
-    assert len(body["mappings"]) == 1
+    assert len(body["mappings"]) == 2
     m0 = body["mappings"][0]
     assert m0["object_id"] == "UBERON:0002046"
     assert m0["system"] == "uberon"
@@ -688,8 +688,8 @@ def test_translate_preserves_same_identifier_across_systems_and_versions() -> No
 
 
 @pytest.mark.api
-def test_translate_filters_proposed_and_quarantined() -> None:
-    """$translate must never serve proposed or quarantined lifecycles."""
+def test_translate_serves_proposed_and_filters_quarantined() -> None:
+    """$translate exposes unresolved proposals but never quarantined mappings."""
     client = next(_client())
     resp = client.post(
         "/api/v1/mappings/$translate",
@@ -697,10 +697,10 @@ def test_translate_filters_proposed_and_quarantined() -> None:
     )
     assert resp.status_code == 200
     results = resp.json()["result"]
-    # UBERON:0002048 is proposed — must be filtered
-    assert not any(e["concept"]["code"] == "UBERON:0002048" for e in results)
-    # UBERON:0002046 is validated — survives
-    assert any(e["concept"]["code"] == "UBERON:0002046" for e in results)
+    assert {e["concept"]["code"] for e in results} == {
+        "UBERON:0002046",
+        "UBERON:0002048",
+    }
 
 
 @pytest.mark.api

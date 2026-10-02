@@ -376,7 +376,10 @@ async def test_mapping_strength_applies_serving_lifecycle_policy() -> None:
             store, source="uberon-cl", run_id=run_id, records=records
         )
         strength = await store.mapping_strength_by_subject(expected=_READ_POLICY)
-        assert strength == {"C3262": {(EXACT_MATCH, "validated")}}
+        assert strength == {
+            "C3262": {(EXACT_MATCH, "validated"), (CLOSE_MATCH, "proposed")},
+            "C12345": {(CLOSE_MATCH, "proposed")},
+        }
     finally:
         await _clear_xref_tables(sf)
         await dispose_engine(engine)

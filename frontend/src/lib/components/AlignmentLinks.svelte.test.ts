@@ -68,4 +68,17 @@ describe('AlignmentLinks', () => {
 		rerender({ title: 'Alignments', alignments: [] });
 		expect(screen.getByText('No alignments.')).toBeInTheDocument();
 	});
+
+	it('renders reciprocal source assertions that resolve to the same aligned code', () => {
+		render(AlignmentLinks, {
+			title: 'Alignments',
+			alignments: [
+				{ code: 'C1', system: 'ncit', version: '26.07d', predicate: 'http://www.w3.org/2004/02/skos/core#closeMatch', lifecycle: 'proposed' },
+				{ code: 'C1', system: 'ncit', version: '26.07d', predicate: 'http://www.w3.org/2004/02/skos/core#closeMatch', lifecycle: 'proposed' }
+			]
+		});
+
+		expect(screen.getAllByRole('link', { name: 'Open aligned NCIt concept C1' })).toHaveLength(2);
+		expect(screen.getAllByText('Proposed close match')).toHaveLength(2);
+	});
 });

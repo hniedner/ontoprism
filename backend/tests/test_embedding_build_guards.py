@@ -672,10 +672,7 @@ def test_cadsr_complete_candidate_replaces_source_through_coordinator_callback(
     assert stale.read_text() == _cde_xml("999")
     assert old_reader_results == ["accepted"]
     assert events == ["enter", "prepared", "replaced", "exit"]
-    output = capsys.readouterr().out
-    assert "records=1" in output
-    assert "distinct_keys=1" in output
-    assert "collapsed_duplicates=0" in output
+    assert "records=1 distinct_keys=1 collapsed_duplicates=0" in capsys.readouterr().out
 
 
 @pytest.mark.unit

@@ -18,7 +18,7 @@
 	<div class={card}>
 		<h2 class={sectionTitle}>MeSH terms</h2>
 		<div class="flex flex-wrap gap-1.5">
-			{#each article.mesh_terms as term (term.descriptor)}
+			{#each article.mesh_terms as term, i (i)}
 				<span
 					class="rounded-full bg-subtle px-2.5 py-0.5 text-xs text-secondary"
 					class:font-semibold={term.major_topic}>{term.descriptor}</span

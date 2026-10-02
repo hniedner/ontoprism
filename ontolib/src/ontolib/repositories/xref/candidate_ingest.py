@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
 
     from ontolib.decomposition.complete_definition import SelectRows
+    from ontolib.decomposition.models import SourceDefinitionOccurrence
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 from ontolib.decomposition.axis_contracts import (
@@ -116,10 +117,11 @@ def _canonical_positive_counts(
 
 @dataclass(frozen=True, slots=True)
 class CandidateInventory:
-    """Routed inputs, policy exclusions, and unreadable-definition counts."""
+    """Distinct routed, excluded, and unrouted inputs plus unreadable definitions."""
 
     contexts: tuple[CandidateContext, ...]
     excluded_counts: tuple[tuple[str, int], ...]
+    unrouted_counts: tuple[tuple[str, int], ...] = ()
     unknown_counts: tuple[tuple[str, int], ...] = ()
 
     def __post_init__(self) -> None:
@@ -130,6 +132,15 @@ class CandidateInventory:
             _canonical_positive_counts(
                 self.excluded_counts,
                 label="excluded counts",
+                valid_key=lambda role: role.startswith("R") and role[1:].isdigit(),
+            ),
+        )
+        object.__setattr__(
+            self,
+            "unrouted_counts",
+            _canonical_positive_counts(
+                self.unrouted_counts,
+                label="unrouted counts",
                 valid_key=lambda role: role.startswith("R") and role[1:].isdigit(),
             ),
         )
@@ -146,6 +157,10 @@ class CandidateInventory:
     @property
     def excluded_by_role(self) -> dict[str, int]:
         return dict(self.excluded_counts)
+
+    @property
+    def unrouted_by_role(self) -> dict[str, int]:
+        return dict(self.unrouted_counts)
 
     @property
     def unknown_by_reason(self) -> dict[str, int]:
@@ -166,6 +181,28 @@ def _routed_mapping_axis(role_code: str) -> str | None:
     return axis if contract.range_code in _MAPPING_RANGE_CODES else None
 
 
+def _partition_candidate_occurrences(
+    occurrences: tuple[SourceDefinitionOccurrence, ...],
+) -> tuple[set[CandidateContext], set[CandidateContext], set[tuple[str, str]]]:
+    included: set[CandidateContext] = set()
+    excluded: set[CandidateContext] = set()
+    unrouted: set[tuple[str, str]] = set()
+    for occurrence in occurrences:
+        axis = _routed_mapping_axis(occurrence.role_code)
+        if axis is None:
+            unrouted.add((occurrence.role_code, occurrence.filler_code))
+            continue
+        context = CandidateContext(
+            source_role=occurrence.role_code,
+            source_filler=occurrence.filler_code,
+            normalized_axis=axis,
+        )
+        (excluded if occurrence.role_code == _ABNORMAL_CELL_ROLE else included).add(
+            context
+        )
+    return included, excluded, unrouted
+
+
 async def extract_candidate_inventory(
     select_fn: SelectRows,
     concept_codes: Iterable[str],
@@ -174,6 +211,7 @@ async def extract_candidate_inventory(
     cache = AnchorDefinitionRowsCache()
     included: set[CandidateContext] = set()
     excluded: set[CandidateContext] = set()
+    unrouted: set[tuple[str, str]] = set()
     unknown = Counter[str]()
     for concept_code in sorted(set(concept_codes)):
         try:
@@ -185,24 +223,18 @@ async def extract_candidate_inventory(
         except UnsupportedDefinitionConstructorError:
             unknown["unsupported-definition-constructor"] += 1
             continue
-        for occurrence in definition.occurrences:
-            axis = _routed_mapping_axis(occurrence.role_code)
-            if axis is None:
-                unknown[f"unrouted-role:{occurrence.role_code}"] += 1
-                continue
-            context = CandidateContext(
-                source_role=occurrence.role_code,
-                source_filler=occurrence.filler_code,
-                normalized_axis=axis,
-            )
-            if occurrence.role_code == _ABNORMAL_CELL_ROLE:
-                excluded.add(context)
-            else:
-                included.add(context)
+        routed, policy_excluded, not_routed = _partition_candidate_occurrences(
+            definition.occurrences
+        )
+        included.update(routed)
+        excluded.update(policy_excluded)
+        unrouted.update(not_routed)
     excluded_counts = Counter(context.source_role for context in excluded)
+    unrouted_counts = Counter(role for role, _filler in unrouted)
     return CandidateInventory(
         contexts=tuple(sorted(included)),
         excluded_counts=tuple(sorted(excluded_counts.items())),
+        unrouted_counts=tuple(sorted(unrouted_counts.items())),
         unknown_counts=tuple(sorted(unknown.items())),
     )
 
@@ -480,6 +512,22 @@ async def generate_candidates(
 # -- A3.3: Persist orchestration ---------------------------------------
 
 
+def _require_routed_inventory(inventory: CandidateInventory) -> None:
+    if inventory.contexts:
+        return
+    observed_but_unrouted = (
+        inventory.excluded_counts
+        or inventory.unrouted_counts
+        or inventory.unknown_counts
+    )
+    message = (
+        "NCIt filler inventory has no routed fillers"
+        if observed_but_unrouted
+        else "NCIt filler inventory is empty"
+    )
+    raise CandidateSourceInventoryError(message)
+
+
 async def ingest_candidates(
     store: XrefStore,
     ncit_client: SparqlHttpClient,
@@ -518,13 +566,7 @@ async def ingest_candidates(
         expected_uberon_version=uberon_version,
     )
     inventory = inventory or await read_candidate_inventory(ncit_client)
-    if not inventory.contexts:
-        message = (
-            "NCIt filler inventory is empty"
-            if not inventory.excluded_counts and not inventory.unknown_counts
-            else "NCIt filler inventory has no routed fillers"
-        )
-        raise CandidateSourceInventoryError(message)
+    _require_routed_inventory(inventory)
     records, filler_to_source = await generate_candidates(
         ncit_client,
         uberon_client,
@@ -581,8 +623,9 @@ def candidate_coverage_report(
 
     ``via_xref`` / ``via_lexical_only`` / ``no_candidate`` partition the routed filler
     set, and ``candidate_recall`` is the fraction with any candidate at all. Role-level
-    metrics separately expose routed inputs, generated candidates, R105 exclusions, and
-    definitions whose unsupported constructors remain unknown.
+    metrics separately expose routed inputs, generated candidates, R105 exclusions,
+    distinct unrouted role/filler pairs, and definitions whose unsupported constructors
+    remain unknown.
 
     ``source_agreement_pairs`` is new and is the number that matters for #73: it counts
     the ``(subject, object)`` pairs BOTH passes produced, which is the only set that can
@@ -618,5 +661,6 @@ def candidate_coverage_report(
         "generated_candidates_by_role": dict(sorted(generated_by_role.items())),
         "excluded_candidates_by_role": excluded_by_role,
         "excluded_r105_candidates": excluded_by_role.get(_ABNORMAL_CELL_ROLE, 0),
+        "unrouted_candidates_by_role": inventory.unrouted_by_role,
         "unknown_definitions_by_reason": inventory.unknown_by_reason,
     }

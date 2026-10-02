@@ -47,7 +47,7 @@
 		<p class="text-sm italic text-subtle">No similar articles were returned.</p>
 	{:else}
 		<div class="flex flex-wrap gap-1.5">
-			{#each relatedPmids as related (related)}
+			{#each relatedPmids as related, i (i)}
 				<a
 					href={resolve('/repositories/pubmed/[pmid]', { pmid: related })}
 					class="rounded bg-subtle px-2 py-0.5 font-mono text-xs text-primary-600 no-underline hover:text-primary-700 dark:text-primary-400"
