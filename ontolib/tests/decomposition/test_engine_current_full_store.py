@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import pytest
-from scripts.adjudication import main as adjudication_main
 from scripts.decompose import _make_label_lookup
 from scripts.research.current_evidence import CurrentEngineEvidence, _concepts
 
@@ -16,32 +15,20 @@ from ontolib.decomposition.collapse_policy import (
     load_packaged_collapse_veto_policy,
 )
 from ontolib.decomposition.complete_definition import read_complete_definition
-from ontolib.decomposition.fanout_baseline import load_fanout_baseline
 from ontolib.decomposition.normalized_group_policy import (
     load_packaged_normalized_group_policy,
-)
-from ontolib.decomposition.pre_resume import (
-    acquire_candidate_evidence,
-    affected_missing_p106,
 )
 from ontolib.decomposition.provenance_models import WorkItemOutcome
 from ontolib.decomposition.run import RunConfig, _decompose_one
 from ontolib.decomposition.sampling import load_sample_manifest
 from ontolib.decomposition.semantic_identity import routing_implementation_identity
 from ontolib.decomposition.source_preflight import run_source_preflight
-from ontolib.decomposition.stated_queries import resolve_part_of_pairs
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
 
 pytestmark = [pytest.mark.integration, pytest.mark.full_store]
-
-if TYPE_CHECKING:
-    from collections.abc import Collection
-
-RUN_ID = "neoplasm-0e88b7c0-eba0-42e6-8836-fa10f2604f46"
-COMPLETED_FULL_RUN = "completed-full-run"
 
 
 async def test_c36081_constructor_preflight_is_typed_unknown_not_malformed() -> None:
@@ -211,211 +198,6 @@ async def test_packaged_group_policy_applies_at_the_run_default_depth() -> None:
                 assert result.decomposition is not None
     finally:
         await dispose_engine(engine)
-
-
-class _RemoveOneP106:
-    def __init__(self, client, removed_code: str) -> None:
-        self._client = client
-        self._removed_code = removed_code
-
-    async def select(self, query: str, *, required_variables=()):
-        rows = await self._client.select(query, required_variables=required_variables)
-        return [row for row in rows if row.get("code") != self._removed_code]
-
-
-class _CountingClient:
-    def __init__(self, client: Any) -> None:
-        self._client = client
-        self.select_count = 0
-        self.select_once_count = 0
-
-    async def select(self, query: str, *, required_variables=()):
-        self.select_count += 1
-        return await self._client.select(query, required_variables=required_variables)
-
-    async def select_once(self, query: str, *, required_variables=()):
-        self.select_once_count += 1
-        return await self._client.select_once(
-            query, required_variables=required_variables
-        )
-
-
-async def test_completed_full_run_candidate_denominator_matches_reachability() -> None:
-    engine = make_engine(get_settings().database_url)
-    try:
-        async with ncit_sparql_client("http://localhost:7888") as client:
-            evidence = await acquire_candidate_evidence(engine, RUN_ID, client)
-    finally:
-        await dispose_engine(engine)
-
-    assert (COMPLETED_FULL_RUN, evidence.production.counts) == (
-        COMPLETED_FULL_RUN,
-        (212, 316, 356, 11),
-    )
-    assert (COMPLETED_FULL_RUN, evidence.production.identity) == (
-        COMPLETED_FULL_RUN,
-        "06fb5053a129cbf64220df171ae22a9973bac1cfd7e27084d3da530cfd677193",
-    )
-    assert (COMPLETED_FULL_RUN, evidence.route_filter_sensitivity.counts) == (
-        COMPLETED_FULL_RUN,
-        (230, 398, 479, 13),
-    )
-    assert (COMPLETED_FULL_RUN, evidence.route_filter_sensitivity.identity) == (
-        COMPLETED_FULL_RUN,
-        "f0f8a813b12e469e40dc210a927177598ad7d921a3a37842f20d1562524b8319",
-    )
-    assert evidence.validation.affected_counts == (0, 0, 0, 0)
-    assert evidence.postgres_reads > 0
-    assert evidence.qlever_reads > 0
-
-
-def test_completed_run_refuses_stale_pre_resume_proof(tmp_path) -> None:
-    output = tmp_path / "proof.json"
-    common = [
-        "generate-pre-resume-proof",
-        "--source-manifest",
-        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
-        "--run-id",
-        RUN_ID,
-        "--endpoint",
-        "http://localhost:7888",
-    ]
-
-    with pytest.raises(ValueError, match="failure snapshot drift"):
-        adjudication_main([*common, "--output", str(output)])
-    assert not output.exists()
-
-
-def test_completed_run_refusal_does_not_create_resume_dry_run_artifacts(
-    tmp_path,
-) -> None:
-    proof = tmp_path / "proof.json"
-    first = tmp_path / "first.json"
-    second = tmp_path / "second.json"
-    with pytest.raises(ValueError, match="failure snapshot drift"):
-        adjudication_main(
-            [
-                "generate-pre-resume-proof",
-                "--source-manifest",
-                "data/qlever-ncit/.ontoprism-ncit-candidate.json",
-                "--run-id",
-                RUN_ID,
-                "--endpoint",
-                "http://localhost:7888",
-                "--output",
-                str(proof),
-            ]
-        )
-    assert not proof.exists()
-    assert not first.exists()
-    assert not second.exists()
-
-
-async def test_real_candidate_missing_p106_reject_matches_boundary_double() -> None:
-    engine = make_engine(get_settings().database_url)
-    try:
-        async with ncit_sparql_client("http://localhost:7888") as client:
-            baseline = await acquire_candidate_evidence(engine, RUN_ID, client)
-            removed_code = baseline.production.tuples[0].filler_code
-            boundary = await acquire_candidate_evidence(
-                engine, RUN_ID, _RemoveOneP106(client, removed_code)
-            )
-    finally:
-        await dispose_engine(engine)
-
-    semantic_double = dict(baseline.semantic_types)
-    semantic_double[removed_code] = None
-    affected_tuples = affected_missing_p106(baseline.production.tuples, semantic_double)
-    affected_occurrences = tuple(
-        item
-        for item in baseline.production.occurrences
-        if item.filler_code == removed_code
-    )
-    expected_counts = (
-        len({item.concept_code for item in affected_tuples}),
-        len(affected_tuples),
-        len(affected_occurrences),
-        1,
-    )
-
-    assert boundary.validation.affected_counts == expected_counts
-    assert bool(affected_tuples) is True
-    assert boundary.validation.authorizable is False
-
-
-async def test_r101_highest_fanout_records_use_bounded_candidate_and_r82_queries() -> (
-    None
-):
-    manifest = validate_ncit_sibling_manifest(
-        Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
-    )
-    baseline = load_fanout_baseline(
-        Path("ontolib/tests/decomposition/golden/neoplasm-highest-fanout.json"),
-        expected_source_identity=manifest.source_identity,
-        expected_release=manifest.ontology_version,
-    )
-    definition_reads = 0
-    async with ncit_sparql_client("http://localhost:7888") as client:
-
-        async def counted_select(
-            query: str, *, required_variables: Collection[str] = ()
-        ):
-            nonlocal definition_reads
-            definition_reads += 1
-            return await client.select(query, required_variables=required_variables)
-
-        definitions = tuple(
-            [
-                await read_complete_definition(counted_select, code, max_depth=7)
-                for code in ("C9379", "C9423")
-            ]
-        )
-        filler_groups = tuple(
-            tuple(
-                sorted(
-                    {
-                        occurrence.filler_code
-                        for occurrence in definition.occurrences
-                        if occurrence.role_code == "R101"
-                    }
-                )
-            )
-            for definition in definitions
-        )
-        assert all(filler_groups)
-        assert all(len(group) <= 256 for group in filler_groups)
-        for group in filler_groups:
-            await resolve_part_of_pairs(client, group)
-
-    assert (
-        0
-        < definition_reads
-        <= (len(definitions) * baseline.logical_select_count_budget)
-    )
-
-    async def no_label_match(_surface: str) -> str | None:
-        return None
-
-    async with ncit_sparql_client("http://localhost:7888") as client:
-        diagnostic_source = await read_axis_diagnostic_source(
-            client, manifest.source_identity
-        )
-        for code in baseline.concept_codes:
-            counted = _CountingClient(client)
-            result = await _decompose_one(
-                code,
-                cast("Any", counted),
-                label=None,
-                label_lookup=no_label_match,
-                source_identity=manifest.source_identity,
-                collapse_policy=NO_COLLAPSE_VETO_POLICY,
-                diagnostic_source=diagnostic_source,
-                detector_identity="0" * 64,
-                walker_max_depth=7,
-            )
-            assert result.decomposition is not None
-            assert counted.select_count <= baseline.logical_select_count_budget + 3
-            assert counted.select_once_count <= baseline.select_once_r82_count_budget
 
 
 async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() -> None:

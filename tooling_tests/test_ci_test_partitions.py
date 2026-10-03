@@ -717,8 +717,8 @@ def test_lane_selectors_match_real_pytest_marker_semantics(tmp_path: Path) -> No
         assert collected_indices == expected_indices
 
 
-def test_pre_resume_full_store_module_stays_out_of_backend_lane() -> None:
-    module = "ontolib/tests/decomposition/test_pre_resume_full_store.py"
+def test_engine_current_full_store_module_stays_out_of_backend_lane() -> None:
+    module = "ontolib/tests/decomposition/test_engine_current_full_store.py"
     with exclusive_tree_scan():
         completed = subprocess.run(  # noqa: S603 - pinned environment executable
             [

@@ -5,19 +5,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import sys
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Protocol, cast
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from ontolib.decomposition.branches import DecompositionBranch
-from ontolib.decomposition.collapse_policy import load_packaged_collapse_veto_policy
-from ontolib.decomposition.pre_resume import (
-    generate_pre_resume_proof,
-    semantic_dependency_identity,
-    write_pre_resume_proof,
-)
 from ontolib.decomposition.proposal_registry import (
     load_proposal_registry,
     write_proposal_registry,
@@ -27,14 +19,6 @@ from ontolib.decomposition.proposal_registry_migration import (
     write_proposal_registry_migration_envelope,
 )
 from ontolib.decomposition.provenance import ProvenanceStore
-from ontolib.decomposition.resume_dry_run import (
-    build_resume_dry_run,
-    inspect_resume_selection,
-    load_pre_resume_proof,
-    write_resume_dry_run,
-)
-from ontolib.decomposition.run import RunConfig, build_resume_identity
-from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 try:
     from scripts.research.golden_review import (
@@ -104,11 +88,6 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
         load_group_review_packet,
         load_historical_group_review_packet,
     )
-
-try:
-    from scripts.decompose import _source_snapshot
-except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
-    from decompose import _source_snapshot
 
 
 def _write_artifact(workbook: Path, registry: Path, output: Path) -> None:
@@ -241,24 +220,6 @@ def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
     admit.add_argument("--sidecar-output", required=True, type=Path)
 
 
-class _PreResumeArgs(Protocol):
-    source_manifest: Path
-    run_id: str
-    endpoint: str
-    output: Path
-
-
-class _ResumeDryRunArgs(Protocol):
-    source_manifest: Path
-    proof: Path
-    run_id: str
-    endpoint: str
-    branch: str
-    walker_max_depth: int
-    out: Path
-    output: Path
-
-
 async def _generate_current(args: _CurrentEvidenceArgs) -> None:
     engine = make_engine(get_settings().database_url)
     try:
@@ -345,93 +306,6 @@ def _admit_group_review_evidence(args: _AdmitGroupReviewEvidenceArgs) -> None:
         markdown_output=args.markdown_output,
         sidecar_output=args.sidecar_output,
     )
-
-
-async def _generate_pre_resume(args: _PreResumeArgs) -> None:
-    source = await _source_snapshot(args.source_manifest, args.endpoint)
-    engine = make_engine(get_settings().database_url)
-    try:
-        async with ncit_sparql_client(args.endpoint) as client:
-            payload = await generate_pre_resume_proof(
-                engine=engine,
-                run_id=args.run_id,
-                client=client,
-                repo_root=Path(__file__).resolve().parent.parent,
-                live_source_identity=source.source_identity,
-                live_release=source.ontology_version,
-                source_observation_reads=9,
-            )
-        write_pre_resume_proof(args.output, payload)
-        print(
-            f"postgres_reads={payload['postgres_reads']} "
-            f"qlever_reads={payload['qlever_reads']}",
-            file=sys.stderr,
-        )
-    finally:
-        await dispose_engine(engine)
-
-
-async def _dry_run_resume(args: _ResumeDryRunArgs) -> None:
-    proof = load_pre_resume_proof(args.proof)
-    source = await _source_snapshot(args.source_manifest, args.endpoint)
-    config = RunConfig(
-        branch=DecompositionBranch(args.branch),
-        out=args.out,
-        resume_from=args.run_id,
-        walker_max_depth=args.walker_max_depth,
-    )
-    expected_identity = build_resume_identity(
-        config,
-        source,
-        semantic_types=config.semantic_types,
-        total_limit=None,
-        collapse_policy=load_packaged_collapse_veto_policy(),
-    )
-    engine = make_engine(get_settings().database_url)
-    try:
-        selection, failure = await inspect_resume_selection(
-            engine, args.run_id, expected_identity
-        )
-        semantic_identity, _ = semantic_dependency_identity(
-            Path(__file__).resolve().parent.parent
-        )
-        payload = build_resume_dry_run(
-            run_id=args.run_id,
-            proof=proof,
-            semantic_identity=semantic_identity,
-            output_path=args.out,
-            selection=selection,
-            status=failure[0],
-            error_type=failure[1],
-            error_message=failure[2],
-            qlever_reads=9,
-            artifact_path=args.output,
-        )
-        write_resume_dry_run(args.output, payload)
-        print(
-            f"identity={payload['identity']} "
-            f"postgres_reads={payload['postgres_reads']} "
-            f"qlever_reads={payload['qlever_reads']}",
-            file=sys.stderr,
-        )
-    finally:
-        await dispose_engine(engine)
-
-
-def _add_resume_dry_run_parser(subparsers: Any) -> None:
-    resume_parser = subparsers.add_parser("dry-run-resume")
-    resume_parser.add_argument("--source-manifest", required=True, type=Path)
-    resume_parser.add_argument("--proof", required=True, type=Path)
-    resume_parser.add_argument("--run-id", required=True)
-    resume_parser.add_argument("--endpoint", required=True)
-    resume_parser.add_argument(
-        "--branch",
-        required=True,
-        choices=[branch.value for branch in DecompositionBranch],
-    )
-    resume_parser.add_argument("--walker-max-depth", required=True, type=int)
-    resume_parser.add_argument("--out", required=True, type=Path)
-    resume_parser.add_argument("--output", required=True, type=Path)
 
 
 def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
@@ -529,12 +403,6 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     validate_set.add_argument("--returns-directory", required=True, type=Path)
     validate_set.add_argument("--index", required=True, type=Path)
     _add_group_review_parser(subparsers)
-    pre_resume_parser = subparsers.add_parser("generate-pre-resume-proof")
-    pre_resume_parser.add_argument("--source-manifest", required=True, type=Path)
-    pre_resume_parser.add_argument("--run-id", required=True)
-    pre_resume_parser.add_argument("--endpoint", required=True)
-    pre_resume_parser.add_argument("--output", required=True, type=Path)
-    _add_resume_dry_run_parser(subparsers)
     return parser
 
 
@@ -602,12 +470,6 @@ def main(  # noqa: C901, PLR0911, PLR0912
         return
     if args.command == "admit-group-review-evidence":
         _admit_group_review_evidence(cast("_AdmitGroupReviewEvidenceArgs", args))
-        return
-    if args.command == "generate-pre-resume-proof":
-        asyncio.run(_generate_pre_resume(cast("_PreResumeArgs", args)))
-        return
-    if args.command == "dry-run-resume":
-        asyncio.run(_dry_run_resume(cast("_ResumeDryRunArgs", args)))
         return
     _evaluate(
         args.adjudication,
