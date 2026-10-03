@@ -201,6 +201,42 @@ def test_product_runtime_does_not_ship_unreachable_research_workflows():
     assert result.returncode == 0, result.stderr
 
 
+def test_product_runtime_does_not_ship_retired_evidence_workflows() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import argparse, importlib, importlib.util, pathlib, typing; "
+            "modules=("
+            "'ontolib.decomposition.pre_resume',"
+            "'ontolib.decomposition.resume_dry_run',"
+            "'ontolib.decomposition.fanout_baseline',"
+            "'ontolib.decomposition.semantic_bundles');"
+            "assert not [name for name in modules if importlib.util.find_spec(name)];"
+            "scripts=("
+            "'scripts/observe_decomposition_fanout.py',"
+            "'scripts/research/stage_bundle_pilot.py');"
+            "assert not [name for name in scripts if pathlib.Path(name).exists()];"
+            "assert not pathlib.Path("
+            "'ontolib/tests/decomposition/golden/neoplasm-highest-fanout.json'"
+            ").exists();"
+            "adjudication=importlib.import_module('scripts.adjudication');"
+            "choices=next(a.choices for a in adjudication._parser()._actions "
+            "if isinstance(a, argparse._SubParsersAction));"
+            "assert 'generate-pre-resume-proof' not in choices;"
+            "assert 'dry-run-resume' not in choices;"
+            "golden=importlib.import_module('scripts.research.golden_review');"
+            "assert typing.get_args(golden.PairProvenance) == ("
+            "'ncit-26.07d', 'locally-approved', 'proposed', "
+            "'submitted', 'accepted-in-ncit')",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_partition_metrics_preserve_abstentions_and_pair_removal_effect():
     oracle = read_oracle(_GOLDEN / "neoplasm-adjudicated.json")
     evidence = json.loads(

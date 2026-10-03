@@ -13,7 +13,6 @@ from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import vocab
 from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
-from ontolib.decomposition.fanout_baseline import _CountingClient
 from ontolib.decomposition.models import GenusDefinitionFact
 from ontolib.decomposition.normalized_group_policy import (
     load_packaged_normalized_group_policy,
@@ -32,6 +31,27 @@ _TRACKED_EVIDENCE = Path(__file__).with_name("golden") / (
 )
 _C9290_FACT_ID = "aad190c812e6e9587657af7cc2ed9aa858a092b649109ea5b5a523543056cacf"
 _ROOT = Path(__file__).resolve().parents[3]
+
+
+class _CountingClient:
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self.select_count = 0
+        self.select_once_count = 0
+
+    @property
+    def logical_select_count(self) -> int:
+        return self.select_count + self.select_once_count
+
+    async def select(self, query: str, *, required_variables=()):
+        self.select_count += 1
+        return await self._client.select(query, required_variables=required_variables)
+
+    async def select_once(self, query: str, *, required_variables=()):
+        self.select_once_count += 1
+        return await self._client.select_once(
+            query, required_variables=required_variables
+        )
 
 
 @pytest.mark.integration

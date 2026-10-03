@@ -17,7 +17,6 @@ This evidence record retains the exact axis names used by the source rows.
 | `complete-definition.json` | Fixture for the complete-definition path. |
 | `neoplasm-current-engine-evidence.json` | Current-source 20-code replay evidence; never the historical attested run. |
 | `neoplasm-current-comparison.json` | Current replay metrics, grouping diagnoses, and all 189 row classifications. |
-| `neoplasm-highest-fanout.json` | Exhaustive current-source highest-fanout concepts and fixed query budgets within the 15,633-concept C3262 neoplasm scope (not all NCIt). |
 | `neoplasm-r101-v5-corrected-projection.json` | Immutable corrected projection bound to the historical 2b39 inventory and source diagnostic; not a run. |
 
 `proposal-registry.json` is the sole current strict golden governance record for minted proposals.
@@ -361,9 +360,6 @@ outputs. The decomposed RDF/read API remains intentionally fact-level under #9 a
 source fact IDs rather than occurrence IDs; that reporting boundary does not permit occurrence
 erasure before persistence or current reporting.
 
-`neoplasm-highest-fanout.json` records the exhaustive maximum only within the stated-genus
-subclass scope rooted at C3262 (15,633 neoplasm concepts scanned). It is not an all-NCIt maximum.
-
 Generate the current axis diagnostics for the three explicit residual-detector branches (detected,
 not detected, and proposed filler absent from source):
 
@@ -467,16 +463,6 @@ The two-run R101 diagnostic and review tooling was removed in #341 after its dec
 transcribed into packaged policy data. #417 replaced it with per-run occurrence conservation;
 readiness now evaluates D74 unexplained R101 loss from the current evidence run. The broader
 total-delta classifier remains `not-evaluated` under #127.
-
-Generate the exhaustive fanout observation against the configured current source:
-
-```bash
-pdm run python scripts/observe_decomposition_fanout.py \
-  --endpoint http://localhost:7888 \
-  --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
-  --expected-source-identity b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092 \
-  --out ontolib/tests/decomposition/golden/neoplasm-highest-fanout.json
-```
 
 The long-running CLI reports exact worklist progress and residual-metric progress. Interrupted runs
 must be resumed with `--resume <run-id>`; completed work items are fenced and are not reprocessed.

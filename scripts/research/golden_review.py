@@ -39,7 +39,6 @@ from ontolib.decomposition.proposal_registry_migration import (
     validate_migrated_proposal_registry,
 )
 from ontolib.decomposition.score import ExtractionScore, score
-from ontolib.decomposition.semantic_bundles import PairProvenance
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -57,6 +56,13 @@ ExpectedOutcome = Literal[
 SmeAction = Literal["include", "revise", "exclude", "not-needed"]
 ConstituentRowType = Literal["ENGINE SUGGESTION", "ADD IF MISSING"]
 ConstituentPair = tuple[str, str]
+PairProvenance = Literal[
+    "ncit-26.07d",
+    "locally-approved",
+    "proposed",
+    "submitted",
+    "accepted-in-ncit",
+]
 _ADJUDICATED_STATUS = "SME-ADJUDICATED"
 _SCHEMA_VERSION = 3
 _ROW_DECISION_SCHEMA_VERSION = 4

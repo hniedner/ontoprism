@@ -34,10 +34,6 @@ tests = ["test_isolated_postgres_is_migrated_and_owner_marked"]
 fixtures = ["isolated_postgres_url"]
 
 [[mutator]]
-path = "ontolib/tests/decomposition/test_pre_resume_integration.py"
-fixtures = ["isolated_postgres_url"]
-
-[[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
 tests = ["test_isolated_qlever_accepts_owned_graph_data"]
 fixtures = ["isolated_qlever_url"]
