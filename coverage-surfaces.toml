@@ -229,10 +229,6 @@ extensions = [".yml", ".yaml"]
 default_group = "ci-workflows"
 
 [[assignment]]
-pattern = "ontolib/src/ontolib/decomposition/walker.py"
-group = "research"
-
-[[assignment]]
 pattern = "ontolib/src/ontolib/decomposition/score.py"
 group = "research"
 
@@ -250,10 +246,6 @@ group = "release-workflows"
 
 [[assignment]]
 pattern = "scripts/research/**"
-group = "research"
-
-[[assignment]]
-pattern = "scripts/decomposition_spike.py"
 group = "research"
 
 [[assignment]]
@@ -363,15 +355,6 @@ rationale = "The PDM script calls the module guard; CLI import and evaluation be
 behavioral_test = "ontolib/tests/decomposition/test_golden_review.py"
 review_issue = 257
 review_after = "2027-07-31"
-
-[[exemption]]
-path = "scripts/research/differentia_extractor.py"
-kind = "pragma-no-cover"
-owner = "decomposition research maintainers"
-rationale = "This research-only module guard delegates directly to the tested async main function."
-behavioral_test = "ontolib/tests/decomposition/test_differentia_extractor.py"
-review_issue = 170
-review_after = "2027-01-25"
 
 [[exemption]]
 path = "frontend/src/lib/components/GraphExplorer.svelte"

@@ -2,8 +2,8 @@
 
 Extraction must run off the stated (asserted) OWL, never the inferred default graph,
 to avoid ancestor-closure bleed and the ``Excludes_*`` negative axioms (assessment §4).
-These builders reuse the restriction-traversal pattern from ``role_queries.py`` wrapped
-in a ``GRAPH <STATED_GRAPH_IRI>`` clause, and reuse ``safe_iri`` for injection safety.
+These builders apply the OWL restriction-traversal pattern inside a
+``GRAPH <STATED_GRAPH_IRI>`` clause and reuse ``safe_iri`` for injection safety.
 """
 
 from __future__ import annotations

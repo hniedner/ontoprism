@@ -9,7 +9,6 @@ operation failure.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import importlib
 import json
@@ -36,16 +35,12 @@ from ontolib.decomposition.artifact_contract import (
 )
 from ontolib.decomposition.run_artifacts import (
     ArtifactManifest,
-    ArtifactUnavailableRecord,
     GeneratorBinding,
     ParentManifestBinding,
     RetentionBinding,
     SourceIdentity,
     publish_generation,
-    reconcile_missing_unavailable_references,
     resolve_parent_manifest,
-    write_legacy_in_place_manifest,
-    write_unavailable_record,
 )
 
 from .docker_selectors import DOCKER_SELECTOR_VARIABLES
@@ -58,7 +53,6 @@ _RUN_ID = re.compile(
 )
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _FILLER = re.compile(r"(?:C[0-9]+|MINT-[0-9a-f]+)")
-_MAX_INSPECTED_RUNS = 8
 _PARENT_MANIFEST_ARGUMENT_COUNT = 2
 _PROMOTION_MANIFEST_ARGUMENT_COUNT = 4
 _DIAGNOSTIC_TIMEOUT_SECONDS = 20
@@ -110,9 +104,6 @@ _URL_CREDENTIALS = re.compile(
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _CONTROL_CODEPOINT_LIMIT = 32
 _CONSOLIDATION_VALUE_COUNT = 3
-_CURRENT_REPLAY_SAMPLE_SHA256 = (
-    "d229aa9e7cf28bfcf64d5bfbedb6820a48e217dc8ff83f3c6abaf8efad180477"
-)
 
 
 class AgentReplayInputError(ValueError):
@@ -172,34 +163,6 @@ class ConsolidationContext:
     manifest_bytes: bytes
     manifest_digest: str
     source_specs: tuple[dict[str, object], ...]
-
-
-async def _inspect_decomposition_runs_async(
-    run_ids: tuple[str, ...],
-) -> list[dict[str, object]]:
-    settings = importlib.import_module("backend.config").get_settings()
-    database = importlib.import_module("backend.db")
-    inspect = importlib.import_module(
-        "ontolib.decomposition.run_inspection"
-    ).inspect_decomposition_runs
-    engine = database.make_engine(settings.database_url)
-    try:
-        return [item.model_dump(mode="json") for item in await inspect(engine, run_ids)]
-    finally:
-        await database.dispose_engine(engine)
-
-
-def _inspect_decomposition_runs(
-    values: list[str], root: Path, runner: CommandRunner
-) -> int:
-    del root, runner
-    if not values or len(values) > _MAX_INSPECTED_RUNS:
-        raise AgentReplayInputError("inspect-decomposition-runs requires 1-8 run IDs")
-    if any(_RUN_ID.fullmatch(value) is None for value in values):
-        raise AgentReplayInputError("invalid decomposition run ID")
-    payload = asyncio.run(_inspect_decomposition_runs_async(tuple(values)))
-    print(json.dumps(payload, sort_keys=True, indent=2))
-    return 0
 
 
 def _subprocess_runner(
@@ -926,122 +889,6 @@ def _read_issue(values: list[str], root: Path, runner: CommandRunner) -> int:
     )
 
 
-def _decompose_current(values: list[str], root: Path, runner: CommandRunner) -> int:
-    if values:
-        raise AgentReplayInputError("decompose-current accepts no arguments")
-    script, source, sample = _require_files(
-        root,
-        (
-            "scripts/decompose.py",
-            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
-            "samples/ncit-26.07d-m1-current-replay.json",
-        ),
-    )
-    generation_id = str(importlib.import_module("uuid").uuid4())
-    family_root = root / "tmp/artifacts/v1/generations/m1-6-current-replay"
-    staging = family_root / ".staging" / generation_id
-    staging.mkdir(parents=True, exist_ok=False)
-    try:
-        return _decompose_current_staged(
-            root=root,
-            runner=runner,
-            script=script,
-            source=source,
-            sample=sample,
-            generation_id=generation_id,
-            family_root=family_root,
-            staging=staging,
-        )
-    finally:
-        shutil.rmtree(staging)
-
-
-def _decompose_current_staged(
-    *,
-    root: Path,
-    runner: CommandRunner,
-    script: str,
-    source: str,
-    sample: str,
-    generation_id: str,
-    family_root: Path,
-    staging: Path,
-) -> int:
-    output = staging / "decomposition.ttl"
-    command = [
-        sys.executable,
-        script,
-        "--source-manifest",
-        source,
-        "--branch",
-        "neoplasm",
-        "--sample-manifest",
-        sample,
-        "--walker-max-depth",
-        "7",
-    ]
-    command.extend(("--out", str(output)))
-    result = runner(
-        command,
-        cwd=root,
-        shell=False,
-        check=False,
-        timeout=None,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        if result.stdout:
-            print(result.stdout, end="")
-        if result.stderr:
-            print(result.stderr, end="", file=sys.stderr)
-        return result.returncode
-    if not output.is_file() or output.is_symlink():
-        raise AgentReplayInputError("bounded replay did not produce a regular artifact")
-    run_ids = set(_RUN_ID.findall(output.read_text(encoding="utf-8")))
-    run_ids.update(_RUN_ID.findall(result.stdout or ""))
-    run_ids.update(_RUN_ID.findall(result.stderr or ""))
-    if len(run_ids) != 1:
-        raise AgentReplayInputError(
-            "bounded replay output does not bind exactly one run ID"
-        )
-    run_id = run_ids.pop()
-    source_identity = _verify_persisted_replay(run_id, output)
-    manifest = publish_generation(
-        artifacts_root=root / "tmp/artifacts/v1/generations",
-        family="m1-6-current-replay",
-        generation_id=generation_id,
-        run_id=run_id,
-        artifact_sources={"artifacts/decomposition.ttl": output},
-        parents=(),
-        generator=GeneratorBinding(
-            identity=_git_head_identity(root),
-            command=(*command[:-1], "<generation-staging>/decomposition.ttl"),
-        ),
-        sources=(SourceIdentity(name="ncit", identity=source_identity),),
-        retention=RetentionBinding(
-            retention_class="referenced-bounded-run",
-            owner="decomposition",
-            expires_at=None,
-        ),
-    )
-    final = family_root / generation_id
-    artifact = final / "artifacts/decomposition.ttl"
-    print(
-        json.dumps(
-            {
-                "run_id": run_id,
-                "artifact_path": artifact.relative_to(root).as_posix(),
-                "artifact_sha256": manifest.artifact_records[0].sha256,
-                "manifest_path": (final / "manifest.json").relative_to(root).as_posix(),
-                "manifest_identity": manifest.manifest_identity,
-            },
-            sort_keys=True,
-        )
-    )
-    return 0
-
-
 def _git_head_identity(root: Path) -> str:
     head = subprocess.run(
         ["/usr/bin/git", "rev-parse", "HEAD"],
@@ -1065,158 +912,6 @@ def _git_head_identity(root: Path) -> str:
         digest.update(len(payload).to_bytes(8, byteorder="big"))
         digest.update(payload)
     return f"git:{head.stdout.strip()}+worktree-sha256:{digest.hexdigest()}"
-
-
-def _verify_persisted_replay(run_id: str, artifact: Path) -> str:
-    records = asyncio.run(_inspect_decomposition_runs_async((run_id,)))
-    if (
-        len(records) != 1
-        or records[0].get("run_id") != run_id
-        or records[0].get("status") != "complete"
-        or records[0].get("publication_state") != "published"
-    ):
-        raise AgentReplayInputError("bounded replay run is not persisted as complete")
-    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
-    if records[0].get("representation_identity") != digest:
-        raise AgentReplayInputError(
-            "bounded replay bytes differ from persisted identity"
-        )
-    source_identity = records[0].get("source_identity")
-    if not isinstance(source_identity, str) or not source_identity:
-        raise AgentReplayInputError("bounded replay has no persisted source identity")
-    return source_identity
-
-
-_CRITICAL_IN_PLACE_ARTIFACTS = (
-    (
-        "tmp/m1-6-current-full-corpus.ttl",
-        "neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016",
-    ),
-    (
-        "tmp/m1-6-prechange-v4-full-corpus.ttl",
-        "neoplasm-8fb79bb9-b4c8-4832-8731-8c562954a820",
-    ),
-)
-
-
-def _record_artifact_registry(
-    values: list[str], root: Path, runner: CommandRunner
-) -> int:
-    del runner
-    if values:
-        raise AgentReplayInputError("record-artifact-registry accepts no arguments")
-    paths = _require_files(
-        root, tuple(relative for relative, _run_id in _CRITICAL_IN_PLACE_ARTIFACTS)
-    )
-    run_ids = tuple(run_id for _relative, run_id in _CRITICAL_IN_PLACE_ARTIFACTS)
-    records = asyncio.run(_inspect_decomposition_runs_async(run_ids))
-    by_run = {record.get("run_id"): record for record in records}
-    if set(by_run) != set(run_ids):
-        raise AgentReplayInputError("critical artifact persisted run inventory differs")
-    generator = GeneratorBinding(
-        identity=_git_head_identity(root),
-        command=("pdm", "run", "agent-replay", "record-artifact-registry"),
-    )
-    reported: list[dict[str, str]] = []
-    sidecars = root / "tmp/artifacts/v1/legacy-in-place"
-    for (relative, run_id), artifact_text in zip(
-        _CRITICAL_IN_PLACE_ARTIFACTS, paths, strict=True
-    ):
-        record = by_run[run_id]
-        representation = record.get("representation_identity")
-        persisted_path = record.get("publication_artifact_path")
-        source_identity = record.get("source_identity")
-        if (
-            record.get("status") != "complete"
-            or not isinstance(representation, str)
-            or _SHA256.fullmatch(representation) is None
-            or not isinstance(persisted_path, str)
-            or not isinstance(source_identity, str)
-            or not source_identity
-        ):
-            raise AgentReplayInputError(
-                f"critical artifact DB binding is incomplete: {run_id}"
-            )
-        sidecar = sidecars / f"{Path(relative).stem}.manifest.json"
-        try:
-            manifest = write_legacy_in_place_manifest(
-                path=sidecar,
-                repository_root=root,
-                artifact_path=Path(artifact_text),
-                run_id=run_id,
-                persisted_representation_identity=representation,
-                persisted_artifact_path=persisted_path,
-                source_identity=source_identity,
-                generator=generator,
-            )
-        except ValueError as exc:
-            raise AgentReplayInputError(str(exc)) from exc
-        reported.append(
-            {
-                "manifest_path": sidecar.relative_to(root).as_posix(),
-                "manifest_identity": manifest.manifest_identity,
-                "artifact_path": manifest.artifact_records[0].relative_path,
-                "artifact_sha256": manifest.artifact_records[0].sha256,
-            }
-        )
-    unavailable_path = (
-        root / "tmp/artifacts/v1/unavailable/"
-        "neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997.json"
-    )
-    stale_unavailable = ArtifactUnavailableRecord(
-        schema_version=1,
-        record_type="unavailable-artifact",
-        family="m1-6-current-replay",
-        run_id="neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997",
-        expected_sha256=(
-            "4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d"
-        ),
-        last_known_path="tmp/m1-6-current-replay.ttl",
-        reason="overwritten-before-immutable-retention",
-        references=(),
-    )
-    unavailable = stale_unavailable.model_copy(
-        update={
-            "references": (
-                "tmp/m1-6-normalized-group-policy-candidate.json",
-                "tmp/m1-6-group-review-pre274-observations.json",
-            )
-        }
-    )
-    audit: Path | None = None
-    if unavailable_path.exists():
-        try:
-            audit = reconcile_missing_unavailable_references(
-                path=unavailable_path,
-                expected_stale=stale_unavailable,
-                corrected=unavailable,
-            )
-        except ValueError as exc:
-            raise AgentReplayInputError(str(exc)) from exc
-    else:
-        write_unavailable_record(unavailable_path, unavailable)
-    unavailable_bytes = unavailable_path.read_bytes()
-    print(
-        json.dumps(
-            {
-                "legacy_manifests": reported,
-                "unavailable_record": unavailable_path.relative_to(root).as_posix(),
-                "unavailable_record_sha256": hashlib.sha256(
-                    unavailable_bytes
-                ).hexdigest(),
-                "superseded_audit": audit.relative_to(root).as_posix()
-                if audit is not None
-                else None,
-                "superseded_audit_sha256": hashlib.sha256(
-                    audit.read_bytes()
-                ).hexdigest()
-                if audit is not None
-                else None,
-            },
-            sort_keys=True,
-        )
-    )
-    return 0
 
 
 def _inspect_current_replay(
@@ -1308,94 +1003,6 @@ def _generate_current_evidence(
         ],
         root,
         runner,
-    )
-
-
-def _generate_current_evidence_candidate(
-    values: list[str], root: Path, runner: CommandRunner
-) -> int:
-    parent, parent_path, parent_binding = _resolve_candidate_parent(
-        values, root, expected_family="m1-6-current-replay"
-    )
-    script, sample, oracle, rows, registry = _adjudication_inputs(root)
-    (migration,) = _require_files(
-        root,
-        (
-            "ontolib/tests/decomposition/golden/proposal-registry-schema2-migration.json",
-        ),
-    )
-    sample_path = Path(sample)
-    artifact_path = _bound_artifact_path(
-        parent, parent_path, "artifacts/decomposition.ttl"
-    )
-    if parent.run_id is None:
-        raise AgentReplayInputError("parent is not a bounded current replay")
-    _verify_persisted_replay(parent.run_id, artifact_path)
-    if hashlib.sha256(sample_path.read_bytes()).hexdigest() != (
-        _CURRENT_REPLAY_SAMPLE_SHA256
-    ):
-        raise AgentReplayInputError("current replay sample manifest digest differs")
-    family = "m1-6-current-evidence-candidate"
-    generation_id, staging = _candidate_staging(root, family)
-    outputs = (staging / "engine-evidence.json", staging / "comparison.json")
-    for path, label in (
-        (Path(script), "adjudication script"),
-        (sample_path, "current replay sample manifest"),
-        (Path(oracle), "current replay oracle"),
-        (Path(rows), "current replay row decisions"),
-        (Path(registry), "current replay proposal registry"),
-        (Path(migration), "current replay proposal registry migration"),
-        (artifact_path, "current replay artifact"),
-        (outputs[0], "current evidence candidate output"),
-        (outputs[1], "current comparison candidate output"),
-    ):
-        _require_no_symlink_components(path, root=root, label=label)
-    command = [
-        sys.executable,
-        script,
-        "generate-current-evidence",
-        "--sample-manifest",
-        sample,
-        "--oracle",
-        oracle,
-        "--row-decisions",
-        rows,
-        "--proposal-registry",
-        registry,
-        "--proposal-registry-migration",
-        migration,
-        "--run-id",
-        parent.run_id,
-        "--artifact",
-        str(artifact_path),
-        "--artifact-manifest",
-        str(parent_path),
-        "--artifact-manifest-identity",
-        parent.manifest_identity,
-        "--engine-output",
-        str(outputs[0]),
-        "--comparison-output",
-        str(outputs[1]),
-    ]
-    return _run_and_publish_candidate(
-        command=command,
-        root=root,
-        runner=runner,
-        family=family,
-        generation_id=generation_id,
-        staging=staging,
-        run_id=parent.run_id,
-        artifact_sources={
-            "artifacts/engine-evidence.json": outputs[0],
-            "artifacts/comparison.json": outputs[1],
-        },
-        parents=(parent_binding,),
-        sources=(
-            SourceIdentity(
-                name="sample-manifest",
-                identity=f"sha256:{_CURRENT_REPLAY_SAMPLE_SHA256}",
-            ),
-        ),
     )
 
 

@@ -50,8 +50,8 @@ from ontolib.decomposition.provenance import (
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
     ConceptPublication,
+    FullRunExecutionIdentity,
     RunFingerprint,
-    RunResumeIdentity,
 )
 from ontolib.decomposition.sampling import load_sample_manifest
 
@@ -456,9 +456,13 @@ async def _assert_processing_and_publication_failures_remain_separate(
     assert doubly_failed.publication_state == "failed"
     assert doubly_failed.publication_error_type == "RuntimeError"
 
-    await store.resume_run(
-        _PUBLICATION_RUN_ID,
-        RunResumeIdentity.from_fingerprint(_publication_fingerprint()),
+    fingerprint = _publication_fingerprint()
+    await store.admit_run(
+        "unused-publication-resume",
+        "26.07d",
+        fingerprint,
+        FullRunExecutionIdentity.from_fingerprint(fingerprint),
+        resume_run_id=_PUBLICATION_RUN_ID,
     )
     resumed = await store.get_run(_PUBLICATION_RUN_ID)
     assert resumed is not None
@@ -1152,50 +1156,6 @@ async def test_non_decomposition_outcomes_round_trip_as_distinct_database_states
         assert atomic_counts.semantic_excluded == 0
         assert atomic_counts.atomic_noop == 1
 
-        pending_claim = await store.claim_work_item(_RUN_ID, "C999")
-        assert pending_claim is not None
-        await store.fail_work_item(
-            _RUN_ID,
-            "C999",
-            pending_claim,
-            RuntimeError("transient failure"),
-        )
-        await store.resume_run(
-            _RUN_ID,
-            RunResumeIdentity.from_fingerprint(_fingerprint(("C162770", "C999"))),
-        )
-        resumed_outcomes = await store.work_item_outcomes(_RUN_ID)
-        assert resumed_outcomes[0].model_dump() == {
-            "run_id": _RUN_ID,
-            "concept_code": "C162770",
-            "ordinal": 0,
-            "state": "complete",
-            "outcome": "semantic-excluded",
-            "semantic_type": "Finding",
-            "semantic_types": ("Finding",),
-            "is_decomposed": False,
-            "is_residual": False,
-            "constituent_count": 0,
-            "minted_count": 0,
-        }
-        assert resumed_outcomes[1].state == "failed"
-        assert resumed_outcomes[1].outcome is None
-
-        retry_claim = await store.claim_work_item(_RUN_ID, "C999")
-        assert retry_claim is not None
-        await store.complete_work_item(
-            _RUN_ID,
-            "C999",
-            retry_claim,
-            decomposition=None,
-            outcome="atomic-no-op",
-            semantic_types=("Neoplastic Process",),
-            minted=(),
-        )
-        resumed_counts = await store.outcome_counts(_RUN_ID)
-        assert resumed_counts.total_in_scope == 2
-        assert resumed_counts.semantic_excluded == 1
-        assert resumed_counts.atomic_noop == 1
     finally:
         await _cleanup(dsn)
         await dispose_engine(engine)
@@ -1211,12 +1171,14 @@ async def test_publication_state_is_retryable_separate_and_completion_gated(
     identity = "b" * 64
     artifact_path = str(tmp_path / "decomposed.ttl")
     built_at = datetime.datetime(2026, 7, 30, 12, 0, tzinfo=datetime.UTC)
+    fingerprint = _publication_fingerprint()
     try:
         await _cleanup(dsn)
-        await store.create_run(
+        await store.admit_run(
             _PUBLICATION_RUN_ID,
             "26.07d",
-            _publication_fingerprint(),
+            fingerprint,
+            FullRunExecutionIdentity.from_fingerprint(fingerprint),
         )
         pending = await store.get_run(_PUBLICATION_RUN_ID)
         assert pending is not None

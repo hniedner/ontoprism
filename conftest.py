@@ -44,7 +44,9 @@ from test_support.integration_resources import (  # noqa: E402
     ResourceOwnershipError,
     find_persistent_mutator_tests,
     inspect_owned_container,
+    integration_data_root,
     integration_resource_lease,
+    owned_qlever_sibling_store_root,
     remove_owned_container_by_name,
     run_docker,
     validate_integration_test_declaration,
@@ -607,10 +609,9 @@ def _provision_qlever_unlocked(
     prefix = f"ontoprism-qlever-{owner.nonce}-"
     # The rootless Podman machine reliably exposes this configured project root,
     # while macOS's default tempfile root is not a portable bind-mount source for
-    # its Linux VM. Keep this nonce-owned disposable index under the repository
-    # data root so QLever sees the fixture inputs.
-    data_root = (_ROOT / "data").resolve()
-    data_root.mkdir(exist_ok=True)
+    # its Linux VM. Keep nonce-owned disposable indexes under the repository's
+    # ignored tmp root so interrupted tests cannot pollute persistent data inputs.
+    data_root = integration_data_root(_ROOT)
     data_dir = Path(tempfile.mkdtemp(prefix=prefix, dir=data_root))
     (data_dir / ".ontoprism-test-owner").write_text(owner.nonce)
     container_id: str | None = None
@@ -749,33 +750,10 @@ def qlever_sibling_store_root(
     integration_resource_owner: IntegrationResourceOwner,
 ) -> Iterator[Path]:
     """Yield an exact owner-marked workspace path visible to the Docker runtime."""
-    data_root = (_ROOT / "data").resolve()
-    data_root.mkdir(exist_ok=True)
-    invocation = uuid.uuid4().hex
-    expected_name = (
-        f".ontoprism-ncit-sibling-test-{integration_resource_owner.nonce}-{invocation}"
-    )
-    root = data_root / expected_name
-    if root.exists():
-        raise ResourceOwnershipError(
-            f"refusing pre-existing sibling-store integration root: {root}"
-        )
-    root.mkdir(mode=0o700)
-    marker = root / ".ontoprism-test-owner"
-    marker.write_text(integration_resource_owner.nonce + "\n")
-    try:
+    with owned_qlever_sibling_store_root(
+        integration_resource_owner, repository_root=_ROOT
+    ) as root:
         yield root
-    finally:
-        if (
-            root.is_symlink()
-            or root.name != expected_name
-            or root.parent.resolve() != data_root
-            or marker.read_text().strip() != integration_resource_owner.nonce
-        ):
-            raise ResourceOwnershipError(
-                "sibling-store integration root owner identity does not match"
-            )
-        shutil.rmtree(root)
 
 
 @pytest.fixture

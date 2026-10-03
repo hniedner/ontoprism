@@ -21,7 +21,7 @@ authoring, correction system, or permanent release-forward reconciliation curren
 OntologyAdapter -- ontolib/src backend/src frontend/src`, which returned no matches,
 2026-09-04). Current extraction and analysis read the official stated NCIt source (`git grep -n
 STATED_GRAPH_IRI -- ontolib/src/ontolib/decomposition`, expected output: stated-graph query clauses
-in `stated_queries.py`, `scope.py`, `walker.py`, `complete_definition.py`,
+in `stated_queries.py`, `scope.py`, `complete_definition.py`,
 `fanout_baseline.py` and
 diagnostic/review modules, 2026-09-04). The specific additive projection reader is different: `read_queries.py`
 contains no `STATED_GRAPH_IRI` reference and targets `DECOMPOSED_GRAPH_IRI` (`git grep -n

@@ -29,6 +29,7 @@ from test_support.integration_resources import (
     find_persistent_mutator_tests,
     find_persistent_mutators,
     find_unmanifested_mutators,
+    owned_qlever_sibling_store_root,
     remove_owned_container_by_name,
     validate_integration_test_declaration,
     validate_mutator_manifest_entries,
@@ -113,6 +114,18 @@ def test_owner_builds_collision_resistant_scoped_resource_names() -> None:
     assert owner.graph_iri("decomposition") == (
         "urn:ontoprism:test:019f8d64b0e274e2931a15452959797a:decomposition"
     )
+
+
+@pytest.mark.unit
+def test_sibling_store_fixture_uses_tmp_and_removes_its_owned_root(
+    tmp_path: Path,
+) -> None:
+    owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
+    with owned_qlever_sibling_store_root(owner, repository_root=tmp_path) as root:
+        assert root.parent == (tmp_path / "tmp/integration-data").resolve()
+        assert root.is_dir()
+
+    assert not root.exists()
 
 
 @pytest.mark.unit
