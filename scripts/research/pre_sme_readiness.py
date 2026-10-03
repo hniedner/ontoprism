@@ -30,7 +30,6 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import vocab
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
-from ontolib.decomposition.corpus_baseline import CorpusBaseline, load_corpus_baseline
 from ontolib.decomposition.evaluation import (
     M1_6_METRIC_CONTRACTS,
     EvaluationMetricName,
@@ -150,10 +149,9 @@ def _primary_site_cardinality_violations(
 
 
 class PrimarySiteAudit(_StrictModel):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     source_identity: str = Field(pattern=_SHA256)
     source_release: str
-    corpus_baseline_identity: str = Field(pattern=_SHA256)
     corpus_artifact_identity: str = Field(pattern=_SHA256)
     resolved_sites: tuple[PrimarySiteObservation, ...]
     review_required_sites: tuple[PrimarySiteObservation, ...]
@@ -305,31 +303,16 @@ def _parse_primary_sites(artifact: Path) -> tuple[str, _PrimarySiteStore]:
 def audit_primary_site_artifact(
     *,
     artifact: Path,
-    baseline: CorpusBaseline,
     source_identity: str,
     source_release: str,
     output: Path | None = None,
 ) -> PrimarySiteAudit:
     """Audit every primary-site observation in one parser pass."""
-    if baseline.source_identity != source_identity:
-        raise PreSmeValidationError("corpus baseline source identity differs")
-    if baseline.ontology_release != source_release:
-        raise PreSmeValidationError("corpus baseline source release differs")
     artifact_identity, store = _parse_primary_sites(artifact)
-    if (
-        artifact_identity
-        not in {
-            baseline.artifact_identity,
-            baseline.representation_identity,
-        }
-        or baseline.artifact_identity != baseline.representation_identity
-    ):
-        raise PreSmeValidationError("corpus artifact identity differs from baseline")
     payload: dict[str, object] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "source_identity": source_identity,
         "source_release": source_release,
-        "corpus_baseline_identity": baseline.baseline_identity,
         "corpus_artifact_identity": artifact_identity,
         "resolved_sites": tuple(store.resolved),
         "review_required_sites": tuple(store.review),
@@ -357,14 +340,12 @@ def _jsonable(value: object) -> object:
 
 
 def generate_primary_site_audit(
-    *, source_manifest: Path, baseline: Path, artifact: Path, output: Path
+    *, source_manifest: Path, artifact: Path, output: Path
 ) -> PrimarySiteAudit:
     try:
         manifest = validate_ncit_sibling_manifest(source_manifest)
-        corpus_baseline = load_corpus_baseline(baseline)
         return audit_primary_site_artifact(
             artifact=artifact,
-            baseline=corpus_baseline,
             source_identity=manifest.source_identity,
             source_release=manifest.ontology_version,
             output=output,
@@ -399,7 +380,6 @@ class MachineReadinessInputs(_StrictModel):
     current_evidence_identity: str = Field(pattern=_SHA256)
     current_comparison_identity: str = Field(pattern=_SHA256)
     sample_artifact_identity: str = Field(pattern=_SHA256)
-    corpus_baseline_identity: str = Field(pattern=_SHA256)
     corpus_artifact_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
     proposal_registry_migration_identity: str = Field(pattern=_SHA256)
@@ -694,7 +674,6 @@ class ReportIdentities(_StrictModel):
     current_evidence_identity: str = Field(pattern=_SHA256)
     current_comparison_identity: str = Field(pattern=_SHA256)
     sample_artifact_identity: str = Field(pattern=_SHA256)
-    corpus_baseline_identity: str = Field(pattern=_SHA256)
     corpus_artifact_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
     proposal_registry_migration_identity: str = Field(pattern=_SHA256)
@@ -708,7 +687,7 @@ class ReportIdentities(_StrictModel):
 
 
 class MachineReadinessReport(_StrictModel):
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     status: Literal[
         "machine-blocked", "awaiting-later-evaluation", "awaiting-human-review"
     ]
@@ -915,7 +894,7 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
         if key.endswith("identity") or key == "git_head"
     }
     payload: dict[str, object] = {
-        "schema_version": 3,
+        "schema_version": 4,
         "status": report_status,
         "authorization": False,
         "publication": {
@@ -1213,7 +1192,6 @@ def generate_pre_sme_readiness(
     source_manifest: Path,
     current_evidence: Path,
     current_comparison: Path,
-    corpus_baseline: Path,
     corpus_artifact: Path,
     proposal_registry: Path,
     proposal_registry_migration: Path,
@@ -1243,10 +1221,7 @@ def generate_pre_sme_readiness(
             _load_json_no_duplicates(current_comparison, "current comparison")[1]
         )
         validate_current_comparison(evidence, comparison)
-        baseline = load_corpus_baseline(corpus_baseline)
         artifact_identity = hashlib.sha256(corpus_artifact.read_bytes()).hexdigest()
-        if artifact_identity != baseline.artifact_identity:
-            raise PreSmeValidationError("full-corpus artifact identity differs")
         migration = load_proposal_registry_migration_envelope(
             proposal_registry_migration
         )
@@ -1290,12 +1265,7 @@ def generate_pre_sme_readiness(
     )
     checks = (
         (manifest.source_identity == evidence.source_identity, "sample source"),
-        (manifest.source_identity == baseline.source_identity, "corpus source"),
         (manifest.source_identity == audit.source_identity, "audit source"),
-        (
-            baseline.baseline_identity == audit.corpus_baseline_identity,
-            "audit baseline",
-        ),
         (artifact_identity == audit.corpus_artifact_identity, "audit artifact"),
         (
             proposals.registry_identity == evidence.proposal_registry_identity,
@@ -1347,7 +1317,6 @@ def generate_pre_sme_readiness(
             current_evidence_identity=evidence.evidence_identity,
             current_comparison_identity=comparison.comparison_identity,
             sample_artifact_identity=evidence.artifact_identity,
-            corpus_baseline_identity=baseline.baseline_identity,
             corpus_artifact_identity=artifact_identity,
             proposal_registry_identity=proposals.registry_identity,
             proposal_registry_migration_identity=migration.envelope_identity,

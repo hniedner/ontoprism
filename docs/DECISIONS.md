@@ -824,7 +824,7 @@ record exactly one proposal and one constituent with that ID, `op:CellType`,
 runtime-published, or full-corpus-published. The deterministic ID and all
 non-lifecycle proposal fields remain unchanged, as do the augmented constituent, row decisions,
 current comparison, engine evidence, and corpus evidence
-(`git diff --no-ext-diff -- ontolib/tests/decomposition/golden/proposal-registry.json ontolib/tests/decomposition/golden/neoplasm-adjudicated.json ontolib/tests/decomposition/golden/neoplasm-row-decisions.json ontolib/tests/decomposition/golden/neoplasm-current-comparison.json ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-corpus-comparison.json ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json`,
+(`git diff --no-ext-diff -- ontolib/tests/decomposition/golden/proposal-registry.json ontolib/tests/decomposition/golden/neoplasm-adjudicated.json ontolib/tests/decomposition/golden/neoplasm-row-decisions.json ontolib/tests/decomposition/golden/neoplasm-current-comparison.json ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-corpus-comparison.json`,
 2026-08-30). This reconciliation changes no runtime graph, store, database, API, frontend, or
 publication surface (`git diff --no-ext-diff -- ontolib/src backend/src frontend/src`, 2026-08-30).
 
