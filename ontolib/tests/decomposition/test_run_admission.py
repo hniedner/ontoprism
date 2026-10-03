@@ -36,7 +36,6 @@ def _identity(**updates: object) -> FullRunExecutionIdentity:
         "config_version": "nested-definition-v2",
         "routing_implementation_identity": "b" * 64,
         "collapse_policy_identity": "c" * 64,
-        "mixed_chain_inventory_identity": "d" * 64,
         "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "output_mode": "file",
         "load_mode": "named-graph",
@@ -56,7 +55,6 @@ def test_full_run_identity_binds_every_execution_dimension() -> None:
         {"config_version": "nested-definition-v3"},
         {"routing_implementation_identity": "e" * 64},
         {"collapse_policy_identity": "e" * 64},
-        {"mixed_chain_inventory_identity": "e" * 64},
         {"output_mode": "none", "load_mode": "none"},
     )
     assert all(
@@ -89,8 +87,8 @@ def test_admission_union_and_reason_vocabulary_are_closed() -> None:
 
 def test_execution_identity_rejects_missing_content_digests_and_timestamp() -> None:
     payload = _identity().model_dump()
-    payload.pop("mixed_chain_inventory_identity")
-    with pytest.raises(ValueError, match="mixed_chain_inventory_identity"):
+    payload.pop("collapse_policy_identity")
+    with pytest.raises(ValueError, match="collapse_policy_identity"):
         FullRunExecutionIdentity.model_validate(payload)
     with pytest.raises(ValueError, match="extra_forbidden"):
         FullRunExecutionIdentity.model_validate(

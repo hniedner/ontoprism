@@ -72,10 +72,9 @@ _ADDITIVE_GRAPH_IRIS = frozenset(
 # input, environment or reporting defect surfaces well before the full run does the
 # work. The rehearsal is a throwaway run: admitted afresh each time, never published,
 # never promoting its mints, never resumable, and it borrows only the sample's codes
-# (the sample's source binding is recorded, not enforced). It cannot carry the
-# mixed-chain inventory or the whole-worklist closure checks, which are bound to the
-# full worklist; those still run at hour zero of the full run. This is distinct from
-# the engine's own `preflight` stage, the constructor census every run performs.
+# (the sample's source binding is recorded, not enforced). Whole-worklist closure
+# checks still run at hour zero of the full run. This is distinct from the engine's
+# own `preflight` stage, the constructor census every run performs.
 PREFLIGHT_SAMPLES = {
     DecompositionBranch.NEOPLASM: (
         Path(__file__).resolve().parents[1] / "samples/ncit-26.07d-m1-sme-review.json"
@@ -205,17 +204,6 @@ async def _run(
         walker_max_depth=walker_max_depth,
         sample_manifest=sample,
         rehearsal=rehearsal,
-        # The inventory is bound to the whole-corpus worklist identity, so only an
-        # unbounded neoplasm run carries it.
-        mixed_chain_inventory_path=(
-            Path(__file__).resolve().parents[1]
-            / "ontolib/src/ontolib/decomposition/data/"
-            "neoplasm_mixed_chain_inventory.json"
-            if branch is DecompositionBranch.NEOPLASM
-            and sample is None
-            and total_limit is None
-            else None
-        ),
     )
     if sample is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")

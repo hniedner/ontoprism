@@ -30,7 +30,6 @@ def _fingerprint(**updates: object) -> RunFingerprint:
         "source_identity": "a" * 64,
         "collapse_policy_identity": "0" * 64,
         "routing_implementation_identity": "1" * 64,
-        "mixed_chain_inventory_identity": "2" * 64,
         "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "branch": "neoplasm",
         "scope_root": "C3262",
@@ -197,7 +196,7 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
     assert equivalent.identity == original.identity
     assert (
         original.identity
-        == "16b596795b1af283dfe300c08a50554c5458b32ce38c84414367f688e62a1736"
+        == "8bf5ead995ee16b1738a3a9801328a564b8231c344acc78d6f2d506078d7428f"
     )
     assert len(original.identity) == 64
 

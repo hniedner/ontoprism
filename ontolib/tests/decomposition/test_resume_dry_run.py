@@ -11,7 +11,6 @@ from ontolib.decomposition.branches import DecompositionBranch
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.pre_resume import EXPECTED_PENDING_DIGEST
 from ontolib.decomposition.provenance_models import (
-    NO_MIXED_CHAIN_INVENTORY_IDENTITY,
     RUN_STAGE_SEQUENCE_IDENTITY,
     NcitSourceSnapshot,
     RunFingerprint,
@@ -49,7 +48,6 @@ def _fingerprint() -> RunFingerprint:
         source_identity=SOURCE_IDENTITY,
         collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         routing_implementation_identity=routing_implementation_identity(),
-        mixed_chain_inventory_identity=NO_MIXED_CHAIN_INVENTORY_IDENTITY,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",

@@ -1057,7 +1057,7 @@ async def _rehearsal_and_full_run(
 
 
 @pytest.mark.unit
-async def test_a_rehearsal_run_config_differs_only_in_output_identity_and_inventory(
+async def test_a_rehearsal_run_config_differs_only_in_output_and_sample_identity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configs, _ = await _rehearsal_and_full_run(tmp_path, monkeypatch)
@@ -1067,17 +1067,12 @@ async def test_a_rehearsal_run_config_differs_only_in_output_identity_and_invent
     assert full["rehearsal"] is False
     assert rehearsal["sample_manifest"] is not None
     assert full["sample_manifest"] is None
-    assert full["mixed_chain_inventory_path"] is not None
-    assert rehearsal["mixed_chain_inventory_path"] is None, (
-        "the inventory is bound to the whole worklist; a rehearsal cannot carry it"
-    )
     differing = {key for key in full if rehearsal[key] != full[key]}
     assert differing == {
         "out",
         "load_to_store",
         "sample_manifest",
         "rehearsal",
-        "mixed_chain_inventory_path",
     }
 
 

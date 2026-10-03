@@ -44,9 +44,6 @@ RUN_STAGE_SEQUENCE: tuple[RunStageName, ...] = (
 RUN_STAGE_SEQUENCE_IDENTITY = hashlib.sha256(
     json.dumps(RUN_STAGE_SEQUENCE, separators=(",", ":")).encode()
 ).hexdigest()
-NO_MIXED_CHAIN_INVENTORY_IDENTITY = hashlib.sha256(
-    b'{"mixed_chain_inventory":"not-required"}'
-).hexdigest()
 
 
 class RefusalReason(StrEnum):
@@ -111,7 +108,6 @@ class FullRunExecutionIdentity(BaseModel):
     config_version: str = Field(min_length=1)
     routing_implementation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    mixed_chain_inventory_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     stage_sequence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     output_mode: Literal["none", "file"]
     load_mode: Literal["none", "named-graph"]
@@ -239,7 +235,6 @@ class RunFingerprint(BaseModel):
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     routing_implementation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    mixed_chain_inventory_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     stage_sequence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     branch: Literal["neoplasm", "disease"]
     scope_root: ScopeRoot
@@ -336,7 +331,6 @@ class RunResumeIdentity(BaseModel):
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     routing_implementation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    mixed_chain_inventory_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     stage_sequence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     branch: Literal["neoplasm", "disease"]
     scope_root: ScopeRoot
@@ -374,7 +368,6 @@ class RunResumeIdentity(BaseModel):
             routing_implementation_identity=(
                 fingerprint.routing_implementation_identity
             ),
-            mixed_chain_inventory_identity=fingerprint.mixed_chain_inventory_identity,
             stage_sequence_identity=fingerprint.stage_sequence_identity,
             branch=fingerprint.branch,
             scope_root=fingerprint.scope_root,
