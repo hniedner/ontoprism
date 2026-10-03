@@ -894,8 +894,8 @@ comparison does not establish global NCIt optimality, so the prior rationale's c
 is the globally most-specific available NCIt tissue-origin filler is withdrawn rather than carried
 into the effective rationale. The selected artifact binds the prior decision, candidate set,
 specificity target, and unchanged applied-policy report; it creates no correction proposal, infers
-no NCI adoption, and records software only as transcriber
-(`pdm run agent-replay transcribe-r103-specificity-selection`, 2026-09-07).
+no NCI adoption, and records software only as transcriber. The one-off command that
+created the historical artifact was retired in #418.
 
 Two literature records provide context for adrenal-rest-tumour origin without deciding the NCIt
 candidate comparison: Claahsen-van der Grinten et al., “Testicular adrenal rest tumours in

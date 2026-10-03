@@ -8,7 +8,6 @@ import pytest
 from scripts.adjudication import main as adjudication_main
 from scripts.research.golden_review import load_migrated_historical_adjudication
 
-from ontolib.decomposition import proposal_registry_migration as migration_module
 from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
@@ -29,6 +28,7 @@ REV1 = GOLDEN / "r103-review-state-26.07d.json"
 REV2 = GOLDEN / "r103-review-state-26.07d-rev2.json"
 CORROBORATION = GOLDEN / "r103-c3264-corroboration-26.07d.json"
 REGISTRY = GOLDEN / "proposal-registry.json"
+MIGRATION = GOLDEN / "proposal-registry-schema2-migration.json"
 
 
 def _generate(output: Path):
@@ -67,7 +67,12 @@ def test_schema2_migration_envelope_is_deterministic_and_binds_unchanged_evidenc
     second = _generate(second_path)
 
     assert first_path.read_bytes() == second_path.read_bytes()
-    assert first == second == load_proposal_registry_migration_envelope(first_path)
+    assert (
+        first
+        == second
+        == load_proposal_registry_migration_envelope(first_path)
+        == load_proposal_registry_migration_envelope(MIGRATION)
+    )
     assert first.migration_kind == "proposal-registry-schema1-to-schema2-binding"
     assert first.old_registry.schema_version == 1
     assert first.old_registry.registry_identity == (
@@ -79,10 +84,6 @@ def test_schema2_migration_envelope_is_deterministic_and_binds_unchanged_evidenc
     assert first.new_registry.schema_version == 2
     assert first.new_registry.registry_identity == (
         "fab02c05906bcca0ed33cc483465640e2348e98bef8c7ad01460c23da3eac7c1"
-    )
-    assert (
-        first.migration_tool_identity
-        == hashlib.sha256(Path(migration_module.__file__).read_bytes()).hexdigest()
     )
     assert first.proof.status_counts == {"locally-approved": 2, "proposed": 5}
     assert first.proof.no_proposal_transitioned_to_accepted_in_ncit is True
@@ -186,7 +187,9 @@ def test_migration_envelope_rejects_each_independent_tamper(tmp_path: Path) -> N
         1,
     )
     tampered_revision.write_text(revision, encoding="utf-8")
-    with pytest.raises(ProposalRegistryMigrationError, match="human decision proof"):
+    with pytest.raises(
+        ProposalRegistryMigrationError, match="historical artifact bytes"
+    ):
         write_proposal_registry_migration_envelope(
             historical_oracle_path=ORACLE,
             historical_r103_review_path=REV1,

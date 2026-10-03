@@ -57,44 +57,9 @@ The historical record contains 11 corrections and 4 escalations. Those dispositi
 context for the new blank review rather than active schema-4 decisions; they remain open
 and block #274 and #127. Publication remains unauthorized.
 
-## R103 staging and readiness
+## Preserved R103 history
 
-`pdm run agent-replay generate-r103-review` remains the upstream staging producer
-used for historical promotion and reproduction. Its packet remains meaningful even
-though current readiness no longer consumes the standalone `tmp/` packet. The
-producer is retained because the historical generation/promotion path still begins
-with that source-bound packet and blank review workbook.
-
-Current readiness reads the preserved terminal revision together with the generated source
-inventory, C12950 candidate enumeration, normalized authority, normalized corroboration, and
-applied-policy report under `ontolib/tests/decomposition/golden/`. A separate strict target binds
-the generic candidate enumeration to the exact C2860/R103/C12950 source occurrence and its
-carried-forward decision. The preserved unanswered state binds the exact question and three
-allowed options; the selected successor binds that state, the 16-row candidate set, the unchanged
-applied-policy report, and the prior decision. It records the user's 2026-09-07
-`qualify-global-most-specific-claim` selection with software as transcriber, retains C12950 as
-source-supported, and replaces the global-optimality rationale with the bounded conclusion that no
-enumerated descendant is better. Readiness binds the selected identity and marks the one C2860
-specificity requirement satisfied. C3264's concept-scoped exclusion remains terminal and is not
-reopened by candidate evidence. Overall authorization remains false and publication remains
-unattempted (`pdm run agent-replay transcribe-r103-specificity-selection`, 2026-09-07).
-
-`r103-c3264-corroboration-26.07d.json` is preserved historical input. Because no digest-bound
-PubMed response bytes were retained, its successor
-`r103-corroboration-normalized-26.07d.json` classifies the five citations as reviewer-supplied
-references with `upstream_verified=false`; neither ESummary authority nor a verified date is
-claimed. Both remain corroboration, not proof.
-
-Run `pdm run agent-replay generate-r103-evidence-application` against the certified stated QLever
-graph and RDF/XML artifact. The generator performs bounded QLever count/page reads, independent
-streaming RDF/XML scans, canonical parity checks, strict historical/migration joins, and atomic
-deterministic writes. It creates no proposal and makes no candidate-selection verdict.
-
-Generate the accountable selected successor only after those machine artifacts exist:
-
-```bash
-pdm run agent-replay transcribe-r103-specificity-selection
-```
-
-The operation has fixed inputs and transcribes the user-confirmed decision; it does not claim
-software authorship, create a proposal, infer NCI adoption, or alter the applied policy.
+The one-off R103 review chain was retired in #418. Its original review state,
+terminal revision, and corroboration files remain byte-identical historical inputs to
+the proposal-registry migration envelope; no active readiness or replay path consumes
+the removed derived artifacts.

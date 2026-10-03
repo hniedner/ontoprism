@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
-import json
 import sys
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -33,23 +31,6 @@ from ontolib.decomposition.proposal_registry_migration import (
     write_proposal_registry_migration_envelope,
 )
 from ontolib.decomposition.provenance import ProvenanceStore
-from ontolib.decomposition.r103_review import (
-    build_r103_review_packet,
-    dry_run_r103_review,
-    import_r103_review_decisions,
-    load_r103_decision_registry,
-    load_r103_review_packet,
-    write_r103_review_dry_run,
-    write_r103_review_packet,
-    write_r103_review_workbook,
-)
-from ontolib.decomposition.r103_review_promotion import (
-    R103_REVISION_MACHINE_QUALIFICATION,
-    prepare_r103_review_revision,
-    promote_r103_review_revision,
-    promote_r103_review_state,
-    transcribe_r103_review_revision,
-)
 from ontolib.decomposition.resume_dry_run import (
     build_resume_dry_run,
     inspect_resume_selection,
@@ -242,65 +223,6 @@ class _AdmitGroupReviewEvidenceArgs(Protocol):
     sidecar_output: Path
 
 
-class _PrepareR103ReviewArgs(Protocol):
-    stated_owl: Path
-    source_manifest: Path
-    proposal_registry: Path
-    output_packet: Path
-    output_xlsx: Path
-
-
-class _ImportR103ReviewArgs(Protocol):
-    packet: Path
-    reviewed_xlsx: Path
-    output: Path
-
-
-class _DryRunR103ReviewArgs(Protocol):
-    packet: Path
-    registry: Path
-    oracle: Path
-    proposal_registry: Path
-    output: Path
-
-
-class _PromoteR103ReviewStateArgs(Protocol):
-    packet: Path
-    registry: Path
-    dry_run: Path
-    oracle: Path
-    proposal_registry: Path
-    output: Path
-
-
-class _PrepareR103ReviewRevisionArgs(Protocol):
-    predecessor: Path
-    output_xlsx: Path
-
-
-class _TranscribeR103ReviewRevisionArgs(Protocol):
-    predecessor: Path
-    blank_xlsx: Path
-    output_xlsx: Path
-    subject: str
-    role: str
-    filler: str
-    outcome: str
-    rationale_file: Path
-    reviewer: str
-    review_date: str
-
-
-class _PromoteR103ReviewRevisionArgs(Protocol):
-    predecessor: Path
-    reviewed_xlsx: Path
-    oracle: Path
-    proposal_registry: Path
-    output_registry: Path
-    output_dry_run: Path
-    output: Path
-
-
 def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
     group_parser = subparsers.add_parser("generate-group-review-packet")
     group_parser.add_argument("--current-evidence", required=True, type=Path)
@@ -322,54 +244,6 @@ def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
     admit.add_argument("--source-markdown", required=True, type=Path)
     admit.add_argument("--markdown-output", required=True, type=Path)
     admit.add_argument("--sidecar-output", required=True, type=Path)
-
-
-def _add_r103_review_parser(subparsers: argparse._SubParsersAction) -> None:
-    prepare = subparsers.add_parser("prepare-r103-review-packet")
-    prepare.add_argument("--stated-owl", required=True, type=Path)
-    prepare.add_argument("--source-manifest", required=True, type=Path)
-    prepare.add_argument("--proposal-registry", required=True, type=Path)
-    prepare.add_argument("--output-packet", required=True, type=Path)
-    prepare.add_argument("--output-xlsx", required=True, type=Path)
-    importer = subparsers.add_parser("import-r103-review-decisions")
-    importer.add_argument("--packet", required=True, type=Path)
-    importer.add_argument("--reviewed-xlsx", required=True, type=Path)
-    importer.add_argument("--output", required=True, type=Path)
-    dry_run = subparsers.add_parser("dry-run-r103-review")
-    dry_run.add_argument("--packet", required=True, type=Path)
-    dry_run.add_argument("--registry", required=True, type=Path)
-    dry_run.add_argument("--oracle", required=True, type=Path)
-    dry_run.add_argument("--proposal-registry", required=True, type=Path)
-    dry_run.add_argument("--output", required=True, type=Path)
-    promote = subparsers.add_parser("promote-r103-review-state")
-    promote.add_argument("--packet", required=True, type=Path)
-    promote.add_argument("--registry", required=True, type=Path)
-    promote.add_argument("--dry-run", required=True, type=Path)
-    promote.add_argument("--oracle", required=True, type=Path)
-    promote.add_argument("--proposal-registry", required=True, type=Path)
-    promote.add_argument("--output", required=True, type=Path)
-    revision = subparsers.add_parser("prepare-r103-review-revision")
-    revision.add_argument("--predecessor", required=True, type=Path)
-    revision.add_argument("--output-xlsx", required=True, type=Path)
-    transcribe = subparsers.add_parser("transcribe-r103-review-revision")
-    transcribe.add_argument("--predecessor", required=True, type=Path)
-    transcribe.add_argument("--blank-xlsx", required=True, type=Path)
-    transcribe.add_argument("--output-xlsx", required=True, type=Path)
-    transcribe.add_argument("--subject", required=True)
-    transcribe.add_argument("--role", required=True)
-    transcribe.add_argument("--filler", required=True)
-    transcribe.add_argument("--outcome", required=True)
-    transcribe.add_argument("--rationale-file", required=True, type=Path)
-    transcribe.add_argument("--reviewer", required=True)
-    transcribe.add_argument("--review-date", required=True)
-    promote_revision = subparsers.add_parser("promote-r103-review-revision")
-    promote_revision.add_argument("--predecessor", required=True, type=Path)
-    promote_revision.add_argument("--reviewed-xlsx", required=True, type=Path)
-    promote_revision.add_argument("--oracle", required=True, type=Path)
-    promote_revision.add_argument("--proposal-registry", required=True, type=Path)
-    promote_revision.add_argument("--output-registry", required=True, type=Path)
-    promote_revision.add_argument("--output-dry-run", required=True, type=Path)
-    promote_revision.add_argument("--output", required=True, type=Path)
 
 
 class _CorpusBaselineArgs(Protocol):
@@ -499,103 +373,6 @@ async def _generate_corpus(args: _CorpusBaselineArgs) -> None:
         write_corpus_baseline(args.output, baseline)
     finally:
         await dispose_engine(engine)
-
-
-def _prepare_r103_review(args: _PrepareR103ReviewArgs) -> None:
-    packet = build_r103_review_packet(
-        args.stated_owl, args.source_manifest, args.proposal_registry
-    )
-    write_r103_review_packet(args.output_packet, packet)
-    write_r103_review_workbook(args.output_xlsx, packet)
-    workbook_identity = hashlib.sha256(args.output_xlsx.read_bytes()).hexdigest()
-    print(
-        f"packet_identity={packet.packet_identity} rows={len(packet.rows)} "
-        f"source_passes={packet.source_pass_count} "
-        f"blank_workbook_sha256={workbook_identity}",
-        file=sys.stderr,
-    )
-
-
-def _import_r103_review(args: _ImportR103ReviewArgs) -> None:
-    registry = import_r103_review_decisions(
-        load_r103_review_packet(args.packet), args.reviewed_xlsx, args.output
-    )
-    print(f"registry_identity={registry.registry_identity}", file=sys.stderr)
-
-
-def _dry_run_r103_review(args: _DryRunR103ReviewArgs) -> None:
-    result = dry_run_r103_review(
-        load_r103_review_packet(args.packet),
-        load_r103_decision_registry(args.registry),
-        oracle_path=args.oracle,
-        proposal_registry_path=args.proposal_registry,
-    )
-    write_r103_review_dry_run(args.output, result)
-    print(f"readiness={result.readiness} writes_performed=false", file=sys.stderr)
-
-
-def _promote_r103_review_state(args: _PromoteR103ReviewStateArgs) -> None:
-    promoted = promote_r103_review_state(
-        packet_path=args.packet,
-        registry_path=args.registry,
-        dry_run_path=args.dry_run,
-        oracle_path=args.oracle,
-        proposal_registry_path=args.proposal_registry,
-        output_path=args.output,
-    )
-    print(
-        f"artifact_identity={promoted.artifact_identity} "
-        "readiness=review-incomplete writes_performed=false",
-        file=sys.stderr,
-    )
-
-
-def _prepare_r103_review_revision(args: _PrepareR103ReviewRevisionArgs) -> None:
-    prepare_r103_review_revision(
-        predecessor_path=args.predecessor,
-        output_workbook_path=args.output_xlsx,
-    )
-    print("revision_workbook=blank software_authorship=false", file=sys.stderr)
-
-
-def _transcribe_r103_review_revision(
-    args: _TranscribeR103ReviewRevisionArgs,
-) -> None:
-    rationale = json.loads(args.rationale_file.read_text(encoding="utf-8"))
-    if not isinstance(rationale, str):
-        raise ValueError("revision rationale file must contain one JSON string")
-    transcribe_r103_review_revision(
-        predecessor_path=args.predecessor,
-        blank_workbook_path=args.blank_xlsx,
-        output_workbook_path=args.output_xlsx,
-        assertion=(args.subject, args.role, args.filler),
-        outcome=args.outcome,
-        rationale=rationale,
-        reviewer=args.reviewer,
-        review_date=args.review_date,
-    )
-    print(
-        "transcription_authority=explicit-human-instruction software_authorship=false",
-        file=sys.stderr,
-    )
-
-
-def _promote_r103_review_revision(args: _PromoteR103ReviewRevisionArgs) -> None:
-    revision = promote_r103_review_revision(
-        predecessor_path=args.predecessor,
-        reviewed_workbook_path=args.reviewed_xlsx,
-        oracle_path=args.oracle,
-        proposal_registry_path=args.proposal_registry,
-        qualification=R103_REVISION_MACHINE_QUALIFICATION,
-        output_registry_path=args.output_registry,
-        output_dry_run_path=args.output_dry_run,
-        output_path=args.output,
-    )
-    print(
-        f"artifact_identity={revision.artifact_identity} "
-        "readiness=ready-for-separate-application writes_performed=false",
-        file=sys.stderr,
-    )
 
 
 async def _generate_pre_resume(args: _PreResumeArgs) -> None:
@@ -780,7 +557,6 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     validate_set.add_argument("--returns-directory", required=True, type=Path)
     validate_set.add_argument("--index", required=True, type=Path)
     _add_group_review_parser(subparsers)
-    _add_r103_review_parser(subparsers)
     corpus_parser = subparsers.add_parser("generate-corpus-baseline")
     corpus_parser.add_argument("--source-manifest", required=True, type=Path)
     corpus_parser.add_argument("--run-id", required=True)
@@ -795,7 +571,7 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     return parser
 
 
-def main(  # noqa: C901, PLR0911, PLR0912, PLR0915
+def main(  # noqa: C901, PLR0911, PLR0912
     argv: list[str] | None = None,
 ) -> None:
     args = _parser().parse_args(argv)
@@ -859,29 +635,6 @@ def main(  # noqa: C901, PLR0911, PLR0912, PLR0915
         return
     if args.command == "admit-group-review-evidence":
         _admit_group_review_evidence(cast("_AdmitGroupReviewEvidenceArgs", args))
-        return
-    if args.command == "prepare-r103-review-packet":
-        _prepare_r103_review(cast("_PrepareR103ReviewArgs", args))
-        return
-    if args.command == "import-r103-review-decisions":
-        _import_r103_review(cast("_ImportR103ReviewArgs", args))
-        return
-    if args.command == "dry-run-r103-review":
-        _dry_run_r103_review(cast("_DryRunR103ReviewArgs", args))
-        return
-    if args.command == "promote-r103-review-state":
-        _promote_r103_review_state(cast("_PromoteR103ReviewStateArgs", args))
-        return
-    if args.command == "prepare-r103-review-revision":
-        _prepare_r103_review_revision(cast("_PrepareR103ReviewRevisionArgs", args))
-        return
-    if args.command == "transcribe-r103-review-revision":
-        _transcribe_r103_review_revision(
-            cast("_TranscribeR103ReviewRevisionArgs", args)
-        )
-        return
-    if args.command == "promote-r103-review-revision":
-        _promote_r103_review_revision(cast("_PromoteR103ReviewRevisionArgs", args))
         return
     if args.command == "generate-corpus-baseline":
         asyncio.run(_generate_corpus(cast("_CorpusBaselineArgs", args)))
