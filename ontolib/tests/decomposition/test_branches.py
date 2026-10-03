@@ -54,7 +54,6 @@ def test_fingerprint_separates_hierarchy_scope_from_shared_algorithm() -> None:
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="disease",
         scope_root="C2991",

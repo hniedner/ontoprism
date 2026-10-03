@@ -19,7 +19,6 @@ This evidence record retains the exact axis names used by the source rows.
 | `neoplasm-current-comparison.json` | Current replay metrics, grouping diagnoses, and all 189 row classifications. |
 | `neoplasm-current-corpus-baseline.json` | Current-source v5 full-corpus counts and exact representation identity. |
 | `neoplasm-highest-fanout.json` | Exhaustive current-source highest-fanout concepts and fixed query budgets within the 15,633-concept C3262 neoplasm scope (not all NCIt). |
-| `neoplasm-r101-v5-2b39-historical-conservation.json.gz` | Immutable schema-3 source diagnostic for the historical 2b39 mixed-chain inventory/projection era. |
 | `neoplasm-r101-v5-corrected-projection.json` | Immutable corrected projection bound to the historical 2b39 inventory and source diagnostic; not a run. |
 
 `proposal-registry.json` is the sole current strict golden governance record for minted proposals.
@@ -502,37 +501,3 @@ must be resumed with `--resume <run-id>`; completed work items are fenced and ar
 report goldens, and review packet fixtures. Their accepted decisions remain in packaged
 policy data. #417's per-run occurrence record now evaluates D74's
 unexplained-R101-loss blocker for the current evidence run.
-
-### Historical 2b39 mixed-chain inventory and corrected projection
-
-The separately identified #267 inventory and corrected projection belong to the historical 2b39
-era, not to the current 8fb→cd4b comparator pair. Their exact tracked source is
-`neoplasm-r101-v5-2b39-historical-conservation.json.gz`: file SHA-256
-`f3d4f2bc551db08d3f665e92c9199ec09d9d80417f09a0c24e47a21b3a2de30f`, report identity
-`25ed41375bc633505031a1e69327c41ac02a76f3f0759f86c899357b4fd4d6ba`, and new run
-`neoplasm-2b39c3fc-0ae8-4220-971b-20d861ada722` (`pdm run agent-test
-ontolib/tests/decomposition/test_mixed_chain_inventory.py::test_historical_mixed_chain_inventory_binds_available_report_evidence
--v`, 2026-09-12). That immutable report has 39 structural additions; it is retained only to
-reproduce this historical derivation, not as the current diagnostic (`pdm run
-agent-test --full-store ontolib/tests/decomposition/test_mixed_chain_full_store.py::test_historical_inventory_generator_replays_from_exact_report
--v`, 2026-09-12).
-
-Generate the historical inventory and projection from their exact tracked report and persisted
-2b39 state, then record only the validated generated artifacts:
-
-```bash
-pdm run agent-replay generate-mixed-chain-inventory
-pdm run agent-replay record-mixed-chain-inventory
-pdm run agent-replay generate-mixed-chain-corrected-projection
-pdm run agent-replay record-mixed-chain-corrected-projection
-```
-
-The projection is explicitly typed `corrected-projection-not-a-run`: it does not mutate, resume,
-or replace any completed run or diagnostic. It records 39 structural removals, zero additions, 42
-metadata-row changes, and 39 disposition changes; the metadata classification is 36
-`needs_review` true→false transitions, six relationship-group changes, and no `most_specific`
-transitions. Its projection identity remains
-`9df530273eead6b10d4f78df875999076bf2a2fd974a5aa2718f2ebe87c522a6` (`pdm run agent-test
---full-store ontolib/tests/decomposition/test_mixed_chain_full_store.py::test_corrected_projection_generator_binds_exact_historical_report
--v`, 2026-09-12). A corrected published run still requires database-backed admission before
-execution; this projection preserves evidence and grants no content or publication authority.

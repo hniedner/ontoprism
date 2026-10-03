@@ -121,6 +121,26 @@ def test_runtime_imports_and_commands_do_not_reach_r103_review_chain():
     assert result.returncode == 0, result.stderr
 
 
+def test_run_and_provenance_imports_do_not_load_mixed_chain_modules():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import importlib, sys; "
+            "[importlib.import_module(name) for name in ("
+            "'ontolib.decomposition.run', "
+            "'ontolib.decomposition.provenance')]; "
+            "assert not [name for name in sys.modules if name in ("
+            "'ontolib.decomposition.mixed_chain_inventory', "
+            "'ontolib.decomposition.mixed_chain_projection')]",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_partition_metrics_preserve_abstentions_and_pair_removal_effect():
     oracle = read_oracle(_GOLDEN / "neoplasm-adjudicated.json")
     evidence = json.loads(

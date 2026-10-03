@@ -617,7 +617,6 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
                 source_identity="a" * 64,
                 collapse_policy_identity="0" * 64,
                 routing_implementation_identity="1" * 64,
-                mixed_chain_inventory_identity="2" * 64,
                 stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
                 branch="neoplasm",
                 scope_root="C3262",
@@ -722,7 +721,6 @@ def _install_admission_doubles(store: Any, state: dict[str, Any]) -> None:
                 source_identity="a" * 64,
                 collapse_policy_identity="0" * 64,
                 routing_implementation_identity="1" * 64,
-                mixed_chain_inventory_identity="2" * 64,
                 stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
                 branch="neoplasm",
                 scope_root="C3262",
@@ -940,7 +938,6 @@ def _set_resume_worklist(
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
@@ -1754,7 +1751,6 @@ def _checkpoint_setup() -> run_module._RunSetup:
             source_identity="a" * 64,
             collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
             routing_implementation_identity="1" * 64,
-            mixed_chain_inventory_identity="2" * 64,
             stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
             branch="neoplasm",
             scope_root="C3262",
@@ -1837,83 +1833,6 @@ async def test_completed_preflight_checkpoint_restores_its_typed_result() -> Non
     )
 
     assert identity == result.identity
-
-
-@pytest.mark.unit
-async def test_completed_preflight_rejects_stale_mixed_chain_inventory(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        run_module, "require_mixed_chain_preflight", lambda *_, **__: None
-    )
-    result = await run_source_preflight(
-        (),
-        read_definition=AsyncMock(),
-        source_identity="a" * 64,
-        reader_identity="b" * 64,
-        query_identity="c" * 64,
-        tool_identity="qlever-v1",
-        walker_max_depth=7,
-        max_nodes=10,
-        mixed_chain_inventory_identity="d" * 64,
-    )
-    provenance = MagicMock()
-    provenance.claim_stage = AsyncMock(return_value=None)
-    provenance.run_stages = AsyncMock(
-        return_value=(
-            MagicMock(
-                stage="preflight",
-                state="complete",
-                output_identity=result.identity,
-                output_payload=result.model_dump(
-                    mode="json", exclude_computed_fields=True
-                ),
-            ),
-        )
-    )
-
-    inventory_path = Path(
-        "ontolib/src/ontolib/decomposition/data/neoplasm_mixed_chain_inventory.json"
-    )
-    current = result.model_copy(
-        update={
-            "mixed_chain_inventory_identity": run_module.load_mixed_chain_inventory(
-                inventory_path
-            ).identity
-        }
-    )
-
-    with pytest.raises(SourcePreflightRejectedError, match="stale mixed-chain"):
-        await run_module._preflight_stage(
-            _checkpoint_setup(),
-            RunConfig(branch="neoplasm", mixed_chain_inventory_path=inventory_path),
-            provenance,
-            current,
-        )
-
-
-@pytest.mark.unit
-def test_an_inventory_bound_to_another_source_is_rejected_as_a_preflight_problem() -> (
-    None
-):
-    """The packaged neoplasm inventory is bound to the real NCIt source and worklist, so
-    a run on any other source must be refused as a SourcePreflightRejectedError, not
-    escape as the inventory's bare ValueError."""
-    with pytest.raises(
-        SourcePreflightRejectedError,
-        match=r"rejected mixed-chain inventory: .*source identity differs",
-    ):
-        run_module._required_mixed_chain_inventory_identity(
-            RunConfig(
-                branch="neoplasm",
-                mixed_chain_inventory_path=Path(
-                    "ontolib/src/ontolib/decomposition/data/"
-                    "neoplasm_mixed_chain_inventory.json"
-                ),
-            ),
-            source_identity="a" * 64,
-            worklist=("C1",),
-        )
 
 
 @pytest.mark.unit
@@ -2848,7 +2767,6 @@ async def test_pending_work_emits_heartbeat_while_concept_is_active(
             source_identity="a" * 64,
             collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
             routing_implementation_identity="1" * 64,
-            mixed_chain_inventory_identity="2" * 64,
             stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
             branch="neoplasm",
             scope_root="C3262",
@@ -2962,7 +2880,6 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
         source_identity="a" * 64,
         collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
@@ -3018,7 +2935,6 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
         source_identity="a" * 64,
         collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",

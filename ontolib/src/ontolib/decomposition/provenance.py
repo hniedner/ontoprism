@@ -26,11 +26,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
     from ontolib.decomposition.minting import MintedConcept as MintedProposal
-    from ontolib.decomposition.mixed_chain_inventory import (
-        HistoricalMixedChainRunBinding,
-        PersistedSelectorOccurrence,
-    )
-    from ontolib.decomposition.mixed_chain_projection import PersistedProjectionState
     from ontolib.decomposition.models import (
         CompleteDefinition,
         Constituent,
@@ -90,7 +85,6 @@ from ontolib.decomposition.r101_run_conservation import (
 from ontolib.decomposition.source_support import SOURCE_SUPPORT_SQL, ConstituentEvidence
 
 _logger = logging.getLogger(__name__)
-_MAX_BOUNDED_SELECTOR_CODES = 100
 
 
 _PUBLICATION_LOCK_KEY = "decomposition:publication"
@@ -2796,64 +2790,6 @@ class ProvenanceStore:
                 fingerprint=fingerprint,
             )
 
-    async def historical_mixed_chain_run_for_evidence(
-        self, run_id: str
-    ) -> HistoricalMixedChainRunBinding:
-        """Read the exact completed 2b39 run inputs used by historical replay."""
-        from ontolib.decomposition.mixed_chain_inventory import (  # noqa: PLC0415
-            HistoricalMixedChainRunBinding,
-        )
-
-        async with self._sf() as session:
-            row = (
-                (
-                    await session.execute(
-                        text(
-                            "SELECT status,fingerprint,fingerprint_sha256,"
-                            "publication_state FROM decomp_run WHERE id=:run_id"
-                        ),
-                        {"run_id": run_id},
-                    )
-                )
-                .mappings()
-                .first()
-            )
-            if row is None:
-                raise RunStateError(f"decomposition run {run_id!r} does not exist")
-            if row["status"] != "complete" or row["publication_state"] != "published":
-                raise RunStateError(
-                    f"decomposition run {run_id!r} is not complete and published"
-                )
-            worklist = tuple(
-                (
-                    await session.execute(
-                        text(
-                            "SELECT concept_code FROM decomp_work_item "
-                            "WHERE run_id=:run_id ORDER BY ordinal"
-                        ),
-                        {"run_id": run_id},
-                    )
-                )
-                .scalars()
-                .all()
-            )
-        try:
-            return HistoricalMixedChainRunBinding.model_validate_json(
-                _json.dumps(
-                    {
-                        "run_id": run_id,
-                        "fingerprint": row["fingerprint"],
-                        "fingerprint_identity": row["fingerprint_sha256"],
-                        "materialized_worklist": worklist,
-                    },
-                    sort_keys=True,
-                )
-            )
-        except ValidationError as exc:
-            raise RunIdentityMismatchError(
-                "persisted historical mixed-chain run violates its exact schema"
-            ) from exc
-
     async def outcome_counts(self, run_id: str) -> RunOutcomeCounts:
         """Return cumulative counters over the materialized exact worklist."""
         async with self._sf() as session:
@@ -2911,97 +2847,6 @@ class ProvenanceStore:
             one_step_r82=counts.get("one-step-r82", 0),
             closure_only_r82=counts.get("closure-only-r82", 0),
             unresolved=counts.get("unresolved", 0),
-        )
-
-    async def selector_occurrences_for_codes(
-        self, run_id: str, concept_codes: tuple[str, ...]
-    ) -> tuple[PersistedSelectorOccurrence, ...]:
-        """Load exact persisted routed occurrences for a bounded concept set."""
-        from ontolib.decomposition.mixed_chain_inventory import (  # noqa: PLC0415
-            PersistedSelectorOccurrence,
-        )
-
-        if not concept_codes or len(concept_codes) > _MAX_BOUNDED_SELECTOR_CODES:
-            raise ValueError("selector occurrence request must contain 1-100 codes")
-        if tuple(sorted(set(concept_codes))) != concept_codes:
-            raise ValueError("selector occurrence codes must be canonical and unique")
-        async with self._sf() as session:
-            result = await session.execute(
-                text(
-                    "SELECT d.concept_code, d.occurrence_id AS source_occurrence_id, "
-                    "d.source_fact_id, o.role_code AS source_role, "
-                    "o.anchor_code AS anchoring_genus, d.normalized_axis, "
-                    "d.source_filler, d.semantic_route, d.semantic_type, "
-                    "d.policy_decision_identity FROM decomp_occurrence_disposition d "
-                    "JOIN decomp_source_occurrence o USING "
-                    "(run_id, concept_code, occurrence_id) WHERE d.run_id = :run_id "
-                    "AND d.concept_code = ANY(CAST(:codes AS text[])) "
-                    "ORDER BY d.concept_code, d.normalized_axis, d.occurrence_id"
-                ),
-                {"run_id": run_id, "codes": list(concept_codes)},
-            )
-            rows = result.mappings().all()
-        return tuple(
-            PersistedSelectorOccurrence.model_validate(dict(row)) for row in rows
-        )
-
-    async def projection_state_for_codes(
-        self, run_id: str, concept_codes: tuple[str, ...]
-    ) -> tuple[PersistedProjectionState, ...]:
-        """Load complete output and disposition state for 1-100 exact codes."""
-        from ontolib.decomposition.mixed_chain_projection import (  # noqa: PLC0415
-            PersistedProjectionState,
-        )
-
-        if not concept_codes or len(concept_codes) > _MAX_BOUNDED_SELECTOR_CODES:
-            raise ValueError("projection state request must contain 1-100 codes")
-        if tuple(sorted(set(concept_codes))) != concept_codes:
-            raise ValueError("projection state codes must be canonical and unique")
-        params = {"run_id": run_id, "codes": list(concept_codes)}
-        async with self._sf() as session:
-            constituent_result = await session.execute(
-                text(
-                    "SELECT concept_code, axis, filler_code, axis_source, "
-                    "source_roles, most_specific, needs_review, "
-                    "axis_ambiguous, source_group_ids, normalized_group_id, "
-                    "normalized_group_label, source_definition_ids "
-                    "FROM decomp_constituent WHERE "
-                    "run_id = :run_id AND concept_code = ANY(CAST(:codes AS text[])) "
-                    "ORDER BY concept_code, axis, filler_code"
-                ),
-                params,
-            )
-            link_result = await session.execute(
-                text(
-                    "SELECT concept_code, axis, filler_code, occurrence_id FROM "
-                    "decomp_constituent_occurrence WHERE run_id = :run_id AND "
-                    "concept_code = ANY(CAST(:codes AS text[])) ORDER BY "
-                    "concept_code, axis, filler_code, occurrence_id"
-                ),
-                params,
-            )
-            disposition_result = await session.execute(
-                text(
-                    "SELECT concept_code, occurrence_id, source_fact_id, disposition, "
-                    "normalized_axis, source_filler, retained_filler, semantic_route, "
-                    "semantic_type, r82_part, r82_whole, r82_path, specificity_path, "
-                    "policy_decision_identity FROM decomp_occurrence_disposition "
-                    "WHERE run_id = :run_id AND concept_code = ANY(CAST(:codes AS "
-                    "text[])) ORDER BY concept_code, occurrence_id"
-                ),
-                params,
-            )
-        constituents = _constituents_by_code(
-            constituent_result.mappings().all(), link_result.mappings().all()
-        )
-        dispositions = _dispositions_by_code(disposition_result.mappings().all())
-        return tuple(
-            PersistedProjectionState(
-                concept_code=code,
-                constituents=tuple(constituents.get(code, ())),
-                dispositions=tuple(dispositions.get(code, ())),
-            )
-            for code in concept_codes
         )
 
     async def corpus_baseline_aggregate(self, run_id: str) -> CorpusBaselineAggregate:

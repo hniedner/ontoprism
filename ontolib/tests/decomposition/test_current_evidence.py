@@ -177,7 +177,6 @@ def _fingerprint() -> RunFingerprint:
         source_identity=manifest["source_identity"],
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch=manifest["branch"],
         scope_root=manifest["scope_root"],

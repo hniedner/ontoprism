@@ -30,7 +30,6 @@ def _fingerprint(**changes: object) -> RunFingerprint:
         "source_identity": "a" * 64,
         "collapse_policy_identity": "0" * 64,
         "routing_implementation_identity": "1" * 64,
-        "mixed_chain_inventory_identity": "2" * 64,
         "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "branch": "neoplasm",
         "scope_root": "C3262",
