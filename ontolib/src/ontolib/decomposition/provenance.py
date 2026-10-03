@@ -2364,41 +2364,6 @@ class ProvenanceStore:
             f"resume {dimension} does not match persisted run {run_id!r}"
         )
 
-    async def resume_run(
-        self,
-        run_id: str,
-        expected: RunResumeIdentity,
-    ) -> RunFingerprint:
-        """Validate and reopen only a matching running/failed exact run."""
-        async with self._sf() as session, session.begin():
-            result = await session.execute(
-                text(
-                    "SELECT status, fingerprint, fingerprint_sha256 "
-                    "FROM decomp_run WHERE id = :id FOR UPDATE"
-                ),
-                {"id": run_id},
-            )
-            row = result.mappings().first()
-            if row is None:
-                raise RunStateError(f"decomposition run {run_id!r} does not exist")
-            if row["status"] not in {"running", "failed"}:
-                raise RunStateError(
-                    f"decomposition run {run_id!r} is {row['status']!r}, "
-                    "not running or failed"
-                )
-            fingerprint = self._validated_fingerprint(
-                row["fingerprint"], row["fingerprint_sha256"]
-            )
-            if fingerprint.rehearsal_nonce is not None:
-                raise RunStateError(
-                    f"decomposition run {run_id!r} is a rehearsal; rehearsals are "
-                    "throwaway runs and cannot be resumed"
-                )
-            await self._require_materialized_worklist(session, run_id, fingerprint)
-            self.require_resume_identity(fingerprint, expected, run_id)
-            await _reopen_run(session, run_id)
-            return fingerprint
-
     async def pending_codes(self, run_id: str) -> list[str]:
         """Exact non-complete worklist in its original deterministic order."""
         async with self._sf() as session:

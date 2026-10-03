@@ -109,7 +109,7 @@ raw SQL via `sqlalchemy.text()` and hand-written Alembic migrations (`target_met
 now a `terminologies/uberon/store.py` that owns the certified Uberon/CL QLever build, while
 candidate SPARQL remains in `candidate_ingest.py` and uses the store-neutral HTTP
 transport; ports are **NCIt :7888, Uberon/CL :7889, Postgres :5433** (not
-7878/7879/5432); the NCIt role queries are in `terminologies/ncit/role_queries.py`.
+7878/7879/5432); NCIt concept role reads live in `terminologies/ncit/graph_store.py`.
 §8 paths below are annotated accordingly.
 
 ---

@@ -609,31 +609,6 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
         state["pending"] = list(fingerprint.worklist)
         del run_id, ncit_version
 
-    async def resume_run(run_id: str, expected: object) -> RunFingerprint:
-        del run_id, expected
-        fingerprint = state["fingerprint"]
-        if fingerprint is None:
-            fingerprint = RunFingerprint(
-                source_identity="a" * 64,
-                collapse_policy_identity="0" * 64,
-                routing_implementation_identity="1" * 64,
-                stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
-                branch="neoplasm",
-                scope_root="C3262",
-                scope_version="stated-genus-subclass-v1",
-                semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
-                worklist=(),
-                total_limit=None,
-                algorithm_version="decomposition-v1",
-                config_version="axes-v1",
-                walker_max_depth=5,
-                output_mode="none",
-                load_mode="none",
-                emitted_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
-            )
-            state["fingerprint"] = fingerprint
-        return fingerprint
-
     async def complete_work_item(
         run_id: str,
         code: str,
@@ -673,7 +648,6 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
         )
 
     store.create_run = AsyncMock(side_effect=create_run)
-    store.resume_run = AsyncMock(side_effect=resume_run)
     store.pending_codes = AsyncMock(side_effect=lambda _run_id: state["pending"])
     store.unknown_outcome_codes = AsyncMock(return_value=())
     store.claim_work_item = AsyncMock(return_value=UUID(int=1))
@@ -2301,7 +2275,7 @@ async def test_run_pipeline_resume_with_version_mismatch_raises() -> None:
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
     with pytest.raises(SourceIdentityChangedError, match="version"):
         await run_pipeline(config, client, provenance)
-    provenance.resume_run.assert_not_awaited()
+    provenance.admit_run.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -2896,7 +2870,7 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
     )
     client = _FakeClient(pages=[["C999999"]])
     provenance = _mock_provenance()
-    provenance.resume_run = AsyncMock(return_value=fingerprint)
+    provenance._test_state["fingerprint"] = fingerprint
     # Exactly two reads: a worklist without policy concepts must not cost a third.
     provenance.pending_codes = AsyncMock(side_effect=[["C1"], []])
     provenance.claim_work_item = AsyncMock(return_value=UUID(int=2))
@@ -2955,7 +2929,6 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
     provenance._test_state["fingerprint"] = fingerprint
     provenance._test_state["pending"] = ["C1"]
     provenance._test_state["semantic_excluded"] = 1
-    provenance.resume_run = AsyncMock(return_value=fingerprint)
 
     metrics = await run_pipeline(
         RunConfig(
@@ -3340,7 +3313,7 @@ async def test_sample_and_total_limit_are_rejected_before_source_or_provenance(
 
     source.assert_not_awaited()
     provenance.create_run.assert_not_awaited()
-    provenance.resume_run.assert_not_awaited()
+    provenance.admit_run.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -3453,7 +3426,7 @@ async def test_sample_source_drift_is_rejected_before_provenance(
         )
 
     provenance.create_run.assert_not_awaited()
-    provenance.resume_run.assert_not_awaited()
+    provenance.admit_run.assert_not_awaited()
 
 
 @pytest.mark.unit

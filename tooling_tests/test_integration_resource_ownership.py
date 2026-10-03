@@ -36,6 +36,7 @@ from test_support.integration_resources import (
 )
 from test_support.tree_scan_lock import exclusive_tree_scan
 
+import conftest as root_conftest
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.xref.store import XrefStore
 
@@ -113,6 +114,25 @@ def test_owner_builds_collision_resistant_scoped_resource_names() -> None:
     assert owner.graph_iri("decomposition") == (
         "urn:ontoprism:test:019f8d64b0e274e2931a15452959797a:decomposition"
     )
+
+
+@pytest.mark.unit
+def test_sibling_store_fixture_uses_tmp_and_removes_its_owned_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
+    monkeypatch.setattr(root_conftest, "_ROOT", tmp_path)
+    fixture = root_conftest.qlever_sibling_store_root.__wrapped__(  # type: ignore[attr-defined]
+        owner
+    )
+    root = next(fixture)
+    try:
+        assert root.parent == (tmp_path / "tmp/integration-data").resolve()
+        assert root.is_dir()
+    finally:
+        fixture.close()
+
+    assert not root.exists()
 
 
 @pytest.mark.unit

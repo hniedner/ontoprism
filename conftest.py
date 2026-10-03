@@ -607,10 +607,9 @@ def _provision_qlever_unlocked(
     prefix = f"ontoprism-qlever-{owner.nonce}-"
     # The rootless Podman machine reliably exposes this configured project root,
     # while macOS's default tempfile root is not a portable bind-mount source for
-    # its Linux VM. Keep this nonce-owned disposable index under the repository
-    # data root so QLever sees the fixture inputs.
-    data_root = (_ROOT / "data").resolve()
-    data_root.mkdir(exist_ok=True)
+    # its Linux VM. Keep nonce-owned disposable indexes under the repository's
+    # ignored tmp root so interrupted tests cannot pollute persistent data inputs.
+    data_root = _integration_data_root()
     data_dir = Path(tempfile.mkdtemp(prefix=prefix, dir=data_root))
     (data_dir / ".ontoprism-test-owner").write_text(owner.nonce)
     container_id: str | None = None
@@ -749,8 +748,7 @@ def qlever_sibling_store_root(
     integration_resource_owner: IntegrationResourceOwner,
 ) -> Iterator[Path]:
     """Yield an exact owner-marked workspace path visible to the Docker runtime."""
-    data_root = (_ROOT / "data").resolve()
-    data_root.mkdir(exist_ok=True)
+    data_root = _integration_data_root()
     invocation = uuid.uuid4().hex
     expected_name = (
         f".ontoprism-ncit-sibling-test-{integration_resource_owner.nonce}-{invocation}"
@@ -776,6 +774,12 @@ def qlever_sibling_store_root(
                 "sibling-store integration root owner identity does not match"
             )
         shutil.rmtree(root)
+
+
+def _integration_data_root() -> Path:
+    root = (_ROOT / "tmp/integration-data").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 
 @pytest.fixture

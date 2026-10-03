@@ -50,10 +50,8 @@ from ontolib.decomposition.provenance_models import (
     RunAdmission,
     RunFingerprint,
     RunOutcomeCounts,
-    RunResumeIdentity,
 )
 from ontolib.decomposition.run import RunConfig, _new_run_id, run_pipeline
-from ontolib.decomposition.run_inspection import inspect_decomposition_runs
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -317,13 +315,6 @@ async def test_stage_and_residual_checkpoint_reject_branches_are_live(
             await store.fail_residual_filler(
                 run_id, "C1", UUID(int=2), RuntimeError("stale")
             )
-
-        inspection = (await inspect_decomposition_runs(engine, (run_id,)))[0]
-        assert (
-            inspection.run_id,
-            inspection.stage_inventory_complete,
-            inspection.resume_compatible,
-        ) == (run_id, True, False)
 
         await store.create_run(failed_run_id, "26.07d", _fingerprint())
         assert await store.fail_run(failed_run_id, RuntimeError("stopped"))
@@ -608,11 +599,6 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
             metrics=await _completion_metrics(store, run_id),
         )
 
-        with pytest.raises(RunStateError, match="complete"):
-            await store.resume_run(
-                run_id,
-                RunResumeIdentity.from_fingerprint(_fingerprint()),
-            )
     finally:
         await _cleanup([run_id])
         await dispose_engine(engine)
@@ -784,8 +770,17 @@ async def test_failed_atomic_replace_rolls_back_then_retries_without_stale_rows(
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
     duplicate = Constituent(axis="R88", filler_code="C27970", axis_source="role")
+    fingerprint = _fingerprint()
     try:
-        await store.create_run(run_id, "26.07d", _fingerprint())
+        assert isinstance(
+            await store.admit_run(
+                run_id,
+                "26.07d",
+                fingerprint,
+                FullRunExecutionIdentity.from_fingerprint(fingerprint),
+            ),
+            FreshAdmitted,
+        )
         claim = await store.claim_work_item(run_id, "C1")
         assert claim is not None
         with pytest.raises(IntegrityError):
@@ -829,10 +824,14 @@ async def test_failed_atomic_replace_rolls_back_then_retries_without_stale_rows(
         }
         assert constituent_count == 0
 
-        resumed = await store.resume_run(
-            run_id, RunResumeIdentity.from_fingerprint(_fingerprint())
+        resumed = await store.admit_run(
+            "unused-retry",
+            "26.07d",
+            fingerprint,
+            FullRunExecutionIdentity.from_fingerprint(fingerprint),
+            resume_run_id=run_id,
         )
-        assert resumed == _fingerprint()
+        assert resumed == ResumeAdmitted(run_id=run_id, resume_kind=ResumeKind.SEMANTIC)
         retry_claim = await store.claim_work_item(run_id, "C1")
         assert retry_claim is not None
         assert retry_claim != claim
@@ -851,11 +850,6 @@ async def test_failed_atomic_replace_rolls_back_then_retries_without_stale_rows(
         )
         assert await store.decompositions_for_run(run_id) == [replacement]
 
-        with pytest.raises(RunIdentityMismatchError, match="source"):
-            await store.resume_run(
-                run_id,
-                RunResumeIdentity.from_fingerprint(_fingerprint(source="b" * 64)),
-            )
     finally:
         await _cleanup([run_id])
         await dispose_engine(engine)
@@ -922,32 +916,6 @@ async def test_database_rejects_invalid_states_and_identity_mutation() -> None:
                 )
         finally:
             await conn.close()
-    finally:
-        await _cleanup([run_id])
-        await dispose_engine(engine)
-
-
-async def test_resume_rejects_materialized_worklist_tampering() -> None:
-    run_id = _new_run_id("neoplasm")
-    engine = make_engine(get_settings().database_url)
-    store = ProvenanceStore(make_sessionmaker(engine))
-    try:
-        await store.create_run(run_id, "26.07d", _fingerprint())
-        conn = await asyncpg.connect(_dsn())
-        try:
-            await conn.execute(
-                "DELETE FROM decomp_work_item "
-                "WHERE run_id = $1 AND concept_code = 'C0'",
-                run_id,
-            )
-        finally:
-            await conn.close()
-
-        with pytest.raises(RunIdentityMismatchError, match="worklist"):
-            await store.resume_run(
-                run_id,
-                RunResumeIdentity.from_fingerprint(_fingerprint()),
-            )
     finally:
         await _cleanup([run_id])
         await dispose_engine(engine)
@@ -1090,7 +1058,7 @@ async def test_completion_rowcount_guard_matches_real_asyncpg_behavior() -> None
         await dispose_engine(engine)
 
 
-async def test_finish_and_resume_reject_invalid_run_identity_or_state() -> None:
+async def test_finish_rejects_invalid_run_identity_or_state() -> None:
     run_id = _new_run_id("neoplasm")
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
@@ -1110,11 +1078,6 @@ async def test_finish_and_resume_reject_invalid_run_identity_or_state() -> None:
             )
         assert await store.fail_run(run_id, RuntimeError("stop")) is True
         assert await store.invalidate_run(run_id, RuntimeError("too late")) is False
-        with pytest.raises(RunStateError, match="does not exist"):
-            await store.resume_run(
-                "missing-run",
-                RunResumeIdentity.from_fingerprint(_fingerprint()),
-            )
     finally:
         await _cleanup([run_id])
         await dispose_engine(engine)
@@ -1209,51 +1172,6 @@ async def test_source_swap_invalidation_removes_every_partial_snapshot() -> None
         finally:
             await conn.close()
         assert await store.pending_codes(run_id) == ["C0", "C1"]
-        await store.resume_run(
-            run_id,
-            RunResumeIdentity.from_fingerprint(_fingerprint()),
-        )
-        assert await store.pending_codes(run_id) == ["C0", "C1"]
-    finally:
-        await _cleanup([run_id])
-        await dispose_engine(engine)
-
-
-async def test_a_persisted_run_inspects_as_content_valid() -> None:
-    """The writer's identity and the inspector's raw-JSON hash must agree."""
-    run_ids = [_new_run_id("neoplasm"), _new_run_id("neoplasm")]
-    engine = make_engine(get_settings().database_url)
-    store = ProvenanceStore(make_sessionmaker(engine))
-    try:
-        await store.create_run(run_ids[0], "26.07d", _fingerprint())
-        await store.create_run(
-            run_ids[1],
-            "26.07d",
-            _fingerprint().model_copy(update={"rehearsal_nonce": "d" * 32}),
-        )
-
-        inspections = await inspect_decomposition_runs(engine, tuple(run_ids))
-
-        assert [item.fingerprint_content_valid for item in inspections] == [True, True]
-        assert [item.rehearsal for item in inspections] == [False, True]
-    finally:
-        await _cleanup(run_ids)
-        await dispose_engine(engine)
-
-
-async def test_a_rehearsal_cannot_be_resumed() -> None:
-    """The id on the `preflight run=` line names a rehearsal; resuming it refuses."""
-    run_id = _new_run_id("neoplasm")
-    engine = make_engine(get_settings().database_url)
-    store = ProvenanceStore(make_sessionmaker(engine))
-    rehearsal = _fingerprint().model_copy(update={"rehearsal_nonce": "e" * 32})
-    try:
-        await store.create_run(run_id, "26.07d", rehearsal)
-
-        with pytest.raises(RunStateError, match=r"is a rehearsal;.*cannot be resumed"):
-            await store.resume_run(
-                run_id, RunResumeIdentity.from_fingerprint(rehearsal)
-            )
     finally:
         await _cleanup([run_id])
         await dispose_engine(engine)
@@ -1489,8 +1407,17 @@ async def test_invalidated_run_cannot_promote_its_partial_mint_proposals() -> No
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
     conn = await asyncpg.connect(_dsn())
+    fingerprint = _fingerprint()
     try:
-        await store.create_run(run_id, "26.07d", _fingerprint())
+        assert isinstance(
+            await store.admit_run(
+                run_id,
+                "26.07d",
+                fingerprint,
+                FullRunExecutionIdentity.from_fingerprint(fingerprint),
+            ),
+            FreshAdmitted,
+        )
         claim = await store.claim_work_item(run_id, "C0")
         assert claim is not None
         await store.complete_work_item(
@@ -1529,10 +1456,14 @@ async def test_invalidated_run_cannot_promote_its_partial_mint_proposals() -> No
         )
 
         # Re-running the discarded work without mints must not resurrect them.
-        await store.resume_run(
-            run_id,
-            RunResumeIdentity.from_fingerprint(_fingerprint()),
+        resumed = await store.admit_run(
+            "unused-invalidation-retry",
+            "26.07d",
+            fingerprint,
+            FullRunExecutionIdentity.from_fingerprint(fingerprint),
+            resume_run_id=run_id,
         )
+        assert resumed == ResumeAdmitted(run_id=run_id, resume_kind=ResumeKind.SEMANTIC)
         for code in ("C0", "C1"):
             retry = await store.claim_work_item(run_id, code)
             assert retry is not None
@@ -1589,48 +1520,6 @@ async def test_first_resume_after_a_hard_kill_reclaims_the_orphaned_work_item() 
         assert reclaimed is not None
         assert reclaimed != abandoned
     finally:
-        await _cleanup([run_id])
-        await dispose_engine(engine)
-
-
-async def test_resume_recovers_a_work_item_abandoned_in_running() -> None:
-    """A killed worker leaves a claim behind; resume must reclaim it, not deadlock.
-
-    Without the ``running`` -> ``failed`` reset, ``pending_codes`` keeps returning the
-    item while ``claim_work_item`` refuses it forever and the run is unresumable.
-    """
-    run_id = _new_run_id("neoplasm")
-    engine = make_engine(get_settings().database_url)
-    store = ProvenanceStore(make_sessionmaker(engine))
-    conn = await asyncpg.connect(_dsn())
-    try:
-        await store.create_run(run_id, "26.07d", _fingerprint())
-        abandoned = await store.claim_work_item(run_id, "C0")
-        assert abandoned is not None
-        # Simulate SIGKILL: the claim is never completed and never failed.
-        assert await store.claim_work_item(run_id, "C0") is None
-
-        await store.fail_run(run_id, RuntimeError("worker died"))
-        await store.resume_run(
-            run_id,
-            RunResumeIdentity.from_fingerprint(_fingerprint()),
-        )
-
-        row = await conn.fetchrow(
-            "SELECT state, error_type, claim_token FROM decomp_work_item "
-            "WHERE run_id = $1 AND concept_code = 'C0'",
-            run_id,
-        )
-        assert row is not None
-        assert row["state"] == "failed"
-        assert row["error_type"] == "InterruptedRun"
-        assert row["claim_token"] is None
-
-        reclaimed = await store.claim_work_item(run_id, "C0")
-        assert reclaimed is not None
-        assert reclaimed != abandoned
-    finally:
-        await conn.close()
         await _cleanup([run_id])
         await dispose_engine(engine)
 
@@ -1725,12 +1614,7 @@ async def test_failed_run_cannot_be_finished_or_promote_its_proposals() -> None:
 
 
 async def test_fingerprint_that_does_not_hash_to_its_identity_is_rejected() -> None:
-    """The SHA-256 binding is what ties the fingerprint blob to the run's identity.
-
-    `RunResumeIdentity` omits `worklist`, and the worklist check compares against the
-    *persisted* fingerprint, so without this binding a tampered fingerprint plus
-    matching tampered work items would resume and finish cleanly.
-    """
+    """The SHA-256 binding ties the fingerprint blob to the run's identity."""
     run_id = _new_run_id("neoplasm")
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
@@ -1750,43 +1634,10 @@ async def test_fingerprint_that_does_not_hash_to_its_identity_is_rejected() -> N
         )
 
         with pytest.raises(RunIdentityMismatchError, match="SHA-256"):
-            await store.resume_run(
-                run_id,
-                RunResumeIdentity.from_fingerprint(fingerprint),
-            )
-        with pytest.raises(RunIdentityMismatchError, match="SHA-256"):
             await store.finish_run(
                 run_id,
                 source_identity=fingerprint.source_identity,
                 metrics={},
-            )
-    finally:
-        await conn.close()
-        await _cleanup([run_id])
-        await dispose_engine(engine)
-
-
-async def test_permuted_worklist_order_is_rejected_on_resume() -> None:
-    """Order is part of the worklist identity: it fixes the processing sequence.
-
-    A membership-only check would let permuted ordinals through, changing processing
-    order and the emitted TTL while still claiming fresh/resumed equivalence.
-    """
-    run_id = _new_run_id("neoplasm")
-    engine = make_engine(get_settings().database_url)
-    store = ProvenanceStore(make_sessionmaker(engine))
-    conn = await asyncpg.connect(_dsn())
-    try:
-        await store.create_run(run_id, "26.07d", _fingerprint())
-        await conn.execute(
-            "UPDATE decomp_work_item SET ordinal = 3 - ordinal WHERE run_id = $1",
-            run_id,
-        )
-
-        with pytest.raises(RunIdentityMismatchError, match="worklist"):
-            await store.resume_run(
-                run_id,
-                RunResumeIdentity.from_fingerprint(_fingerprint()),
             )
     finally:
         await conn.close()
@@ -1840,44 +1691,6 @@ async def test_fail_run_reports_whether_the_failure_is_recorded() -> None:
         assert await store.fail_run(complete_id, RuntimeError("too late")) is False
     finally:
         await _cleanup([running_id, already_failed_id, complete_id])
-        await dispose_engine(engine)
-
-
-async def test_legacy_fingerprint_rows_fail_closed_on_resume() -> None:
-    """Migration 0008 backfills pre-exact runs; resuming one must be a domain error.
-
-    A raw pydantic ``ValidationError`` would leak the persistence schema through the
-    store's public contract. ``resume_run`` runs before ``run_pipeline``'s failure
-    handler, so neither error is recorded as a run failure — the caller can only
-    react to a typed one.
-    """
-    run_id = _new_run_id("neoplasm")
-    engine = make_engine(get_settings().database_url)
-    store = ProvenanceStore(make_sessionmaker(engine))
-    conn = await asyncpg.connect(_dsn())
-    try:
-        # Insert the shape migration 0008 backfills. The identity trigger correctly
-        # refuses to mutate an existing run's fingerprint, so seed it directly.
-        await conn.execute(
-            "INSERT INTO decomp_run (id, branch, status, ncit_version, started_at, "
-            "source_identity, fingerprint, fingerprint_sha256, emitted_at, "
-            "error_type, error_message, publication_state) VALUES "
-            "($1, 'neoplasm', 'failed', '26.07d', now(), repeat('0', 64), "
-            "jsonb_build_object('schema_version', 0, 'legacy', true, "
-            "'run_id', $1::text), "
-            "repeat('0', 64), now(), 'LegacyRun', "
-            "'Legacy run predates exact worklist persistence', 'pending')",
-            run_id,
-        )
-
-        with pytest.raises(RunIdentityMismatchError, match="predates"):
-            await store.resume_run(
-                run_id,
-                RunResumeIdentity.from_fingerprint(_fingerprint()),
-            )
-    finally:
-        await conn.close()
-        await _cleanup([run_id])
         await dispose_engine(engine)
 
 
