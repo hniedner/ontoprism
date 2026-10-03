@@ -87,12 +87,30 @@ def test_report_conservation_categories_stay_distinct() -> None:
     }
 
 
-def test_command_import_does_not_load_r103_review_chain():
+def test_runtime_imports_and_commands_do_not_reach_r103_review_chain():
     result = subprocess.run(
         [
             sys.executable,
             "-c",
-            "import sys; import scripts.oracle_metrics; "
+            "import argparse, importlib, inspect, sys; "
+            "[importlib.import_module(name) for name in ("
+            "'ontolib.decomposition.run', "
+            "'ontolib.decomposition.proposal_registry_migration', "
+            "'scripts.oracle_metrics', "
+            "'scripts.research.golden_review', "
+            "'scripts.research.current_evidence')]; "
+            "adjudication=importlib.import_module('scripts.adjudication'); "
+            "readiness=importlib.import_module('scripts.research.pre_sme_readiness'); "
+            "replay=importlib.import_module('scripts.validation.run_agent_replay'); "
+            "choices=next(a.choices for a in adjudication._parser()._actions "
+            "if isinstance(a, argparse._SubParsersAction)); "
+            "assert not [name for name in choices if 'r103' in name]; "
+            "assert not [name for name in vars(replay) "
+            "if name.startswith('_generate_r103') "
+            "or name.startswith('_transcribe_r103')]; "
+            "assert not [name for name in "
+            "inspect.signature(readiness.generate_pre_sme_readiness).parameters "
+            "if name.startswith('r103_')]; "
             "assert not [m for m in sys.modules "
             "if any(p.startswith('r103_') for p in m.split('.'))]",
         ],

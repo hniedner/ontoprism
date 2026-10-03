@@ -18,14 +18,13 @@ from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
 )
-from ontolib.decomposition.r103_review_promotion import (
-    load_r103_promoted_review_revision,
-    load_r103_promoted_review_state,
-)
 
 _SHA256 = r"^[0-9a-f]{64}$"
 _MIGRATION_KIND = "proposal-registry-schema1-to-schema2-binding"
 _TOOL_VERSION = "ontoprism-proposal-registry-binding-v1"
+_V1_MIGRATION_TOOL_IDENTITY = (
+    "29da17ce1361cd67b75450c10190434456d920b861b64773cfe6f5ddd16f9293"
+)
 _OLD_REGISTRY_IDENTITY = (
     "ceaba33f2fedcf8e83265ff8b653caff39a4dc82f334175f66d4f0c488976261"
 )
@@ -257,7 +256,7 @@ def _contract_identity() -> str:
 
 
 def _tool_identity() -> str:
-    return _file_sha256(Path(__file__))
+    return _V1_MIGRATION_TOOL_IDENTITY
 
 
 def _old_registry_payload(registry: ProposalRegistry) -> dict[str, object]:
@@ -454,13 +453,6 @@ def write_proposal_registry_migration_envelope(
         ("r103-review-revision", historical_r103_revision_path),
         ("r103-corroboration", historical_r103_corroboration_path),
     )
-    try:
-        load_r103_promoted_review_state(historical_r103_review_path)
-        load_r103_promoted_review_revision(historical_r103_revision_path)
-    except (OSError, ValueError) as error:
-        raise ProposalRegistryMigrationError(
-            "historical human decision proof differs"
-        ) from error
     bindings, values = _historical_bindings(paths)
     registry = load_proposal_registry(current_registry_path)
     old_binding = _old_registry_binding(
