@@ -141,6 +141,31 @@ def test_run_and_provenance_imports_do_not_load_mixed_chain_modules():
     assert result.returncode == 0, result.stderr
 
 
+def test_runtime_commands_do_not_expose_corpus_baseline_workflow():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import argparse, importlib, importlib.util, inspect; "
+            "adjudication=importlib.import_module('scripts.adjudication'); "
+            "readiness=importlib.import_module('scripts.research.pre_sme_readiness'); "
+            "replay=importlib.import_module('scripts.validation.run_agent_replay'); "
+            "choices=next(a.choices for a in adjudication._parser()._actions "
+            "if isinstance(a, argparse._SubParsersAction)); "
+            "assert 'generate-corpus-baseline' not in choices; "
+            "assert 'corpus_baseline' not in "
+            "inspect.signature(readiness.generate_pre_sme_readiness).parameters; "
+            "assert '_generate_current_corpus_baseline' not in vars(replay); "
+            "assert importlib.util.find_spec("
+            "'ontolib.decomposition.corpus_baseline') is None",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_partition_metrics_preserve_abstentions_and_pair_removal_effect():
     oracle = read_oracle(_GOLDEN / "neoplasm-adjudicated.json")
     evidence = json.loads(

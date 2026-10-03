@@ -13,10 +13,6 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.branches import DecompositionBranch
 from ontolib.decomposition.collapse_policy import load_packaged_collapse_veto_policy
-from ontolib.decomposition.corpus_baseline import (
-    generate_corpus_baseline,
-    write_corpus_baseline,
-)
 from ontolib.decomposition.pre_resume import (
     generate_pre_resume_proof,
     semantic_dependency_identity,
@@ -39,7 +35,6 @@ from ontolib.decomposition.resume_dry_run import (
 )
 from ontolib.decomposition.run import RunConfig, build_resume_identity
 from ontolib.terminologies.ncit.client import ncit_sparql_client
-from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
 
 try:
     from scripts.research.golden_review import (
@@ -246,13 +241,6 @@ def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
     admit.add_argument("--sidecar-output", required=True, type=Path)
 
 
-class _CorpusBaselineArgs(Protocol):
-    source_manifest: Path
-    run_id: str
-    artifact: Path
-    output: Path
-
-
 class _PreResumeArgs(Protocol):
     source_manifest: Path
     run_id: str
@@ -357,22 +345,6 @@ def _admit_group_review_evidence(args: _AdmitGroupReviewEvidenceArgs) -> None:
         markdown_output=args.markdown_output,
         sidecar_output=args.sidecar_output,
     )
-
-
-async def _generate_corpus(args: _CorpusBaselineArgs) -> None:
-    manifest = validate_ncit_sibling_manifest(args.source_manifest)
-    engine = make_engine(get_settings().database_url)
-    try:
-        baseline = await generate_corpus_baseline(
-            run_id=args.run_id,
-            artifact=args.artifact,
-            store=ProvenanceStore(make_sessionmaker(engine)),
-            expected_source_identity=manifest.source_identity,
-            expected_release=manifest.ontology_version,
-        )
-        write_corpus_baseline(args.output, baseline)
-    finally:
-        await dispose_engine(engine)
 
 
 async def _generate_pre_resume(args: _PreResumeArgs) -> None:
@@ -557,11 +529,6 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     validate_set.add_argument("--returns-directory", required=True, type=Path)
     validate_set.add_argument("--index", required=True, type=Path)
     _add_group_review_parser(subparsers)
-    corpus_parser = subparsers.add_parser("generate-corpus-baseline")
-    corpus_parser.add_argument("--source-manifest", required=True, type=Path)
-    corpus_parser.add_argument("--run-id", required=True)
-    corpus_parser.add_argument("--artifact", required=True, type=Path)
-    corpus_parser.add_argument("--output", required=True, type=Path)
     pre_resume_parser = subparsers.add_parser("generate-pre-resume-proof")
     pre_resume_parser.add_argument("--source-manifest", required=True, type=Path)
     pre_resume_parser.add_argument("--run-id", required=True)
@@ -635,9 +602,6 @@ def main(  # noqa: C901, PLR0911, PLR0912
         return
     if args.command == "admit-group-review-evidence":
         _admit_group_review_evidence(cast("_AdmitGroupReviewEvidenceArgs", args))
-        return
-    if args.command == "generate-corpus-baseline":
-        asyncio.run(_generate_corpus(cast("_CorpusBaselineArgs", args)))
         return
     if args.command == "generate-pre-resume-proof":
         asyncio.run(_generate_pre_resume(cast("_PreResumeArgs", args)))

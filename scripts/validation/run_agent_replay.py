@@ -202,42 +202,6 @@ def _inspect_decomposition_runs(
     return 0
 
 
-def _generate_current_corpus_baseline(
-    values: list[str], root: Path, runner: CommandRunner
-) -> int:
-    if len(values) != 1 or _RUN_ID.fullmatch(values[0]) is None:
-        raise AgentReplayInputError(
-            "generate-current-corpus-baseline requires one valid run ID"
-        )
-    (run_id,) = values
-    _script, source_manifest, artifact = _require_files(
-        root,
-        (
-            "scripts/adjudication.py",
-            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
-            "tmp/m1-6-current-full-corpus.ttl",
-        ),
-    )
-    return _run(
-        [
-            _PDM,
-            "run",
-            "adjudication",
-            "generate-corpus-baseline",
-            "--source-manifest",
-            source_manifest,
-            "--run-id",
-            run_id,
-            "--artifact",
-            artifact,
-            "--output",
-            str(root / "tmp/m1-6-current-corpus-baseline.json"),
-        ],
-        root,
-        runner,
-    )
-
-
 def _subprocess_runner(
     arguments: list[str],
     *,
@@ -1803,11 +1767,10 @@ def _audit_primary_sites(values: list[str], root: Path, runner: CommandRunner) -
     del runner
     if values:
         raise AgentReplayInputError("audit-primary-sites accepts no arguments")
-    source, baseline, artifact = _require_files(
+    source, artifact = _require_files(
         root,
         (
             "data/qlever-ncit/.ontoprism-ncit-candidate.json",
-            "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
             "tmp/m1-6-current-full-corpus.ttl",
         ),
     )
@@ -1817,7 +1780,6 @@ def _audit_primary_sites(values: list[str], root: Path, runner: CommandRunner) -
     try:
         generate(
             source_manifest=Path(source),
-            baseline=Path(baseline),
             artifact=Path(artifact),
             output=root / "tmp/m1-6-primary-site-audit.json",
         )

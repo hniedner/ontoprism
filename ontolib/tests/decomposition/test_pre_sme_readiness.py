@@ -27,10 +27,6 @@ from scripts.research.pre_sme_readiness import (
     write_verify_evidence,
 )
 
-from ontolib.decomposition.corpus_baseline import (
-    CorpusBaseline,
-    corpus_baseline_identity,
-)
 from ontolib.decomposition.evaluation import MetricDenominatorRule
 
 _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
@@ -52,44 +48,6 @@ def _site_line(subject: str, filler: str, *, review: bool = False) -> str:
         f" <{_OP}axis> <{_OP}PrimarySite> ;"
         f" <{_OP}filler> <{_NCIT}{filler}> ;{review_triple}"
         f" <{_OP}sourceRole> <{_NCIT}R101> ] .\n"
-    )
-
-
-def _baseline(
-    artifact: Path,
-    *,
-    source_identity: str = "a" * 64,
-    ontology_release: str = "26.07d",
-) -> CorpusBaseline:
-    artifact_identity = hashlib.sha256(artifact.read_bytes()).hexdigest()
-    payload: dict[str, object] = {
-        "schema_version": 1,
-        "run_id": "full-run",
-        "source_identity": source_identity,
-        "ontology_release": ontology_release,
-        "branch": "neoplasm",
-        "scope_root": "C3262",
-        "scope_version": "stated-genus-subclass-v1",
-        "run_fingerprint_identity": "b" * 64,
-        "representation_identity": artifact_identity,
-        "artifact_identity": artifact_identity,
-        "detector_identity": "c" * 64,
-        "worklist_count": 2,
-        "outcome_counts": {
-            "decomposed": 2,
-            "residual": 0,
-            "semantic_excluded": 0,
-            "atomic_noop": 0,
-            "unknown": 0,
-        },
-        "emitted_constituent_pair_count": 3,
-        "complete_semantic_fact_count": 3,
-        "source_occurrence_count": 3,
-        "selected_occurrence_count": 3,
-        "minted_count": 0,
-    }
-    return CorpusBaseline.model_validate(
-        {**payload, "baseline_identity": corpus_baseline_identity(payload)}
     )
 
 
@@ -184,7 +142,6 @@ def _with_policy_groups(
 def _patch_composed_readiness_loaders(
     module: Any,
     monkeypatch: pytest.MonkeyPatch,
-    baseline: CorpusBaseline,
     evidence: CurrentEngineEvidence,
     group: Any,
 ) -> None:
@@ -192,11 +149,10 @@ def _patch_composed_readiness_loaders(
         module,
         "validate_ncit_sibling_manifest",
         lambda _path: SimpleNamespace(
-            source_identity=baseline.source_identity,
-            ontology_version=baseline.ontology_release,
+            source_identity=evidence.source_identity,
+            ontology_version=evidence.ncit_version,
         ),
     )
-    monkeypatch.setattr(module, "load_corpus_baseline", lambda _path: baseline)
     monkeypatch.setattr(
         module,
         "validate_migrated_proposal_registry",
@@ -232,11 +188,6 @@ def _composed_readiness_inputs(
         comparison_path.write_text(comparison.model_dump_json(), encoding="utf-8")
     corpus_artifact = tmp_path / "corpus.ttl"
     corpus_artifact.write_text(_site_line("C1", "C10"))
-    baseline = _baseline(
-        corpus_artifact,
-        source_identity=evidence.source_identity,
-        ontology_release=evidence.ncit_version,
-    )
     monkeypatch.setattr(
         module,
         "_configured_r101_counts",
@@ -251,7 +202,6 @@ def _composed_readiness_inputs(
     )
     audit = audit_primary_site_artifact(
         artifact=corpus_artifact,
-        baseline=baseline,
         source_identity=evidence.source_identity,
         source_release=evidence.ncit_version,
     )
@@ -275,7 +225,7 @@ def _composed_readiness_inputs(
         packet_identity=normalized_group_policy.basis_packet_identity,
         review_rows=(None,) * 18,
     )
-    _patch_composed_readiness_loaders(module, monkeypatch, baseline, evidence, group)
+    _patch_composed_readiness_loaders(module, monkeypatch, evidence, group)
     unused = tmp_path / "unused.json"
     unused.write_text("{}")
     detector_path = tmp_path / "grouping-detector.json"
@@ -304,7 +254,6 @@ def _composed_readiness_inputs(
         "source_manifest": manifest,
         "current_evidence": evidence_path,
         "current_comparison": comparison_path,
-        "corpus_baseline": unused,
         "corpus_artifact": corpus_artifact,
         "proposal_registry": unused,
         "proposal_registry_migration": golden
@@ -333,7 +282,6 @@ def test_primary_site_liveness_records_two_resolved_and_minus_one_clears(
 
     blocked = audit_primary_site_artifact(
         artifact=artifact,
-        baseline=_baseline(artifact),
         source_identity="a" * 64,
         source_release="26.07d",
     )
@@ -345,7 +293,6 @@ def test_primary_site_liveness_records_two_resolved_and_minus_one_clears(
     artifact.write_text(_site_line("C1", "C10") + _site_line("C2", "C12", review=True))
     audit = audit_primary_site_artifact(
         artifact=artifact,
-        baseline=_baseline(artifact),
         source_identity="a" * 64,
         source_release="26.07d",
     )
@@ -357,22 +304,17 @@ def test_primary_site_liveness_records_two_resolved_and_minus_one_clears(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("failure", ["identity", "malformed", "duplicate", "absent"])
+@pytest.mark.parametrize("failure", ["malformed", "duplicate", "absent"])
 def test_primary_site_audit_refuses_bad_inputs_without_output(
     tmp_path: Path, failure: str
 ) -> None:
     artifact = tmp_path / "corpus.ttl"
     artifact.write_text(_site_line("C1", "C10"))
-    baseline = _baseline(artifact)
-    if failure == "identity":
-        artifact.write_text(_site_line("C1", "C11"))
-    elif failure == "malformed":
+    if failure == "malformed":
         artifact.write_text("this is not Turtle\n")
-        baseline = _baseline(artifact)
     elif failure == "duplicate":
         line = _site_line("C1", "C10")
         artifact.write_text(line + line)
-        baseline = _baseline(artifact)
     else:
         artifact.unlink()
     output = tmp_path / "audit.json"
@@ -380,7 +322,6 @@ def test_primary_site_audit_refuses_bad_inputs_without_output(
     with pytest.raises(PreSmeValidationError):
         audit_primary_site_artifact(
             artifact=artifact,
-            baseline=baseline,
             source_identity="a" * 64,
             source_release="26.07d",
             output=output,
@@ -428,7 +369,6 @@ def test_primary_site_parser_rejects_non_total_constituent_observations(
     with pytest.raises(PreSmeValidationError, match=message):
         audit_primary_site_artifact(
             artifact=artifact,
-            baseline=_baseline(artifact),
             source_identity="a" * 64,
             source_release="26.07d",
         )
@@ -450,7 +390,6 @@ ncit:C1 op:hasConstituent [ op:axis {axis} ; op:filler ncit:C10 ] .
     with pytest.raises(PreSmeValidationError, match="axis is not an IRI"):
         audit_primary_site_artifact(
             artifact=artifact,
-            baseline=_baseline(artifact),
             source_identity="a" * 64,
             source_release="26.07d",
         )
@@ -469,7 +408,6 @@ ncit:C2 op:hasConstituent [ op:axis op:PrimarySubsite ; op:filler ncit:C11 ] .
 
     audit = audit_primary_site_artifact(
         artifact=artifact,
-        baseline=_baseline(artifact),
         source_identity="a" * 64,
         source_release="26.07d",
     )
@@ -504,10 +442,9 @@ def test_primary_site_audit_model_rejects_vacuous_observation_invariants(
     message: str,
 ) -> None:
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "source_identity": "a" * 64,
         "source_release": "26.07d",
-        "corpus_baseline_identity": "b" * 64,
         "corpus_artifact_identity": "c" * 64,
         "resolved_sites": resolved,
         "review_required_sites": review,
@@ -525,10 +462,9 @@ def test_primary_site_audit_model_rejects_vacuous_observation_invariants(
 @pytest.mark.unit
 def test_primary_site_audit_model_refuses_zero_observations() -> None:
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "source_identity": "a" * 64,
         "source_release": "26.07d",
-        "corpus_baseline_identity": "b" * 64,
         "corpus_artifact_identity": "c" * 64,
         "resolved_sites": (),
         "review_required_sites": (),
@@ -550,7 +486,6 @@ def _machine_readiness_input_payload() -> dict[str, object]:
         "current_evidence_identity": "c" * 64,
         "current_comparison_identity": "d" * 64,
         "sample_artifact_identity": "e" * 64,
-        "corpus_baseline_identity": "f" * 64,
         "corpus_artifact_identity": "1" * 64,
         "proposal_registry_identity": "7" * 64,
         "proposal_registry_migration_identity": "c" * 64,
@@ -595,7 +530,7 @@ def test_emitted_report_carries_all_five_metric_contracts_and_current_values() -
         MachineReadinessInputs.model_validate(_machine_readiness_input_payload())
     )
 
-    assert report.schema_version == 3
+    assert report.schema_version == 4
     assert tuple(
         (view.name, view.denominator_rule)
         for view in (
@@ -1019,7 +954,6 @@ def test_atomic_audit_write_preserves_primary_failure_and_reports_cleanup(
     with pytest.raises(OSError, match="primary replace failure") as raised:
         audit_primary_site_artifact(
             artifact=artifact,
-            baseline=_baseline(artifact),
             source_identity="a" * 64,
             source_release="26.07d",
             output=tmp_path / "audit.json",
@@ -1040,7 +974,6 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
             source_manifest=tmp_path / "absent-source.json",
             current_evidence=tmp_path / "absent-evidence.json",
             current_comparison=tmp_path / "absent-comparison.json",
-            corpus_baseline=tmp_path / "absent-baseline.json",
             corpus_artifact=tmp_path / "absent.ttl",
             proposal_registry=tmp_path / "absent-proposals.json",
             proposal_registry_migration=tmp_path / "absent-migration.json",
@@ -1216,8 +1149,6 @@ def test_primary_site_generation_translates_invalid_manifest_without_output(
 ) -> None:
     artifact = tmp_path / "corpus.ttl"
     artifact.write_text(_site_line("C1", "C10"))
-    baseline = tmp_path / "baseline.json"
-    baseline.write_text(_baseline(artifact).model_dump_json())
     manifest = tmp_path / "manifest.json"
     manifest.write_text("{}")
     output = tmp_path / "audit.json"
@@ -1225,7 +1156,6 @@ def test_primary_site_generation_translates_invalid_manifest_without_output(
     with pytest.raises(PreSmeValidationError):
         generate_primary_site_audit(
             source_manifest=manifest,
-            baseline=baseline,
             artifact=artifact,
             output=output,
         )

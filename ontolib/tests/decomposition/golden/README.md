@@ -17,7 +17,6 @@ This evidence record retains the exact axis names used by the source rows.
 | `complete-definition.json` | Fixture for the complete-definition path. |
 | `neoplasm-current-engine-evidence.json` | Current-source 20-code replay evidence; never the historical attested run. |
 | `neoplasm-current-comparison.json` | Current replay metrics, grouping diagnoses, and all 189 row classifications. |
-| `neoplasm-current-corpus-baseline.json` | Current-source v5 full-corpus counts and exact representation identity. |
 | `neoplasm-highest-fanout.json` | Exhaustive current-source highest-fanout concepts and fixed query budgets within the 15,633-concept C3262 neoplasm scope (not all NCIt). |
 | `neoplasm-r101-v5-corrected-projection.json` | Immutable corrected projection bound to the historical 2b39 inventory and source diagnostic; not a run. |
 
@@ -290,7 +289,7 @@ require a workbook path
 is intentionally not documented as an executable step here because no tracked workbook input
 exists; bind any future generated artifact only after every concrete input exists (D61).
 
-## Current-source replay and corpus baseline
+## Current-source replay
 
 These commands generate new current-source evidence beside the immutable historical files. They
 do not regenerate or modify the SME oracle or row decisions.
@@ -438,7 +437,7 @@ selected context, resolved PDM executable/version, exit code, and bound Git HEAD
 local machine evidence and performs no ontology or store publication.
 
 After the current comparison, the explicit tracked historical row decisions, R101 reuse validation,
-primary-site audit, full-corpus baseline/artifact, proposal registry, source manifest, and current-HEAD
+primary-site audit, full-corpus artifact, proposal registry, source manifest, and current-HEAD
 verify evidence all exist,
 generate the pending-human
 report from a clean worktree:
@@ -454,7 +453,7 @@ bindings instead of a mutable fixed `tmp/` packet path. It validates all remaini
 identities and cohort invariants, including the
 row-decision identity that supplies the immutable historical 48/106 SME include rate,
 refuses verify evidence from another Git HEAD, and atomically writes
-`tmp/m1-6-machine-readiness.json`. Schema 3 reports the five named metric contracts,
+`tmp/m1-6-machine-readiness.json`. Schema 4 reports the five named metric contracts,
 the strict M1.6 improvement gate, the separate #44 quality indicators, and one canonical
 entry for each semantic blocker. The identity-bound #274 axis-contract, normalized-group,
 and unadjudicated-golden-change detectors are evaluated; the broader total-delta classifier
@@ -478,19 +477,6 @@ pdm run python scripts/observe_decomposition_fanout.py \
   --expected-source-identity b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092 \
   --out ontolib/tests/decomposition/golden/neoplasm-highest-fanout.json
 ```
-
-Generate the current full-corpus baseline from the fixed already-published cd4b run without
-repeating concept work:
-
-```bash
-pdm run agent-replay generate-current-corpus-baseline neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016
-```
-
-The tracked baseline binds run `neoplasm-cd4b7894-ce26-4a37-8d02-79f362099016`, all 15,633
-worklist concepts, 14,884 decomposed outcomes, 139 explicitly persisted unknown outcomes, and
-representation identity `8ce4ca52ece0804d2fcffe1ca597d7c99137bd00d8a6eb8710fbe99d8c1947c2`
-(`pdm run agent-test ontolib/tests/decomposition/test_corpus_baseline.py::test_tracked_current_corpus_baseline_binds_exact_persisted_counts -v`,
-2026-09-12). This generates a baseline candidate only.
 
 The long-running CLI reports exact worklist progress and residual-metric progress. Interrupted runs
 must be resumed with `--resume <run-id>`; completed work items are fenced and are not reprocessed.
