@@ -10,12 +10,72 @@ from ontolib.decomposition.models import (
     DefinitionGroup,
     DetectionResult,
     GenusDefinitionFact,
+    OccurrenceDisposition,
+    R101DispositionKind,
     RestrictionDefinitionFact,
     RoleRestriction,
+    SpecificityPathEdge,
+    SpecificityRelationKind,
     canonical_definition_fact_id,
     canonical_definition_group_id,
 )
 from ontolib.decomposition.provenance import _constituents_by_code
+
+
+def _specificity_disposition(
+    kind: R101DispositionKind,
+    relations: tuple[SpecificityRelationKind, ...],
+) -> OccurrenceDisposition:
+    codes = tuple(f"C{index}" for index in range(1, len(relations) + 2))
+    return OccurrenceDisposition(
+        kind=kind,
+        source_occurrence_id="a" * 64,
+        source_fact_id="b" * 64,
+        normalized_axis="op:PrimarySite",
+        source_filler=codes[0],
+        retained_filler=codes[-1],
+        semantic_route="p106-organ",
+        semantic_type="Body Part, Organ, or Organ Component",
+        specificity_path=tuple(
+            SpecificityPathEdge(
+                kind=relation,
+                broader_code=broader,
+                narrower_code=narrower,
+                source_identity="c" * 64,
+            )
+            for relation, broader, narrower in zip(
+                relations, codes[:-1], codes[1:], strict=True
+            )
+        ),
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("kind", "relations"),
+    [
+        ("collapsed-is-a", ("is-a",)),
+        ("collapsed-mixed", ("is-a", "r82")),
+    ],
+)
+def test_occurrence_disposition_accepts_a_source_bound_specificity_path(
+    kind: R101DispositionKind,
+    relations: tuple[SpecificityRelationKind, ...],
+) -> None:
+    disposition = _specificity_disposition(kind, relations)
+
+    assert tuple(edge.kind for edge in disposition.specificity_path) == relations
+
+
+@pytest.mark.unit
+def test_specificity_path_edge_rejects_a_self_edge() -> None:
+    with pytest.raises(ValueError, match="distinct fillers"):
+        SpecificityPathEdge(
+            kind="is-a",
+            broader_code="C1",
+            narrower_code="C1",
+            source_identity="c" * 64,
+        )
 
 
 @pytest.mark.unit
