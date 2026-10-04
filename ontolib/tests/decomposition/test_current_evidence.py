@@ -18,9 +18,11 @@ from scripts.research.current_evidence import (
     CurrentEngineEvidence,
     CurrentEvidenceValidationError,
     CurrentMetrics,
+    CurrentOccurrenceDisposition,
     CurrentRateMetric,
     CurrentSourceFact,
     CurrentSourceOccurrence,
+    CurrentSpecificityPathEdge,
     HistoricalOraclePairCitation,
     PairRelationSummary,
     PartitionDiagnosisEvidence,
@@ -407,6 +409,121 @@ def _repeated_occurrence_decomposition() -> Decomposition:
             for occurrence in occurrences
         ),
     )
+
+
+def _current_specificity_disposition(
+    kind: str, path: tuple[tuple[str, str, str], ...]
+) -> CurrentOccurrenceDisposition:
+    source_occurrence = CurrentSourceOccurrence.model_validate(
+        asdict(_repeated_occurrence_decomposition().complete_definition.occurrences[0])  # type: ignore[union-attr]
+    )
+    return CurrentOccurrenceDisposition.model_validate(
+        {
+            "kind": kind,
+            "source_occurrence": source_occurrence,
+            "normalized_axis": "op:PrimarySite",
+            "semantic_route": "p106-organ",
+            "semantic_type": "Body Part, Organ, or Organ Component",
+            "retained_pair": ("op:PrimarySite", "C12402"),
+            "r82_part": None,
+            "r82_whole": None,
+            "specificity_path": tuple(
+                {
+                    "kind": edge_kind,
+                    "broader_code": broader,
+                    "narrower_code": narrower,
+                    "source_identity": "a" * 64,
+                }
+                for edge_kind, broader, narrower in path
+            ),
+            "policy_decision_identity": None,
+        }
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("kind", "path"),
+    [
+        (
+            "collapsed-is-a",
+            (
+                ("is-a", "C12400", "C12401"),
+                ("is-a", "C12401", "C12402"),
+            ),
+        ),
+        (
+            "collapsed-mixed",
+            (
+                ("is-a", "C12400", "C12401"),
+                ("r82", "C12401", "C12402"),
+            ),
+        ),
+    ],
+)
+def test_current_disposition_accepts_a_valid_specificity_path(
+    kind: str, path: tuple[tuple[str, str, str], ...]
+) -> None:
+    disposition = _current_specificity_disposition(kind, path)
+
+    assert tuple(edge.kind for edge in disposition.specificity_path) == tuple(
+        edge_kind for edge_kind, _broader, _narrower in path
+    )
+
+
+@pytest.mark.unit
+def test_current_specificity_path_edge_rejects_a_self_edge() -> None:
+    with pytest.raises(ValueError, match="distinct fillers"):
+        CurrentSpecificityPathEdge(
+            kind="is-a",
+            broader_code="C12400",
+            narrower_code="C12400",
+            source_identity="a" * 64,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("kind", "path", "message"),
+    [
+        (
+            "collapsed-is-a",
+            (("r82", "C12400", "C12401"),),
+            "contains another relation kind",
+        ),
+        (
+            "collapsed-is-a",
+            (("is-a", "C12403", "C12401"),),
+            "does not start at source filler",
+        ),
+        (
+            "collapsed-is-a",
+            (("is-a", "C12400", "C12403"),),
+            "does not end at retained filler",
+        ),
+        (
+            "collapsed-is-a",
+            (
+                ("is-a", "C12400", "C12401"),
+                ("is-a", "C12403", "C12402"),
+            ),
+            "is not contiguous",
+        ),
+        (
+            "collapsed-mixed",
+            (
+                ("is-a", "C12400", "C12401"),
+                ("is-a", "C12401", "C12402"),
+            ),
+            "requires both specificity edge kinds",
+        ),
+    ],
+)
+def test_current_disposition_rejects_an_invalid_specificity_path(
+    kind: str, path: tuple[tuple[str, str, str], ...], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _current_specificity_disposition(kind, path)
 
 
 @pytest.mark.unit

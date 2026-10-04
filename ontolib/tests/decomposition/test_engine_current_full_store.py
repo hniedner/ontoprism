@@ -5,17 +5,26 @@ from typing import Any, cast
 
 import pytest
 from scripts.decompose import _make_label_lookup
-from scripts.research.current_evidence import CurrentEngineEvidence, _concepts
+from scripts.research.current_evidence import (
+    CurrentConceptEvidence,
+    CurrentEngineEvidence,
+    _concepts,
+)
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.decomposition.axes import ASSOCIATED_PRIOR_DISEASE, MORPHOLOGY_AXIS
 from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
 from ontolib.decomposition.collapse_policy import (
     NO_COLLAPSE_VETO_POLICY,
     load_packaged_collapse_veto_policy,
 )
 from ontolib.decomposition.complete_definition import read_complete_definition
+from ontolib.decomposition.morphology_qualifier_policy import (
+    MORPHOLOGY_QUALIFIER_CODES,
+)
 from ontolib.decomposition.normalized_group_policy import (
+    ActiveNormalizedGroupPolicy,
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.provenance_models import WorkItemOutcome
@@ -29,6 +38,49 @@ from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
 
 pytestmark = [pytest.mark.integration, pytest.mark.full_store]
+
+
+def _project_expected_concept_to_active_policies(
+    expected: CurrentConceptEvidence,
+    group_policy: ActiveNormalizedGroupPolicy,
+) -> CurrentConceptEvidence:
+    constituents = []
+    for expected_row in expected.constituents:
+        pair = (expected_row.axis, expected_row.filler)
+        projected_row = expected_row
+        if (
+            expected_row.axis == MORPHOLOGY_AXIS
+            and expected_row.filler in MORPHOLOGY_QUALIFIER_CODES
+        ):
+            continue
+        if (
+            expected_row.axis == "op:WithFinding"
+            and (
+                expected.code,
+                expected_row.filler,
+            )
+            in ASSOCIATED_PRIOR_DISEASE
+        ):
+            projected_row = projected_row.model_copy(
+                update={
+                    "source_group_ids": (),
+                    "source_definition_ids": (),
+                    "source_facts": (),
+                    "source_occurrence_ids": (),
+                    "source_occurrences": (),
+                }
+            )
+        policy_row = group_policy.by_code.get(expected.code)
+        if policy_row is not None:
+            block = policy_row.block_for(pair)
+            projected_row = projected_row.model_copy(
+                update={
+                    "normalized_group_id": block.normalized_group_id,
+                    "normalized_group_label": block.normalized_group_label,
+                }
+            )
+        constituents.append(projected_row)
+    return expected.model_copy(update={"constituents": tuple(constituents)})
 
 
 async def test_c36081_constructor_preflight_is_typed_unknown_not_malformed() -> None:
@@ -124,27 +176,9 @@ async def test_twenty_code_replay_matches_active_groups_and_tracked_semantics() 
         item.code for item in expected.concepts
     )
     for actual_item, expected_item in zip(actual, expected.concepts, strict=True):
-        policy_row = group_policy.by_code.get(expected_item.code)
-        policy_expected_item = expected_item
-        if policy_row is not None:
-            policy_expected_item = expected_item.model_copy(
-                update={
-                    "constituents": tuple(
-                        expected_row.model_copy(
-                            update={
-                                "normalized_group_id": block.normalized_group_id,
-                                "normalized_group_label": block.normalized_group_label,
-                            }
-                        )
-                        for expected_row in expected_item.constituents
-                        for block in [
-                            policy_row.block_for(
-                                (expected_row.axis, expected_row.filler)
-                            )
-                        ]
-                    )
-                }
-            )
+        policy_expected_item = _project_expected_concept_to_active_policies(
+            expected_item, group_policy
+        )
         assert len(actual_item.constituents) == len(policy_expected_item.constituents)
         for actual_row, expected_row in zip(
             actual_item.constituents, policy_expected_item.constituents, strict=True
@@ -163,8 +197,30 @@ async def test_twenty_code_replay_matches_active_groups_and_tracked_semantics() 
                     if expected_fields.get(field) != actual_fields.get(field)
                 },
             }
-        assert actual_item.model_dump(mode="json") == policy_expected_item.model_dump(
-            mode="json"
+        assert len(actual_item.occurrence_dispositions) == len(
+            policy_expected_item.occurrence_dispositions
+        )
+        for actual_disposition, expected_disposition in zip(
+            actual_item.occurrence_dispositions,
+            policy_expected_item.occurrence_dispositions,
+            strict=True,
+        ):
+            assert actual_disposition.model_dump(
+                mode="json", exclude={"specificity_path"}
+            ) == expected_disposition.model_dump(
+                mode="json", exclude={"specificity_path"}
+            ), actual_item.code
+            if expected_disposition.specificity_path:
+                assert (
+                    actual_disposition.specificity_path
+                    == expected_disposition.specificity_path
+                ), actual_item.code
+            if actual_disposition.kind == "collapsed-is-a":
+                assert actual_disposition.specificity_path, actual_item.code
+        assert actual_item.model_dump(
+            mode="json", exclude={"occurrence_dispositions"}
+        ) == policy_expected_item.model_dump(
+            mode="json", exclude={"occurrence_dispositions"}
         ), actual_item.code
 
 

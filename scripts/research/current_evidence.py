@@ -9,6 +9,7 @@ import re
 import tempfile
 from collections import Counter
 from enum import StrEnum
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, Protocol, Self
 
@@ -84,6 +85,7 @@ if TYPE_CHECKING:
 
 _SHA256 = r"^[0-9a-f]{64}$"
 _CURRENT_EVIDENCE_SCHEMA_VERSION = 5
+_MIN_MIXED_SPECIFICITY_PATH_EDGES = 2
 
 
 class CurrentEvidenceValidationError(ValueError):
@@ -223,6 +225,12 @@ class CurrentSpecificityPathEdge(_StrictModel):
     narrower_code: str = Field(pattern=r"^C[0-9]+$")
     source_identity: str = Field(pattern=_SHA256)
 
+    @model_validator(mode="after")
+    def _fillers_are_distinct(self) -> Self:
+        if self.broader_code == self.narrower_code:
+            raise ValueError("specificity path edge must connect distinct fillers")
+        return self
+
 
 class CurrentOccurrenceDisposition(_StrictModel):
     kind: Literal[
@@ -261,14 +269,39 @@ class CurrentOccurrenceDisposition(_StrictModel):
             self.r82_whole,
         ) != (self.retained_pair[1], self.source_occurrence.filler_code):
             raise ValueError("R82 endpoints differ from disposition")
-        mixed = self.kind == "collapsed-mixed"
-        if mixed != bool(self.specificity_path):
-            raise ValueError("mixed specificity path presence differs from disposition")
+        self._validate_specificity_path()
         if (self.kind == "retained-policy-veto") != (
             self.policy_decision_identity is not None
         ):
             raise ValueError("policy evidence presence differs from disposition")
         return self
+
+    def _validate_specificity_path(self) -> None:
+        path = self.specificity_path
+        if self.kind == "collapsed-is-a" and path:
+            if {edge.kind for edge in path} != {"is-a"}:
+                raise ValueError("is-a collapse path contains another relation kind")
+            self._validate_specificity_path_endpoints_and_contiguity(path)
+        elif self.kind == "collapsed-mixed":
+            if len(path) < _MIN_MIXED_SPECIFICITY_PATH_EDGES or {
+                edge.kind for edge in path
+            } != {"is-a", "r82"}:
+                raise ValueError("mixed collapse requires both specificity edge kinds")
+            self._validate_specificity_path_endpoints_and_contiguity(path)
+        elif path:
+            raise ValueError("only specificity collapse carries a specificity path")
+
+    def _validate_specificity_path_endpoints_and_contiguity(
+        self, path: tuple[CurrentSpecificityPathEdge, ...]
+    ) -> None:
+        if path[0].broader_code != self.source_occurrence.filler_code:
+            raise ValueError("specificity path does not start at source filler")
+        if path[-1].narrower_code != self.retained_pair[1]:
+            raise ValueError("specificity path does not end at retained filler")
+        if any(
+            left.narrower_code != right.broader_code for left, right in pairwise(path)
+        ):
+            raise ValueError("specificity path is not contiguous")
 
 
 class CurrentConceptEvidence(_StrictModel):
