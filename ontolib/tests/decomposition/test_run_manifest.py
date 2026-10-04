@@ -14,7 +14,6 @@ from ontolib.decomposition.provenance_models import (
     CompletionRunMetrics,
     PersistedRunMetrics,
     RunFingerprint,
-    RunResumeIdentity,
     RunStageCheckpoint,
     RunSummary,
     WorkItemOutcome,
@@ -30,7 +29,6 @@ def _fingerprint(**updates: object) -> RunFingerprint:
         "source_identity": "a" * 64,
         "collapse_policy_identity": "0" * 64,
         "routing_implementation_identity": "1" * 64,
-        "mixed_chain_inventory_identity": "2" * 64,
         "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "branch": "neoplasm",
         "scope_root": "C3262",
@@ -197,7 +195,7 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
     assert equivalent.identity == original.identity
     assert (
         original.identity
-        == "16b596795b1af283dfe300c08a50554c5458b32ce38c84414367f688e62a1736"
+        == "683fd1821a5d731cedf3fee6fe48e3732b149053540accc0daf44c5f6e830874"
     )
     assert len(original.identity) == 64
 
@@ -221,34 +219,27 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
 
 
 @pytest.mark.unit
-def test_sample_fingerprint_binds_manifest_identity_and_resume_contract() -> None:
+def test_sample_fingerprint_binds_manifest_identity() -> None:
     sample = _fingerprint(
-        schema_version=5,
+        schema_version=7,
         total_limit=None,
         sample_manifest_identity="b" * 64,
     )
     different_sample = _fingerprint(
-        schema_version=5,
+        schema_version=7,
         total_limit=None,
         sample_manifest_identity="c" * 64,
     )
 
     assert sample.identity != different_sample.identity
-    resume = RunResumeIdentity.from_fingerprint(sample)
-    assert resume.schema_version == 5
-    assert resume.sample_manifest_identity == "b" * 64
+    assert sample.schema_version == 7
+    assert sample.sample_manifest_identity == "b" * 64
 
 
 @pytest.mark.unit
-def test_named_graph_load_requires_a_file_output_for_run_and_resume() -> None:
+def test_named_graph_load_requires_a_file_output() -> None:
     with pytest.raises(ValidationError, match="named-graph load requires file output"):
         _fingerprint(output_mode="none", load_mode="named-graph")
-
-    resume = RunResumeIdentity.from_fingerprint(_fingerprint())
-    with pytest.raises(ValidationError, match="named-graph load requires file output"):
-        RunResumeIdentity.model_validate(
-            resume.model_dump() | {"output_mode": "none", "load_mode": "named-graph"}
-        )
 
 
 @pytest.mark.unit

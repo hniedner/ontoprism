@@ -135,9 +135,6 @@ migrate-rev = "alembic revision -m"
 # --- Standalone data build (issue #7): needs `pdm install -G data-build` for the ---
 # --- embedding step. Build ontology indexes before starting QLever; see DATA_SETUP. ---
 data-build = "python scripts/data_build.py"
-# Decomposition extraction research spike (#4): score a candidate stated-extraction
-# against the curated golden set. Needs the stated NCIt graph loaded. Manual, not CI.
-decompose-spike = "python scripts/decomposition_spike.py"
 # Decomposition engine CLI (design §9 / §12 PR 5b): run the pipeline for a branch.
 decompose = "python scripts/decompose.py"
 oracle-metrics = "python -m scripts.oracle_metrics"

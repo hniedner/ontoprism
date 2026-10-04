@@ -87,14 +87,132 @@ def test_report_conservation_categories_stay_distinct() -> None:
     }
 
 
-def test_command_import_does_not_load_r103_review_chain():
+def test_runtime_imports_and_commands_do_not_reach_r103_review_chain():
     result = subprocess.run(
         [
             sys.executable,
             "-c",
-            "import sys; import scripts.oracle_metrics; "
+            "import argparse, importlib, sys; "
+            "[importlib.import_module(name) for name in ("
+            "'ontolib.decomposition.run', "
+            "'ontolib.decomposition.proposal_registry_migration', "
+            "'scripts.oracle_metrics', "
+            "'scripts.research.golden_review', "
+            "'scripts.research.current_evidence')]; "
+            "adjudication=importlib.import_module('scripts.adjudication'); "
+            "replay=importlib.import_module('scripts.validation.run_agent_replay'); "
+            "choices=next(a.choices for a in adjudication._parser()._actions "
+            "if isinstance(a, argparse._SubParsersAction)); "
+            "assert not [name for name in choices if 'r103' in name]; "
+            "assert not [name for name in vars(replay) "
+            "if name.startswith('_generate_r103') "
+            "or name.startswith('_transcribe_r103')]; "
             "assert not [m for m in sys.modules "
             "if any(p.startswith('r103_') for p in m.split('.'))]",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_run_and_provenance_imports_do_not_load_mixed_chain_modules():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import importlib, sys; "
+            "[importlib.import_module(name) for name in ("
+            "'ontolib.decomposition.run', "
+            "'ontolib.decomposition.provenance')]; "
+            "assert not [name for name in sys.modules if name in ("
+            "'ontolib.decomposition.mixed_chain_inventory', "
+            "'ontolib.decomposition.mixed_chain_projection')]",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_runtime_commands_do_not_expose_corpus_baseline_workflow():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import argparse, importlib; "
+            "adjudication=importlib.import_module('scripts.adjudication'); "
+            "replay=importlib.import_module('scripts.validation.run_agent_replay'); "
+            "choices=next(a.choices for a in adjudication._parser()._actions "
+            "if isinstance(a, argparse._SubParsersAction)); "
+            "assert 'generate-corpus-baseline' not in choices; "
+            "assert '_generate_current_corpus_baseline' not in vars(replay)",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_product_runtime_does_not_ship_unreachable_research_workflows():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import importlib, sys; "
+            "[importlib.import_module(name) for name in ("
+            "'ontolib.decomposition.run',"
+            "'ontolib.decomposition.provenance',"
+            "'scripts.decompose',"
+            "'scripts.data_build',"
+            "'scripts.oracle_metrics',"
+            "'scripts.adjudication',"
+            "'scripts.artifacts')];"
+            "modules=("
+            "'ontolib.decomposition.run_inspection',"
+            "'ontolib.repositories.icdo.annex',"
+            "'ontolib.decomposition.walker',"
+            "'ontolib.terminologies.ncit.role_queries');"
+            "assert not [name for name in modules if name in sys.modules]",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_product_runtime_does_not_ship_retired_evidence_workflows() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import argparse, importlib, sys, typing; "
+            "[importlib.import_module(name) for name in ("
+            "'ontolib.decomposition.run',"
+            "'ontolib.decomposition.provenance',"
+            "'scripts.decompose',"
+            "'scripts.oracle_metrics',"
+            "'scripts.adjudication')];"
+            "modules=("
+            "'ontolib.decomposition.pre_resume',"
+            "'ontolib.decomposition.resume_dry_run',"
+            "'ontolib.decomposition.fanout_baseline',"
+            "'ontolib.decomposition.semantic_bundles',"
+            "'scripts.research.pre_sme_readiness');"
+            "assert not [name for name in modules if name in sys.modules];"
+            "adjudication=importlib.import_module('scripts.adjudication');"
+            "choices=next(a.choices for a in adjudication._parser()._actions "
+            "if isinstance(a, argparse._SubParsersAction));"
+            "assert 'generate-pre-resume-proof' not in choices;"
+            "assert 'dry-run-resume' not in choices;"
+            "golden=importlib.import_module('scripts.research.golden_review');"
+            "assert typing.get_args(golden.PairProvenance) == ("
+            "'ncit-26.07d', 'locally-approved', 'proposed', "
+            "'submitted', 'accepted-in-ncit')",
         ],
         capture_output=True,
         text=True,

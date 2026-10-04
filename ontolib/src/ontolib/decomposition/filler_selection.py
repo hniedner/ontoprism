@@ -1,8 +1,7 @@
 """Filler selection — choose the intended constituent(s) per axis (design §6).
 
 Most-specific selection compares routed fillers through caller-supplied is-a and R82
-relations. The module also records source-backed reduction dispositions and supports a
-separate non-emitting historical diagnostic path.
+relations. The module also records source-backed reduction dispositions.
 """
 
 from __future__ import annotations
@@ -10,7 +9,6 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
@@ -87,19 +85,6 @@ class RoutedSelection:
     dispositions: tuple[OccurrenceDisposition, ...]
     synthetic_occurrence_count: int = 0
     projection_decisions: tuple[ProjectionDecisionRecord, ...] = ()
-
-
-class DiagnosticReductionPurpose(Enum):
-    """Named purpose required by the non-emitting unassessed diagnostic API."""
-
-    HISTORICAL_MIXED_CHAIN_RECONSTRUCTION = "historical-mixed-chain-reconstruction"
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class HistoricalCollapseDiagnostic:
-    """Historical collapse dispositions without projectable constituents."""
-
-    dispositions: tuple[OccurrenceDisposition, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -856,23 +841,6 @@ def _reduce_routed_plan(
             for occurrence in plan.occurrences
         ),
     )
-
-
-def diagnose_historical_collapse_dispositions(
-    plan: RoutedPlan,
-    is_ancestor: IsAncestor,
-    *,
-    purpose: DiagnosticReductionPurpose,
-    is_part_of: IsPartOf | None = None,
-) -> HistoricalCollapseDiagnostic:
-    """Reconstruct historical mixed-chain dispositions without enabling emission."""
-    if purpose is not DiagnosticReductionPurpose.HISTORICAL_MIXED_CHAIN_RECONSTRUCTION:
-        raise TypeError(
-            "purpose must be "
-            "DiagnosticReductionPurpose.HISTORICAL_MIXED_CHAIN_RECONSTRUCTION"
-        )
-    selected = _reduce_routed_plan(plan, is_ancestor, is_part_of=is_part_of)
-    return HistoricalCollapseDiagnostic(dispositions=selected.dispositions)
 
 
 def _projection_decision_record(

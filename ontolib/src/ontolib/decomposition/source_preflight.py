@@ -6,8 +6,9 @@ import hashlib
 import json
 from collections import deque
 from collections.abc import Awaitable, Callable
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from ontolib.decomposition.complete_definition import (
     CompleteDefinitionError,
@@ -24,9 +25,6 @@ from ontolib.decomposition.provenance_models import CompletionRunMetrics
 ReadDefinition = Callable[[str], Awaitable[CompleteDefinition]]
 PreflightProgress = Callable[[int, int, str], None]
 _PROGRESS_INTERVAL = 1000
-_NO_MIXED_CHAIN_INVENTORY_IDENTITY = hashlib.sha256(
-    b"no-mixed-chain-inventory"
-).hexdigest()
 
 
 class ClosureBudgetExceededError(RuntimeError):
@@ -38,12 +36,11 @@ class SourcePreflightResult(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    schema_version: int = 1
+    schema_version: Literal[2] = 2
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     worklist_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     reader_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     query_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    mixed_chain_inventory_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     tool_identity: str = Field(min_length=1)
     walker_max_depth: int = Field(gt=0)
     max_nodes: int = Field(gt=0)
@@ -56,20 +53,27 @@ class SourcePreflightResult(BaseModel):
     overflow_codes: tuple[str, ...]
     representative_metrics: CompletionRunMetrics
 
+    @model_validator(mode="after")
+    def _outcome_sets_are_consistent(self) -> Self:
+        if self.unsupported_codes != tuple(sorted(self.unsupported_reasons)):
+            raise ValueError("unsupported codes differ from unsupported reasons")
+        categories = (
+            set(self.supported_codes),
+            set(self.unsupported_codes),
+            set(self.malformed_codes),
+            set(self.overflow_codes),
+        )
+        all_codes = set().union(*categories)
+        if sum(len(category) for category in categories) != len(all_codes):
+            raise ValueError("preflight outcome categories overlap")
+        if self.checked_codes != tuple(sorted(all_codes)):
+            raise ValueError("checked codes differ from classified outcomes")
+        return self
+
     @computed_field
     @property
     def concept_work_allowed(self) -> bool:
         return not self.malformed_codes and not self.overflow_codes
-
-    @computed_field
-    @property
-    def identity(self) -> str:
-        payload = self.model_dump(mode="json", exclude={"identity"})
-        return hashlib.sha256(
-            json.dumps(
-                payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-            ).encode()
-        ).hexdigest()
 
 
 def _worklist_identity(worklist: tuple[str, ...]) -> str:
@@ -204,7 +208,6 @@ async def run_source_preflight(
     tool_identity: str,
     walker_max_depth: int,
     max_nodes: int,
-    mixed_chain_inventory_identity: str = _NO_MIXED_CHAIN_INVENTORY_IDENTITY,
     progress: PreflightProgress | None = None,
 ) -> SourcePreflightResult:
     """Census exact roots plus their defined-genus and filler dependencies.
@@ -242,7 +245,6 @@ async def run_source_preflight(
         worklist_identity=_worklist_identity(worklist),
         reader_identity=reader_identity,
         query_identity=query_identity,
-        mixed_chain_inventory_identity=mixed_chain_inventory_identity,
         tool_identity=tool_identity,
         walker_max_depth=walker_max_depth,
         max_nodes=max_nodes,

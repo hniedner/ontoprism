@@ -284,7 +284,9 @@ def test_completion_publication_helper_preserves_state_distinctions() -> None:
         (None, "0" * 64, "is corrupt"),
         ({"schema_version": 0}, "0" * 64, "predates the exact-run schema"),
         ({"schema_version": 1}, "a" * 64, "predates the hierarchy-scope schema"),
-        ({"schema_version": 4}, "a" * 64, "is corrupt"),
+        ({"schema_version": 4}, "a" * 64, "predates the lean-run schema"),
+        ({"schema_version": 5}, "a" * 64, "predates the lean-run schema"),
+        ({"schema_version": 6}, "a" * 64, "is corrupt"),
     ],
 )
 def test_invalid_fingerprint_detail_classifies_only_known_history(
@@ -774,7 +776,6 @@ async def test_finish_run_sets_complete() -> None:
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
@@ -843,11 +844,10 @@ async def test_finish_run_sets_complete() -> None:
 async def test_completed_run_for_evidence_returns_validated_publication() -> None:
     sf = _make_mock_sf()
     fingerprint = RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
@@ -888,11 +888,10 @@ async def test_completed_run_for_evidence_returns_validated_publication() -> Non
 async def test_published_evidence_reader_rejects_a_rehearsal() -> None:
     sf = _make_mock_sf()
     fingerprint = RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
@@ -927,11 +926,10 @@ async def test_published_evidence_reader_rejects_a_rehearsal() -> None:
 async def test_oracle_metrics_reader_returns_only_a_completed_rehearsal() -> None:
     sf = _make_mock_sf()
     fingerprint = RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
@@ -1814,65 +1812,6 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
     ]
 
 
-@pytest.mark.unit
-async def test_projection_state_for_codes_is_bounded_and_complete() -> None:
-    sf = _make_mock_sf()
-    constituent_rows = MagicMock()
-    constituent_rows.mappings.return_value.all.return_value = [
-        {
-            "concept_code": "C1",
-            "axis": "op:PrimarySite",
-            "filler_code": "C2",
-            "axis_source": "role",
-            "source_roles": ["R100"],
-            "most_specific": False,
-            "needs_review": False,
-            "axis_ambiguous": False,
-            "source_group_ids": [],
-            "normalized_group_id": None,
-            "normalized_group_label": None,
-            "source_definition_ids": ["d" * 64],
-        }
-    ]
-    links = MagicMock()
-    links.mappings.return_value.all.return_value = [
-        {
-            "concept_code": "C1",
-            "axis": "op:PrimarySite",
-            "filler_code": "C2",
-            "occurrence_id": "c" * 64,
-        }
-    ]
-    dispositions = MagicMock()
-    dispositions.mappings.return_value.all.return_value = [
-        {
-            "concept_code": "C1",
-            "occurrence_id": "c" * 64,
-            "source_fact_id": "d" * 64,
-            "disposition": "retained-routed",
-            "normalized_axis": "op:PrimarySite",
-            "source_filler": "C2",
-            "retained_filler": "C2",
-            "semantic_route": "p106-organ",
-            "semantic_type": "Neoplastic Process",
-            "r82_part": None,
-            "r82_whole": None,
-            "specificity_path": [],
-            "policy_decision_identity": None,
-        }
-    ]
-    sf().execute.side_effect = [constituent_rows, links, dispositions]
-
-    states = await ProvenanceStore(sf).projection_state_for_codes("run-1", ("C1",))
-
-    assert states[0].concept_code == "C1"
-    assert states[0].constituents[0].source_occurrence_ids == ("c" * 64,)
-    assert states[0].dispositions[0].source_fact_id == "d" * 64
-    assert sf().execute.call_count == 3
-    for call in sf().execute.call_args_list:
-        assert call.args[1] == {"run_id": "run-1", "codes": ["C1"]}
-
-
 def _identity_payload() -> dict[str, object]:
     return {
         "source_identity": "a" * 64,
@@ -1886,7 +1825,6 @@ def _identity_payload() -> dict[str, object]:
         "walker_max_depth": 5,
         "routing_implementation_identity": "b" * 64,
         "collapse_policy_identity": "c" * 64,
-        "mixed_chain_inventory_identity": "d" * 64,
         "stage_sequence_identity": RUN_STAGE_SEQUENCE_IDENTITY,
         "output_mode": "file",
         "load_mode": "none",
@@ -1911,19 +1849,17 @@ def test_rehearsal_nonce_separates_otherwise_identical_run_identities() -> None:
 
 
 @pytest.mark.unit
-def test_identities_of_real_runs_are_unchanged_by_the_rehearsal_field() -> None:
-    """Pinned on the milestone branch before `rehearsal_nonce` existed: persisted
-    `fingerprint_sha256` and `execution_identity` values must keep matching."""
+def test_real_run_identities_are_stable_without_a_rehearsal_nonce() -> None:
     fingerprint = RunFingerprint(
         **_identity_payload(),  # type: ignore[arg-type]
         emitted_at=datetime.datetime(2026, 9, 18, tzinfo=datetime.UTC),
     )
 
     assert fingerprint.identity == (
-        "01801f7cb09b760aab49f2f571cdfe5063bb233d5f1de5a62d9b453bb98ff49e"
+        "36b84c00623fae0d3c7f495e54e70a3712622388d72d3649f91a2d98ac876b07"
     )
     assert FullRunExecutionIdentity.from_fingerprint(fingerprint).identity == (
-        "f07e39a44382a1a27fdf8131835493cb6daf19ba1761dfdc792483601a522bca"
+        "64c4ce58c94f9fe5bddc3c43dd94a1eaf8a53fe1a3a1afca4b1e79bb927f1847"
     )
 
 

@@ -609,32 +609,6 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
         state["pending"] = list(fingerprint.worklist)
         del run_id, ncit_version
 
-    async def resume_run(run_id: str, expected: object) -> RunFingerprint:
-        del run_id, expected
-        fingerprint = state["fingerprint"]
-        if fingerprint is None:
-            fingerprint = RunFingerprint(
-                source_identity="a" * 64,
-                collapse_policy_identity="0" * 64,
-                routing_implementation_identity="1" * 64,
-                mixed_chain_inventory_identity="2" * 64,
-                stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
-                branch="neoplasm",
-                scope_root="C3262",
-                scope_version="stated-genus-subclass-v1",
-                semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
-                worklist=(),
-                total_limit=None,
-                algorithm_version="decomposition-v1",
-                config_version="axes-v1",
-                walker_max_depth=5,
-                output_mode="none",
-                load_mode="none",
-                emitted_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
-            )
-            state["fingerprint"] = fingerprint
-        return fingerprint
-
     async def complete_work_item(
         run_id: str,
         code: str,
@@ -674,7 +648,6 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
         )
 
     store.create_run = AsyncMock(side_effect=create_run)
-    store.resume_run = AsyncMock(side_effect=resume_run)
     store.pending_codes = AsyncMock(side_effect=lambda _run_id: state["pending"])
     store.unknown_outcome_codes = AsyncMock(return_value=())
     store.claim_work_item = AsyncMock(return_value=UUID(int=1))
@@ -722,7 +695,6 @@ def _install_admission_doubles(store: Any, state: dict[str, Any]) -> None:
                 source_identity="a" * 64,
                 collapse_policy_identity="0" * 64,
                 routing_implementation_identity="1" * 64,
-                mixed_chain_inventory_identity="2" * 64,
                 stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
                 branch="neoplasm",
                 scope_root="C3262",
@@ -940,7 +912,6 @@ def _set_resume_worklist(
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
@@ -1754,7 +1725,6 @@ def _checkpoint_setup() -> run_module._RunSetup:
             source_identity="a" * 64,
             collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
             routing_implementation_identity="1" * 64,
-            mixed_chain_inventory_identity="2" * 64,
             stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
             branch="neoplasm",
             scope_root="C3262",
@@ -1819,6 +1789,7 @@ async def test_completed_preflight_checkpoint_restores_its_typed_result() -> Non
         max_nodes=10,
     )
     payload = result.model_dump(mode="json", exclude_computed_fields=True)
+    output_identity = stage_output_identity(payload)
     provenance = MagicMock()
     provenance.claim_stage = AsyncMock(return_value=None)
     provenance.run_stages = AsyncMock(
@@ -1826,7 +1797,7 @@ async def test_completed_preflight_checkpoint_restores_its_typed_result() -> Non
             MagicMock(
                 stage="preflight",
                 state="complete",
-                output_identity=result.identity,
+                output_identity=output_identity,
                 output_payload=payload,
             ),
         )
@@ -1836,84 +1807,7 @@ async def test_completed_preflight_checkpoint_restores_its_typed_result() -> Non
         _checkpoint_setup(), RunConfig(branch="disease"), provenance, result
     )
 
-    assert identity == result.identity
-
-
-@pytest.mark.unit
-async def test_completed_preflight_rejects_stale_mixed_chain_inventory(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        run_module, "require_mixed_chain_preflight", lambda *_, **__: None
-    )
-    result = await run_source_preflight(
-        (),
-        read_definition=AsyncMock(),
-        source_identity="a" * 64,
-        reader_identity="b" * 64,
-        query_identity="c" * 64,
-        tool_identity="qlever-v1",
-        walker_max_depth=7,
-        max_nodes=10,
-        mixed_chain_inventory_identity="d" * 64,
-    )
-    provenance = MagicMock()
-    provenance.claim_stage = AsyncMock(return_value=None)
-    provenance.run_stages = AsyncMock(
-        return_value=(
-            MagicMock(
-                stage="preflight",
-                state="complete",
-                output_identity=result.identity,
-                output_payload=result.model_dump(
-                    mode="json", exclude_computed_fields=True
-                ),
-            ),
-        )
-    )
-
-    inventory_path = Path(
-        "ontolib/src/ontolib/decomposition/data/neoplasm_mixed_chain_inventory.json"
-    )
-    current = result.model_copy(
-        update={
-            "mixed_chain_inventory_identity": run_module.load_mixed_chain_inventory(
-                inventory_path
-            ).identity
-        }
-    )
-
-    with pytest.raises(SourcePreflightRejectedError, match="stale mixed-chain"):
-        await run_module._preflight_stage(
-            _checkpoint_setup(),
-            RunConfig(branch="neoplasm", mixed_chain_inventory_path=inventory_path),
-            provenance,
-            current,
-        )
-
-
-@pytest.mark.unit
-def test_an_inventory_bound_to_another_source_is_rejected_as_a_preflight_problem() -> (
-    None
-):
-    """The packaged neoplasm inventory is bound to the real NCIt source and worklist, so
-    a run on any other source must be refused as a SourcePreflightRejectedError, not
-    escape as the inventory's bare ValueError."""
-    with pytest.raises(
-        SourcePreflightRejectedError,
-        match=r"rejected mixed-chain inventory: .*source identity differs",
-    ):
-        run_module._required_mixed_chain_inventory_identity(
-            RunConfig(
-                branch="neoplasm",
-                mixed_chain_inventory_path=Path(
-                    "ontolib/src/ontolib/decomposition/data/"
-                    "neoplasm_mixed_chain_inventory.json"
-                ),
-            ),
-            source_identity="a" * 64,
-            worklist=("C1",),
-        )
+    assert identity == output_identity
 
 
 @pytest.mark.unit
@@ -1928,7 +1822,10 @@ async def test_completed_preflight_rejects_a_restored_disallowed_result() -> Non
         walker_max_depth=7,
         max_nodes=10,
     )
-    sealed = allowed.model_copy(update={"malformed_codes": ("C1",)})
+    sealed = allowed.model_copy(
+        update={"checked_codes": ("C1",), "malformed_codes": ("C1",)}
+    )
+    payload = sealed.model_dump(mode="json", exclude_computed_fields=True)
     provenance = MagicMock()
     provenance.claim_stage = AsyncMock(return_value=None)
     provenance.run_stages = AsyncMock(
@@ -1936,10 +1833,8 @@ async def test_completed_preflight_rejects_a_restored_disallowed_result() -> Non
             MagicMock(
                 stage="preflight",
                 state="complete",
-                output_identity=sealed.identity,
-                output_payload=sealed.model_dump(
-                    mode="json", exclude_computed_fields=True
-                ),
+                output_identity=stage_output_identity(payload),
+                output_payload=payload,
             ),
         )
     )
@@ -2382,7 +2277,7 @@ async def test_run_pipeline_resume_with_version_mismatch_raises() -> None:
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
     with pytest.raises(SourceIdentityChangedError, match="version"):
         await run_pipeline(config, client, provenance)
-    provenance.resume_run.assert_not_awaited()
+    provenance.admit_run.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -2848,7 +2743,6 @@ async def test_pending_work_emits_heartbeat_while_concept_is_active(
             source_identity="a" * 64,
             collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
             routing_implementation_identity="1" * 64,
-            mixed_chain_inventory_identity="2" * 64,
             stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
             branch="neoplasm",
             scope_root="C3262",
@@ -2962,7 +2856,6 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
         source_identity="a" * 64,
         collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
@@ -2979,7 +2872,7 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
     )
     client = _FakeClient(pages=[["C999999"]])
     provenance = _mock_provenance()
-    provenance.resume_run = AsyncMock(return_value=fingerprint)
+    provenance._test_state["fingerprint"] = fingerprint
     # Exactly two reads: a worklist without policy concepts must not cost a third.
     provenance.pending_codes = AsyncMock(side_effect=[["C1"], []])
     provenance.claim_work_item = AsyncMock(return_value=UUID(int=2))
@@ -3014,11 +2907,10 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
 ) -> None:
     sample = _sample_manifest("C2", "C1")
     fingerprint = RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity="a" * 64,
         collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
@@ -3039,7 +2931,6 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
     provenance._test_state["fingerprint"] = fingerprint
     provenance._test_state["pending"] = ["C1"]
     provenance._test_state["semantic_excluded"] = 1
-    provenance.resume_run = AsyncMock(return_value=fingerprint)
 
     metrics = await run_pipeline(
         RunConfig(
@@ -3424,7 +3315,7 @@ async def test_sample_and_total_limit_are_rejected_before_source_or_provenance(
 
     source.assert_not_awaited()
     provenance.create_run.assert_not_awaited()
-    provenance.resume_run.assert_not_awaited()
+    provenance.admit_run.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -3537,7 +3428,7 @@ async def test_sample_source_drift_is_rejected_before_provenance(
         )
 
     provenance.create_run.assert_not_awaited()
-    provenance.resume_run.assert_not_awaited()
+    provenance.admit_run.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -3582,7 +3473,7 @@ async def test_sample_order_and_identity_are_persisted_as_exact_worklist(
 
     fingerprint = provenance._test_state["fingerprint"]
     assert metrics.total_in_scope == 2
-    assert fingerprint.schema_version == 5
+    assert fingerprint.schema_version == 7
     assert fingerprint.worklist == ("C2", "C1")
     assert fingerprint.sample_manifest_identity == sample.identity
     assert fingerprint.total_limit is None

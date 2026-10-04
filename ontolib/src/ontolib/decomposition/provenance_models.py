@@ -23,8 +23,8 @@ from pydantic import (
 from ontolib.decomposition.branches import ScopeRoot, ScopeVersion
 from ontolib.decomposition.models import ConceptOutcome
 
-_STANDARD_RUN_SCHEMA = 4
-_SAMPLE_RUN_SCHEMA = 5
+_STANDARD_RUN_SCHEMA = 6
+_SAMPLE_RUN_SCHEMA = 7
 RunStageName = Literal[
     "preflight",
     "concept-workset",
@@ -43,9 +43,6 @@ RUN_STAGE_SEQUENCE: tuple[RunStageName, ...] = (
 )
 RUN_STAGE_SEQUENCE_IDENTITY = hashlib.sha256(
     json.dumps(RUN_STAGE_SEQUENCE, separators=(",", ":")).encode()
-).hexdigest()
-NO_MIXED_CHAIN_INVENTORY_IDENTITY = hashlib.sha256(
-    b'{"mixed_chain_inventory":"not-required"}'
 ).hexdigest()
 
 
@@ -111,7 +108,6 @@ class FullRunExecutionIdentity(BaseModel):
     config_version: str = Field(min_length=1)
     routing_implementation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    mixed_chain_inventory_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     stage_sequence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     output_mode: Literal["none", "file"]
     load_mode: Literal["none", "named-graph"]
@@ -235,11 +231,10 @@ class RunFingerprint(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    schema_version: Literal[4, 5] = 4
+    schema_version: Literal[6, 7] = 6
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     routing_implementation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    mixed_chain_inventory_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     stage_sequence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     branch: Literal["neoplasm", "disease"]
     scope_root: ScopeRoot
@@ -325,69 +320,6 @@ class CompletedRehearsalForOracleMetrics(BaseModel):
         if self.fingerprint.rehearsal_nonce is None:
             raise ValueError("oracle metrics run is not a rehearsal")
         return self
-
-
-class RunResumeIdentity(BaseModel):
-    """Caller-controlled dimensions that must match a persisted resumable run."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    schema_version: Literal[4, 5] = 4
-    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    routing_implementation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    mixed_chain_inventory_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    stage_sequence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    branch: Literal["neoplasm", "disease"]
-    scope_root: ScopeRoot
-    scope_version: ScopeVersion
-    semantic_types: tuple[str, ...]
-    total_limit: int | None = Field(default=None, gt=0)
-    sample_manifest_identity: str | None = Field(
-        default=None,
-        pattern=r"^[0-9a-f]{64}$",
-    )
-    algorithm_version: str = Field(min_length=1)
-    config_version: str = Field(min_length=1)
-    walker_max_depth: int = Field(gt=0)
-    output_mode: Literal["none", "file"]
-    load_mode: Literal["none", "named-graph"]
-
-    @model_validator(mode="after")
-    def _scope_root_matches_branch(self) -> Self:
-        _require_matching_scope_root(self.branch, self.scope_root)
-        _require_matching_sample_schema(
-            self.schema_version,
-            self.sample_manifest_identity,
-            self.total_limit,
-        )
-        _require_matching_output_load(self.output_mode, self.load_mode)
-        return self
-
-    @classmethod
-    def from_fingerprint(cls, fingerprint: RunFingerprint) -> RunResumeIdentity:
-        """Project only the dimensions a resume invocation can independently know."""
-        return cls(
-            schema_version=fingerprint.schema_version,
-            source_identity=fingerprint.source_identity,
-            collapse_policy_identity=fingerprint.collapse_policy_identity,
-            routing_implementation_identity=(
-                fingerprint.routing_implementation_identity
-            ),
-            mixed_chain_inventory_identity=fingerprint.mixed_chain_inventory_identity,
-            stage_sequence_identity=fingerprint.stage_sequence_identity,
-            branch=fingerprint.branch,
-            scope_root=fingerprint.scope_root,
-            scope_version=fingerprint.scope_version,
-            semantic_types=fingerprint.semantic_types,
-            total_limit=fingerprint.total_limit,
-            sample_manifest_identity=fingerprint.sample_manifest_identity,
-            algorithm_version=fingerprint.algorithm_version,
-            config_version=fingerprint.config_version,
-            walker_max_depth=fingerprint.walker_max_depth,
-            output_mode=fingerprint.output_mode,
-            load_mode=fingerprint.load_mode,
-        )
 
 
 class RunStageCheckpoint(BaseModel):
@@ -511,14 +443,14 @@ class ResidualFillerClassification(BaseModel):
 
 
 def _require_matching_sample_schema(
-    schema_version: Literal[4, 5],
+    schema_version: Literal[6, 7],
     sample_manifest_identity: str | None,
     total_limit: int | None,
 ) -> None:
     if schema_version == _SAMPLE_RUN_SCHEMA and sample_manifest_identity is None:
-        raise ValueError("sample schema-v5 runs require a sample manifest identity")
+        raise ValueError("sample schema-v7 runs require a sample manifest identity")
     if schema_version == _STANDARD_RUN_SCHEMA and sample_manifest_identity is not None:
-        raise ValueError("sample manifest identity requires sample schema-v5")
+        raise ValueError("sample manifest identity requires sample schema-v7")
     if sample_manifest_identity is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
 
@@ -535,41 +467,6 @@ class RunOutcomeCounts(BaseModel):
     atomic_noop: int = Field(default=0, ge=0)
     unknown_outcome: int = Field(default=0, ge=0)
     minted_count: int = Field(ge=0)
-
-
-class CorpusOutcomeCounts(BaseModel):
-    """Exact outcome categories for a full-corpus baseline."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    decomposed: int = Field(ge=0)
-    residual: int = Field(ge=0)
-    semantic_excluded: int = Field(ge=0)
-    atomic_noop: int = Field(ge=0)
-    unknown: int = Field(ge=0)
-
-
-class CorpusBaselineAggregate(BaseModel):
-    """Counts derived from persisted rows in one bounded aggregate query."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    worklist_count: int = Field(ge=0)
-    outcome_counts: CorpusOutcomeCounts
-    decomposed_codes: tuple[str, ...]
-    emitted_constituent_pair_count: int = Field(ge=0)
-    complete_semantic_fact_count: int = Field(ge=0)
-    source_occurrence_count: int = Field(ge=0)
-    selected_occurrence_count: int = Field(ge=0)
-    minted_count: int = Field(ge=0)
-
-    @model_validator(mode="after")
-    def _counts_are_complete(self) -> Self:
-        if sum(self.outcome_counts.model_dump().values()) != self.worklist_count:
-            raise ValueError("outcome counts do not sum to worklist count")
-        if len(self.decomposed_codes) != self.outcome_counts.decomposed:
-            raise ValueError("decomposed code count does not match outcome counts")
-        return self
 
 
 class PersistedRunMetrics(BaseModel):

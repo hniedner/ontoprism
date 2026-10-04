@@ -154,7 +154,7 @@ persisted `source_identity` matches that certified active proxy (D68).
 NCIt encodes pre-coordination as relationship requirements (OWL existential restrictions)
 (`?c rdfs:subClassOf [ owl:onProperty ?R ; owl:someValuesFrom ?filler ]`), **not** as
 direct triples (0 direct R-triples in the store; associations are direct A-triples). The
-restriction-traversal query (`ontolib` `terminologies/ncit/graph_store_role_queries.py`)
+restriction-traversal query (`ontolib` `terminologies/ncit/graph_store.py`)
 is the backbone that makes roles queryable, and the foundation the decomposition engine
 builds on. Porting it faithfully is the keystone of M1/M2 ("roles must render").
 

@@ -18,9 +18,11 @@ from scripts.research.current_evidence import (
     CurrentEngineEvidence,
     CurrentEvidenceValidationError,
     CurrentMetrics,
+    CurrentOccurrenceDisposition,
     CurrentRateMetric,
     CurrentSourceFact,
     CurrentSourceOccurrence,
+    CurrentSpecificityPathEdge,
     HistoricalOraclePairCitation,
     PairRelationSummary,
     PartitionDiagnosisEvidence,
@@ -173,11 +175,10 @@ def test_current_metrics_reject_exact_pair_true_positive_count_mismatch() -> Non
 def _fingerprint() -> RunFingerprint:
     manifest = json.loads(_MANIFEST.read_text())
     return RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity=manifest["source_identity"],
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch=manifest["branch"],
         scope_root=manifest["scope_root"],
@@ -410,6 +411,162 @@ def _repeated_occurrence_decomposition() -> Decomposition:
     )
 
 
+def _current_specificity_disposition(
+    kind: str, path: tuple[tuple[str, str, str], ...]
+) -> CurrentOccurrenceDisposition:
+    source_occurrence = CurrentSourceOccurrence.model_validate(
+        asdict(_repeated_occurrence_decomposition().complete_definition.occurrences[0])  # type: ignore[union-attr]
+    )
+    return CurrentOccurrenceDisposition.model_validate(
+        {
+            "kind": kind,
+            "source_occurrence": source_occurrence,
+            "normalized_axis": "op:PrimarySite",
+            "semantic_route": "p106-organ",
+            "semantic_type": "Body Part, Organ, or Organ Component",
+            "retained_pair": ("op:PrimarySite", "C12402"),
+            "r82_part": None,
+            "r82_whole": None,
+            "specificity_path": tuple(
+                {
+                    "kind": edge_kind,
+                    "broader_code": broader,
+                    "narrower_code": narrower,
+                    "source_identity": "a" * 64,
+                }
+                for edge_kind, broader, narrower in path
+            ),
+            "policy_decision_identity": None,
+        }
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("kind", "path"),
+    [
+        (
+            "collapsed-is-a",
+            (
+                ("is-a", "C12400", "C12401"),
+                ("is-a", "C12401", "C12402"),
+            ),
+        ),
+        (
+            "collapsed-mixed",
+            (
+                ("is-a", "C12400", "C12401"),
+                ("r82", "C12401", "C12402"),
+            ),
+        ),
+    ],
+)
+def test_current_disposition_accepts_a_valid_specificity_path(
+    kind: str, path: tuple[tuple[str, str, str], ...]
+) -> None:
+    disposition = _current_specificity_disposition(kind, path)
+
+    assert tuple(edge.kind for edge in disposition.specificity_path) == tuple(
+        edge_kind for edge_kind, _broader, _narrower in path
+    )
+
+
+@pytest.mark.unit
+def test_current_specificity_path_edge_rejects_a_self_edge() -> None:
+    with pytest.raises(ValueError, match="distinct fillers"):
+        CurrentSpecificityPathEdge(
+            kind="is-a",
+            broader_code="C12400",
+            narrower_code="C12400",
+            source_identity="a" * 64,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("root_code", "not-a-code"),
+        ("anchor_code", "MINT-123456789abc"),
+        ("role_code", "not-a-role"),
+        ("filler_code", "external:123"),
+    ],
+)
+def test_current_source_occurrence_rejects_noncanonical_codes(
+    field: str, value: str
+) -> None:
+    occurrence = _current_specificity_disposition(
+        "collapsed-is-a", (("is-a", "C12400", "C12402"),)
+    ).source_occurrence
+
+    with pytest.raises(ValueError, match="String should match pattern"):
+        CurrentSourceOccurrence.model_validate(
+            {**occurrence.model_dump(), field: value}
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "retained_pair",
+    [("not-an-axis", "C12402"), ("op:PrimarySite", "external:123")],
+)
+def test_current_disposition_rejects_noncanonical_retained_pair(
+    retained_pair: tuple[str, str],
+) -> None:
+    disposition = _current_specificity_disposition(
+        "collapsed-is-a", (("is-a", "C12400", "C12402"),)
+    )
+
+    with pytest.raises(ValueError, match="String should match pattern"):
+        CurrentOccurrenceDisposition.model_validate(
+            {**disposition.model_dump(), "retained_pair": retained_pair}
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("kind", "path", "message"),
+    [
+        (
+            "collapsed-is-a",
+            (("r82", "C12400", "C12401"),),
+            "contains another relation kind",
+        ),
+        (
+            "collapsed-is-a",
+            (("is-a", "C12403", "C12401"),),
+            "does not start at source filler",
+        ),
+        (
+            "collapsed-is-a",
+            (("is-a", "C12400", "C12403"),),
+            "does not end at retained filler",
+        ),
+        (
+            "collapsed-is-a",
+            (
+                ("is-a", "C12400", "C12401"),
+                ("is-a", "C12403", "C12402"),
+            ),
+            "is not contiguous",
+        ),
+        (
+            "collapsed-mixed",
+            (
+                ("is-a", "C12400", "C12401"),
+                ("is-a", "C12401", "C12402"),
+            ),
+            "requires both specificity edge kinds",
+        ),
+    ],
+)
+def test_current_disposition_rejects_an_invalid_specificity_path(
+    kind: str, path: tuple[tuple[str, str, str], ...], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _current_specificity_disposition(kind, path)
+
+
 @pytest.mark.unit
 def test_current_constituent_preserves_and_validates_source_fact_citations() -> None:
     fact_id = "a" * 64
@@ -532,6 +689,7 @@ def test_current_constituent_preserves_unknown_role_axis_for_review() -> None:
         ("PrimarySite", "C12400"),
         ("op:PrimarySite!", "C12400"),
         ("op:PrimarySite", "bad"),
+        ("op:PrimarySite", "MINT-abc"),
     ],
 )
 def test_current_constituent_rejects_malformed_axis_or_filler(
@@ -1324,6 +1482,49 @@ def test_current_output_models_reject_self_identity_drift(model: type[object]) -
         raw["comparison_identity"] = "0" * 64
     with pytest.raises(ValueError, match="identity"):
         model.model_validate(copy.deepcopy(raw))  # type: ignore[attr-defined]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("model", "path", "identity_field", "field"),
+    [
+        (
+            CurrentEngineEvidence,
+            _TRACKED_CURRENT_EVIDENCE,
+            "evidence_identity",
+            "ncit_version",
+        ),
+        (
+            CurrentEngineEvidence,
+            _TRACKED_CURRENT_EVIDENCE,
+            "evidence_identity",
+            "run_id",
+        ),
+        (
+            CurrentComparison,
+            _TRACKED_CURRENT_COMPARISON,
+            "comparison_identity",
+            "ncit_version",
+        ),
+        (
+            CurrentComparison,
+            _TRACKED_CURRENT_COMPARISON,
+            "comparison_identity",
+            "run_id",
+        ),
+    ],
+)
+def test_current_outputs_reject_empty_release_and_run_identifiers(
+    model: type[object], path: Path, identity_field: str, field: str
+) -> None:
+    payload = json.loads(path.read_text())
+    payload[field] = ""
+    payload[identity_field] = _payload_identity(
+        {key: value for key, value in payload.items() if key != identity_field}
+    )
+
+    with pytest.raises(ValueError, match="at least 1 character"):
+        model.model_validate_json(json.dumps(payload))  # type: ignore[attr-defined]
 
 
 @pytest.mark.unit

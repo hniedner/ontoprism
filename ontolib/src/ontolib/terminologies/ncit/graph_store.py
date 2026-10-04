@@ -1,10 +1,9 @@
 """NCIt repository read model over a QLever SPARQL endpoint.
 
 Assembles concept detail (metadata + hierarchy + roles + associations + incoming
-roles), search, and expand-on-demand neighborhoods. Roles are recovered by OWL
-restriction traversal (see :mod:`ontolib.terminologies.ncit.role_queries`); rendering
-them is the point — the source platform's empty-roles bug came from querying only
-direct triples.
+roles), search, and expand-on-demand neighborhoods. Roles are recovered by the
+``_roles_query`` OWL restriction traversal; rendering them is the point — the source
+platform's empty-roles bug came from querying only direct triples.
 """
 
 from __future__ import annotations

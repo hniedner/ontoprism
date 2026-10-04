@@ -73,11 +73,6 @@ from ontolib.decomposition.collapse_policy import (
 )
 from ontolib.decomposition.label_validation import ConceptLabelError
 from ontolib.decomposition.legacy_writer import write_ttl
-from ontolib.decomposition.mixed_chain_inventory import (
-    load_mixed_chain_inventory,
-    mixed_chain_worklist_identity,
-    require_mixed_chain_preflight,
-)
 from ontolib.decomposition.models import (
     CompleteDefinition,
     ConceptOutcome,
@@ -95,7 +90,6 @@ from ontolib.decomposition.projection_validity import (
 )
 from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.provenance_models import (
-    NO_MIXED_CHAIN_INVENTORY_IDENTITY,
     RUN_STAGE_SEQUENCE_IDENTITY,
     CompletionRunMetrics,
     FreshAdmitted,
@@ -104,7 +98,6 @@ from ontolib.decomposition.provenance_models import (
     Refused,
     ResidualFillerClassification,
     RunFingerprint,
-    RunResumeIdentity,
     RunStageName,
 )
 from ontolib.decomposition.publication import (
@@ -252,7 +245,6 @@ class RunConfig:
         resume_from: str | None = None,
         walker_max_depth: int = 7,
         sample_manifest: DecompositionSampleManifest | None = None,
-        mixed_chain_inventory_path: Path | None = None,
         rehearsal: bool = False,
     ) -> None:
         self.branch = parse_branch(branch)
@@ -262,7 +254,6 @@ class RunConfig:
         self.resume_from = resume_from
         self.walker_max_depth = walker_max_depth
         self.sample_manifest = sample_manifest
-        self.mixed_chain_inventory_path = mixed_chain_inventory_path
         # A rehearsal runs the pipeline as a throwaway: it is admitted afresh every
         # time, never publishes, never promotes its mint proposals, never resumes.
         self.rehearsal = rehearsal
@@ -1032,49 +1023,6 @@ async def _require_source_snapshot(
     return snapshot
 
 
-def build_resume_identity(
-    config: RunConfig,
-    snapshot: NcitSourceSnapshot,
-    *,
-    semantic_types: tuple[str, ...],
-    total_limit: int | None,
-    collapse_policy: CollapseVetoPolicy,
-) -> RunResumeIdentity:
-    sample_identity = (
-        config.sample_manifest.identity if config.sample_manifest is not None else None
-    )
-    return RunResumeIdentity(
-        schema_version=5 if sample_identity is not None else 4,
-        source_identity=snapshot.source_identity,
-        collapse_policy_identity=collapse_policy.policy_identity,
-        routing_implementation_identity=routing_implementation_identity(),
-        mixed_chain_inventory_identity=(
-            (
-                _required_mixed_chain_inventory_identity(
-                    config,
-                    source_identity=snapshot.source_identity,
-                    worklist=(),
-                )
-                if config.mixed_chain_inventory_path is not None
-                else None
-            )
-            or NO_MIXED_CHAIN_INVENTORY_IDENTITY
-        ),
-        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
-        branch=config.branch.value,
-        scope_root=config.scope_root,
-        scope_version=config.scope_version,
-        semantic_types=semantic_types,
-        total_limit=total_limit,
-        sample_manifest_identity=sample_identity,
-        algorithm_version=config.algorithm_version,
-        config_version=_CONFIG_VERSION,
-        walker_max_depth=config.walker_max_depth,
-        output_mode=_output_mode(config),
-        load_mode="named-graph" if config.load_to_store else "none",
-    )
-
-
 def _requested_fingerprint(
     config: RunConfig,
     snapshot: NcitSourceSnapshot,
@@ -1085,19 +1033,11 @@ def _requested_fingerprint(
     collapse_policy: CollapseVetoPolicy,
 ) -> RunFingerprint:
     return RunFingerprint(
-        schema_version=5 if config.sample_manifest is not None else 4,
+        schema_version=7 if config.sample_manifest is not None else 6,
         rehearsal_nonce=uuid4().hex if config.rehearsal else None,
         source_identity=snapshot.source_identity,
         collapse_policy_identity=collapse_policy.policy_identity,
         routing_implementation_identity=routing_implementation_identity(),
-        mixed_chain_inventory_identity=(
-            _required_mixed_chain_inventory_identity(
-                config,
-                source_identity=snapshot.source_identity,
-                worklist=worklist,
-            )
-            or NO_MIXED_CHAIN_INVENTORY_IDENTITY
-        ),
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch=config.branch.value,
         scope_root=config.scope_root,
@@ -1788,10 +1728,11 @@ async def _preflight_stage(
     provenance: ProvenanceStore,
     preflight: SourcePreflightResult,
 ) -> str:
-    """Seal ``preflight`` (computed before admission) as the run's preflight stage. If
-    an earlier attempt already sealed the stage, use that stored result instead and
-    ignore ``preflight``. Either result must still pass the preflight gate and, when
-    the config names a mixed-chain inventory, match that inventory's identity."""
+    """Seal ``preflight`` (computed before admission) as the run's preflight stage.
+
+    If an earlier attempt already sealed the stage, use that stored result instead and
+    ignore ``preflight``. Either result must still pass the preflight gate.
+    """
     input_identity = setup.fingerprint.identity
     claim = await provenance.claim_stage(setup.run_id, "preflight", input_identity)
     if claim is None:
@@ -1812,18 +1753,6 @@ async def _preflight_stage(
             )
             raise
     _require_preflight_allowed(result)
-    required_inventory = _required_mixed_chain_inventory_identity(
-        config,
-        source_identity=setup.fingerprint.source_identity,
-        worklist=setup.fingerprint.worklist,
-    )
-    if (
-        required_inventory is not None
-        and result.mixed_chain_inventory_identity != required_inventory
-    ):
-        raise SourcePreflightRejectedError(
-            "source preflight rejected stale mixed-chain inventory"
-        )
     return output_identity
 
 
@@ -1844,16 +1773,6 @@ async def _source_preflight_result(
             anchor_rows_cache=anchor_rows_cache,
         )
 
-    inventory_identity = _required_mixed_chain_inventory_identity(
-        config,
-        source_identity=source_identity,
-        worklist=worklist,
-    )
-    kwargs = (
-        {"mixed_chain_inventory_identity": inventory_identity}
-        if inventory_identity is not None
-        else {}
-    )
     try:
         return await run_source_preflight(
             worklist,
@@ -1865,7 +1784,6 @@ async def _source_preflight_result(
             walker_max_depth=config.walker_max_depth,
             max_nodes=_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES,
             progress=progress,
-            **kwargs,
         )
     except ClosureBudgetExceededError as exc:
         exc.add_note(
@@ -1874,29 +1792,6 @@ async def _source_preflight_result(
             "the worklist."
         )
         raise
-
-
-def _required_mixed_chain_inventory_identity(
-    config: RunConfig,
-    *,
-    source_identity: str,
-    worklist: tuple[str, ...],
-) -> str | None:
-    if config.mixed_chain_inventory_path is None:
-        return None
-    try:
-        inventory = load_mixed_chain_inventory(config.mixed_chain_inventory_path)
-        require_mixed_chain_preflight(
-            inventory,
-            source_identity=source_identity,
-            worklist_identity=mixed_chain_worklist_identity(worklist),
-            worklist_count=len(worklist),
-        )
-    except (OSError, ValueError) as exc:
-        raise SourcePreflightRejectedError(
-            f"source preflight rejected mixed-chain inventory: {exc}"
-        ) from exc
-    return inventory.identity
 
 
 def _require_preflight_allowed(result: SourcePreflightResult) -> None:

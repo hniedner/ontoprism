@@ -10,6 +10,7 @@ import secrets
 import shutil
 import subprocess
 import tempfile
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,7 +58,6 @@ _REPOSITORY_WRITES: Final = frozenset(
         "records_for_generation",
         "record_publication_failure",
         "rebuild",
-        "resume_run",
         "rollback",
         "run_pipeline",
         "set_active_generation",
@@ -199,6 +199,45 @@ def verify_qlever_data_dir(owner: IntegrationResourceOwner, data_dir: Path) -> N
     """Verify a QLever data directory's exact path and independent marker."""
     marker = (data_dir / ".ontoprism-test-owner").read_text().strip()
     owner.verify_qlever_data_dir(data_dir, marker)
+
+
+def integration_data_root(repository_root: Path) -> Path:
+    """Return the ignored repository root for disposable integration indexes."""
+    root = (repository_root / "tmp/integration-data").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+@contextmanager
+def owned_qlever_sibling_store_root(
+    owner: IntegrationResourceOwner,
+    *,
+    repository_root: Path,
+) -> Iterator[Path]:
+    """Create and exactly remove one owner-marked sibling-store workspace."""
+    data_root = integration_data_root(repository_root)
+    expected_name = f".ontoprism-ncit-sibling-test-{owner.nonce}-{uuid.uuid4().hex}"
+    root = data_root / expected_name
+    if root.exists():
+        raise ResourceOwnershipError(
+            f"refusing pre-existing sibling-store integration root: {root}"
+        )
+    root.mkdir(mode=0o700)
+    marker = root / ".ontoprism-test-owner"
+    marker.write_text(owner.nonce + "\n")
+    try:
+        yield root
+    finally:
+        if (
+            root.is_symlink()
+            or root.name != expected_name
+            or root.parent.resolve() != data_root
+            or marker.read_text().strip() != owner.nonce
+        ):
+            raise ResourceOwnershipError(
+                "sibling-store integration root owner identity does not match"
+            )
+        shutil.rmtree(root)
 
 
 @dataclass(slots=True)

@@ -17,6 +17,7 @@ from ontolib.decomposition.models import (
 )
 from ontolib.decomposition.source_preflight import (
     ClosureBudgetExceededError,
+    SourcePreflightResult,
     run_source_preflight,
 )
 
@@ -89,32 +90,48 @@ async def test_preflight_enumerates_closure_and_distinguishes_valid_unknowns() -
     assert result.overflow_codes == ()
     assert result.representative_metrics.residual_precoordination_unknown_count == 1
     assert result.representative_metrics.residual_precoordination is None
+    assert result.schema_version == 2
+    assert "identity" not in result.model_dump()
     assert seen == ["C1", "C2", "C36081"]
 
 
 @pytest.mark.unit
-async def test_preflight_identity_binds_mixed_chain_inventory() -> None:
+@pytest.mark.parametrize(
+    ("update", "message"),
+    [
+        ({"unsupported_codes": ()}, "unsupported codes differ"),
+        ({"checked_codes": ("C1",)}, "checked codes differ"),
+        (
+            {"supported_codes": ("C1", "C2", "C36081")},
+            "outcome categories overlap",
+        ),
+    ],
+)
+async def test_preflight_result_rejects_inconsistent_outcome_sets(
+    update: dict[str, tuple[str, ...]], message: str
+) -> None:
     async def read(code: str) -> CompleteDefinition:
-        return _definition(code, "C2", "C3")
+        if code == "C36081":
+            raise UnsupportedDefinitionConstructorError(
+                "unsupported owl:unionOf member"
+            )
+        return _definition(code, "C2", "C36081")
 
-    shared = {
-        "read_definition": read,
-        "source_identity": "a" * 64,
-        "reader_identity": "b" * 64,
-        "query_identity": "c" * 64,
-        "tool_identity": "qlever-v1",
-        "walker_max_depth": 7,
-        "max_nodes": 4096,
-    }
-    first = await run_source_preflight(
-        ("C1",), mixed_chain_inventory_identity="d" * 64, **shared
-    )
-    second = await run_source_preflight(
-        ("C1",), mixed_chain_inventory_identity="e" * 64, **shared
+    result = await run_source_preflight(
+        ("C1",),
+        read_definition=read,
+        source_identity="a" * 64,
+        reader_identity="b" * 64,
+        query_identity="c" * 64,
+        tool_identity="qlever-v1",
+        walker_max_depth=7,
+        max_nodes=4096,
     )
 
-    assert first.mixed_chain_inventory_identity == "d" * 64
-    assert first.identity != second.identity
+    with pytest.raises(ValueError, match=message):
+        SourcePreflightResult.model_validate(
+            result.model_dump(exclude={"concept_work_allowed"}) | update
+        )
 
 
 @pytest.mark.unit

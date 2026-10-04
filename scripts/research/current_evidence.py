@@ -9,6 +9,7 @@ import re
 import tempfile
 from collections import Counter
 from enum import StrEnum
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, Protocol, Self
 
@@ -84,6 +85,7 @@ if TYPE_CHECKING:
 
 _SHA256 = r"^[0-9a-f]{64}$"
 _CURRENT_EVIDENCE_SCHEMA_VERSION = 5
+_MIN_MIXED_SPECIFICITY_PATH_EDGES = 2
 
 
 class CurrentEvidenceValidationError(ValueError):
@@ -114,6 +116,15 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
+CurrentConceptCode = Annotated[str, Field(pattern=r"^C[0-9]+$")]
+CurrentFillerCode = Annotated[str, Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12})$")]
+CurrentAxisCode = Annotated[
+    str, Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
+]
+CurrentRelease = Annotated[str, Field(min_length=1)]
+CurrentRunId = Annotated[str, Field(pattern=r"^[A-Za-z0-9_.:-]+$", min_length=1)]
+
+
 def _identity(value: object) -> str:
     return hashlib.sha256(
         json.dumps(
@@ -128,13 +139,13 @@ def _identity(value: object) -> str:
 
 class CurrentSourceOccurrence(_StrictModel):
     occurrence_id: str = Field(pattern=_SHA256)
-    root_code: str
+    root_code: CurrentConceptCode
     source_fact_id: str = Field(pattern=_SHA256)
     source_group_id: str = Field(pattern=_SHA256)
-    anchor_code: str
+    anchor_code: CurrentConceptCode
     depth: int = Field(ge=0)
-    role_code: str
-    filler_code: str
+    role_code: CurrentAxisCode
+    filler_code: CurrentFillerCode
     structural_path: tuple[int, ...]
     member_position: int = Field(ge=0)
 
@@ -142,11 +153,11 @@ class CurrentSourceOccurrence(_StrictModel):
 class CurrentSourceFact(_StrictModel):
     fact_id: str = Field(pattern=_SHA256)
     source_group_id: str = Field(pattern=_SHA256)
-    anchor_code: str
+    anchor_code: CurrentConceptCode
     depth: int = Field(ge=0)
     kind: Literal["genus", "restriction"]
-    filler_code: str
-    role_code: str | None
+    filler_code: CurrentFillerCode
+    role_code: CurrentAxisCode | None
 
     @model_validator(mode="after")
     def _kind_matches_role(self) -> Self:
@@ -156,8 +167,8 @@ class CurrentSourceFact(_StrictModel):
 
 
 class CurrentConstituent(_StrictModel):
-    axis: str = Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
-    filler: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]+)$")
+    axis: CurrentAxisCode
+    filler: CurrentFillerCode
     axis_ambiguous: bool
     source_group_ids: tuple[str, ...]
     normalized_group_id: str | None = Field(default=None, pattern=_SHA256)
@@ -223,6 +234,12 @@ class CurrentSpecificityPathEdge(_StrictModel):
     narrower_code: str = Field(pattern=r"^C[0-9]+$")
     source_identity: str = Field(pattern=_SHA256)
 
+    @model_validator(mode="after")
+    def _fillers_are_distinct(self) -> Self:
+        if self.broader_code == self.narrower_code:
+            raise ValueError("specificity path edge must connect distinct fillers")
+        return self
+
 
 class CurrentOccurrenceDisposition(_StrictModel):
     kind: Literal[
@@ -237,9 +254,9 @@ class CurrentOccurrenceDisposition(_StrictModel):
     normalized_axis: str
     semantic_route: SemanticRoute
     semantic_type: str | None
-    retained_pair: tuple[str, str]
-    r82_part: str | None
-    r82_whole: str | None
+    retained_pair: tuple[CurrentAxisCode, CurrentFillerCode]
+    r82_part: CurrentConceptCode | None
+    r82_whole: CurrentConceptCode | None
     specificity_path: tuple[CurrentSpecificityPathEdge, ...] = Field(
         default=(), exclude_if=lambda value: not value
     )
@@ -261,14 +278,39 @@ class CurrentOccurrenceDisposition(_StrictModel):
             self.r82_whole,
         ) != (self.retained_pair[1], self.source_occurrence.filler_code):
             raise ValueError("R82 endpoints differ from disposition")
-        mixed = self.kind == "collapsed-mixed"
-        if mixed != bool(self.specificity_path):
-            raise ValueError("mixed specificity path presence differs from disposition")
+        self._validate_specificity_path()
         if (self.kind == "retained-policy-veto") != (
             self.policy_decision_identity is not None
         ):
             raise ValueError("policy evidence presence differs from disposition")
         return self
+
+    def _validate_specificity_path(self) -> None:
+        path = self.specificity_path
+        if self.kind == "collapsed-is-a" and path:
+            if {edge.kind for edge in path} != {"is-a"}:
+                raise ValueError("is-a collapse path contains another relation kind")
+            self._validate_specificity_path_endpoints_and_contiguity(path)
+        elif self.kind == "collapsed-mixed":
+            if len(path) < _MIN_MIXED_SPECIFICITY_PATH_EDGES or {
+                edge.kind for edge in path
+            } != {"is-a", "r82"}:
+                raise ValueError("mixed collapse requires both specificity edge kinds")
+            self._validate_specificity_path_endpoints_and_contiguity(path)
+        elif path:
+            raise ValueError("only specificity collapse carries a specificity path")
+
+    def _validate_specificity_path_endpoints_and_contiguity(
+        self, path: tuple[CurrentSpecificityPathEdge, ...]
+    ) -> None:
+        if path[0].broader_code != self.source_occurrence.filler_code:
+            raise ValueError("specificity path does not start at source filler")
+        if path[-1].narrower_code != self.retained_pair[1]:
+            raise ValueError("specificity path does not end at retained filler")
+        if any(
+            left.narrower_code != right.broader_code for left, right in pairwise(path)
+        ):
+            raise ValueError("specificity path is not contiguous")
 
 
 class CurrentConceptEvidence(_StrictModel):
@@ -316,10 +358,10 @@ class CurrentConceptEvidence(_StrictModel):
 
 class CurrentEngineEvidence(_StrictModel):
     schema_version: Literal[5]
-    ncit_version: str
+    ncit_version: CurrentRelease
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
-    run_id: str
+    run_id: CurrentRunId
     run_fingerprint_identity: str = Field(pattern=_SHA256)
     walker_max_depth: int = Field(ge=1)
     artifact_identity: str = Field(pattern=_SHA256)
@@ -588,10 +630,10 @@ class CurrentRowReplay(_StrictModel):
 
 class CurrentComparison(_StrictModel):
     schema_version: Literal[4]
-    ncit_version: str
+    ncit_version: CurrentRelease
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
-    run_id: str
+    run_id: CurrentRunId
     run_fingerprint_identity: str = Field(pattern=_SHA256)
     walker_max_depth: int = Field(ge=1)
     artifact_identity: str = Field(pattern=_SHA256)

@@ -22,7 +22,7 @@ from pydantic import ValidationError
 from scripts import oracle_metrics
 from scripts.corpus_shape import corpus_shape_counts
 from scripts.research.current_evidence import generate_current_evidence
-from sqlalchemy import event, text
+from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -50,8 +50,8 @@ from ontolib.decomposition.provenance import (
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
     ConceptPublication,
+    FullRunExecutionIdentity,
     RunFingerprint,
-    RunResumeIdentity,
 )
 from ontolib.decomposition.sampling import load_sample_manifest
 
@@ -103,7 +103,6 @@ def _fingerprint(worklist: tuple[str, ...]) -> RunFingerprint:
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch="neoplasm",
         scope_root="C3262",
@@ -457,9 +456,13 @@ async def _assert_processing_and_publication_failures_remain_separate(
     assert doubly_failed.publication_state == "failed"
     assert doubly_failed.publication_error_type == "RuntimeError"
 
-    await store.resume_run(
-        _PUBLICATION_RUN_ID,
-        RunResumeIdentity.from_fingerprint(_publication_fingerprint()),
+    fingerprint = _publication_fingerprint()
+    await store.admit_run(
+        "unused-publication-resume",
+        "26.07d",
+        fingerprint,
+        FullRunExecutionIdentity.from_fingerprint(fingerprint),
+        resume_run_id=_PUBLICATION_RUN_ID,
     )
     resumed = await store.get_run(_PUBLICATION_RUN_ID)
     assert resumed is not None
@@ -1153,50 +1156,6 @@ async def test_non_decomposition_outcomes_round_trip_as_distinct_database_states
         assert atomic_counts.semantic_excluded == 0
         assert atomic_counts.atomic_noop == 1
 
-        pending_claim = await store.claim_work_item(_RUN_ID, "C999")
-        assert pending_claim is not None
-        await store.fail_work_item(
-            _RUN_ID,
-            "C999",
-            pending_claim,
-            RuntimeError("transient failure"),
-        )
-        await store.resume_run(
-            _RUN_ID,
-            RunResumeIdentity.from_fingerprint(_fingerprint(("C162770", "C999"))),
-        )
-        resumed_outcomes = await store.work_item_outcomes(_RUN_ID)
-        assert resumed_outcomes[0].model_dump() == {
-            "run_id": _RUN_ID,
-            "concept_code": "C162770",
-            "ordinal": 0,
-            "state": "complete",
-            "outcome": "semantic-excluded",
-            "semantic_type": "Finding",
-            "semantic_types": ("Finding",),
-            "is_decomposed": False,
-            "is_residual": False,
-            "constituent_count": 0,
-            "minted_count": 0,
-        }
-        assert resumed_outcomes[1].state == "failed"
-        assert resumed_outcomes[1].outcome is None
-
-        retry_claim = await store.claim_work_item(_RUN_ID, "C999")
-        assert retry_claim is not None
-        await store.complete_work_item(
-            _RUN_ID,
-            "C999",
-            retry_claim,
-            decomposition=None,
-            outcome="atomic-no-op",
-            semantic_types=("Neoplastic Process",),
-            minted=(),
-        )
-        resumed_counts = await store.outcome_counts(_RUN_ID)
-        assert resumed_counts.total_in_scope == 2
-        assert resumed_counts.semantic_excluded == 1
-        assert resumed_counts.atomic_noop == 1
     finally:
         await _cleanup(dsn)
         await dispose_engine(engine)
@@ -1212,12 +1171,14 @@ async def test_publication_state_is_retryable_separate_and_completion_gated(
     identity = "b" * 64
     artifact_path = str(tmp_path / "decomposed.ttl")
     built_at = datetime.datetime(2026, 7, 30, 12, 0, tzinfo=datetime.UTC)
+    fingerprint = _publication_fingerprint()
     try:
         await _cleanup(dsn)
-        await store.create_run(
+        await store.admit_run(
             _PUBLICATION_RUN_ID,
             "26.07d",
-            _publication_fingerprint(),
+            fingerprint,
+            FullRunExecutionIdentity.from_fingerprint(fingerprint),
         )
         pending = await store.get_run(_PUBLICATION_RUN_ID)
         assert pending is not None
@@ -1328,11 +1289,10 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
     )
     representation_identity = hashlib.sha256(artifact.read_bytes()).hexdigest()
     fingerprint = RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity=manifest.source_identity,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
-        mixed_chain_inventory_identity="2" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         branch=manifest.branch,
         scope_root=manifest.scope_root,
@@ -1382,32 +1342,6 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
             metrics=await _completion_metrics(store, _CURRENT_EVIDENCE_RUN_ID),
             representation_identity=representation_identity,
         )
-
-        aggregate_query_count = 0
-
-        def count_aggregate_queries(*_args: object) -> None:
-            nonlocal aggregate_query_count
-            aggregate_query_count += 1
-
-        event.listen(
-            engine.sync_engine, "before_cursor_execute", count_aggregate_queries
-        )
-        try:
-            aggregate = await store.corpus_baseline_aggregate(_CURRENT_EVIDENCE_RUN_ID)
-        finally:
-            event.remove(
-                engine.sync_engine, "before_cursor_execute", count_aggregate_queries
-            )
-        assert aggregate_query_count == 1
-        assert aggregate.worklist_count == len(manifest.codes)
-        assert aggregate.outcome_counts.decomposed == 1
-        assert aggregate.outcome_counts.atomic_noop == len(manifest.codes) - 1
-        assert aggregate.decomposed_codes == ("C6135",)
-        assert aggregate.emitted_constituent_pair_count == 1
-        assert aggregate.complete_semantic_fact_count == 1
-        assert aggregate.source_occurrence_count == 2
-        assert aggregate.selected_occurrence_count == 2
-        assert aggregate.minted_count == 0
 
         evidence, comparison = await generate_current_evidence(
             sample_manifest=_CURRENT_MANIFEST,

@@ -45,7 +45,6 @@ def _execution() -> FullRunExecutionIdentity:
         walker_max_depth=5,
         routing_implementation_identity="b" * 64,
         collapse_policy_identity="c" * 64,
-        mixed_chain_inventory_identity="d" * 64,
         stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
         output_mode="none",
         load_mode="none",
@@ -58,10 +57,8 @@ def _fingerprint(execution: FullRunExecutionIdentity) -> RunFingerprint:
             exclude={
                 "schema_version",
                 "stage_sequence_identity",
-                "mixed_chain_inventory_identity",
             }
         ),
-        mixed_chain_inventory_identity=execution.mixed_chain_inventory_identity,
         stage_sequence_identity=execution.stage_sequence_identity,
         emitted_at=datetime.datetime.now(datetime.UTC),
     )

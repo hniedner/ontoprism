@@ -289,7 +289,7 @@ source_occurrence_ids)]`.
 **Correction to the initial extraction assumption**, found once the stated build was
 loaded (10.84M triples) and the roles-first path was run against real data. The stated
 graph does **not** hang a concept's role restrictions off `rdfs:subClassOf` — that is the
-*inferred* build's flattened form (what `role_queries.py` reads on the default graph).
+*inferred* build's flattened default-graph form.
 In the **stated** build a pre-coordinated concept is a **defined class**, expressed as a
 chain:
 
@@ -412,9 +412,9 @@ means §10's `roundtrip_fidelity` **must not** use the inferred graph as its clo
 `rdfs:subClassOf+` edges) but is a risk for other concepts and worth keeping in mind if
 most-specific selection ever silently under-collapses an axis.
 
-Implementation: `ontolib/src/ontolib/decomposition/walker.py` and
-`stated_queries.py` provide the multi-parent DAG walk; the routed extractor and scorer
-live in the tracked decomposition package.
+Implementation: `stated_queries.py`, `scope.py`, and `complete_definition.py` provide
+the production stated-source traversal; the routed extractor and scorer live in the
+tracked decomposition package.
 Full narrative: this §6 and DECISIONS D14–D20.
 
 ### 6.4 R101 anatomy resolution — validated against 4 concepts: real improvement, not a full fix (2026-07-08)

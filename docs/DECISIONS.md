@@ -824,7 +824,7 @@ record exactly one proposal and one constituent with that ID, `op:CellType`,
 runtime-published, or full-corpus-published. The deterministic ID and all
 non-lifecycle proposal fields remain unchanged, as do the augmented constituent, row decisions,
 current comparison, engine evidence, and corpus evidence
-(`git diff --no-ext-diff -- ontolib/tests/decomposition/golden/proposal-registry.json ontolib/tests/decomposition/golden/neoplasm-adjudicated.json ontolib/tests/decomposition/golden/neoplasm-row-decisions.json ontolib/tests/decomposition/golden/neoplasm-current-comparison.json ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-corpus-comparison.json ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json`,
+(`git diff --no-ext-diff -- ontolib/tests/decomposition/golden/proposal-registry.json ontolib/tests/decomposition/golden/neoplasm-adjudicated.json ontolib/tests/decomposition/golden/neoplasm-row-decisions.json ontolib/tests/decomposition/golden/neoplasm-current-comparison.json ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-corpus-comparison.json`,
 2026-08-30). This reconciliation changes no runtime graph, store, database, API, frontend, or
 publication surface (`git diff --no-ext-diff -- ontolib/src backend/src frontend/src`, 2026-08-30).
 
@@ -882,9 +882,9 @@ specific embryonic or fetal origins. The stated NCIt assertion, complete definit
 group, occurrence, and provenance remain evidence rather than being deleted.
 
 This is a local-SME `concept-scoped-accuracy-exclusion`, not NCI acceptance or publication.
-Machine readiness may mark only the R103 requirement satisfied; group review, R101 authorization,
-and final scientific acceptance/publication remain separate human requirements, so overall
-authorization remains false.
+At the time, machine readiness could mark only the R103 requirement satisfied; group review,
+R101 authorization, and final scientific acceptance/publication remained separate human
+requirements, so overall authorization remained false.
 
 **C2860 specificity resolution (2026-09-07):** the accountable user selected
 `qualify-global-most-specific-claim` for `C2860/R103/C12950`. `C12950` remains the
@@ -894,8 +894,8 @@ comparison does not establish global NCIt optimality, so the prior rationale's c
 is the globally most-specific available NCIt tissue-origin filler is withdrawn rather than carried
 into the effective rationale. The selected artifact binds the prior decision, candidate set,
 specificity target, and unchanged applied-policy report; it creates no correction proposal, infers
-no NCI adoption, and records software only as transcriber
-(`pdm run agent-replay transcribe-r103-specificity-selection`, 2026-09-07).
+no NCI adoption, and records software only as transcriber. The one-off command that
+created the historical artifact was retired in #418.
 
 Two literature records provide context for adrenal-rest-tumour origin without deciding the NCIt
 candidate comparison: Claahsen-van der Grinten et al., “Testicular adrenal rest tumours in
@@ -1124,18 +1124,18 @@ two reported high advisories are resolved at patched transitive versions, and op
 (`npm audit --prefix frontend --json` and `npm install-scripts ls --prefix frontend`,
 2026-08-14).
 
-**Current-status addition (2026-09-06):** `MachineReadinessReport` schema 2 now emits
+**Historical status (2026-09-06; retired in M14):** `MachineReadinessReport` schema 2 emitted
 all five canonical metric names with their denominator rules, represents strict M1.6
 improvement and #44's inclusive 0.9 indicators separately, and carries the closed
 semantic blocker taxonomy as `clear`, `blocked`, or explicitly owned `not-evaluated`
-states (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
-2026-09-06). The retired R101-isolated comparison did not classify total full-corpus delta;
+states. The retired R101-isolated comparison did not classify total full-corpus delta;
 primary-site cardinality remains evaluated. #417 replaced the retired two-run R101
 comparison with per-run occurrence conservation, so unexplained R101 loss is now
 evaluated from the run's persisted categories. #274 owns the deferred axis,
 normalized-group, and golden-cohort detectors and #127 owns total delta classification
-(`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py::test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default ontolib/tests/decomposition/test_pre_sme_readiness.py::test_supported_semantic_violations_emit_blocked_reports -v`,
-2026-09-06). The current high-severity npm audit reports no vulnerabilities
+(2026-09-06). M14 removed the readiness module and tests after retiring their last
+maintained invokers; this paragraph records the former contract rather than an active
+workflow. The current high-severity npm audit reports no vulnerabilities
 (`npm audit --prefix frontend --audit-level=high`, 2026-09-06).
 
 **Current-status addition (2026-09-21):** #341 removed the historical two-run R101 report and
@@ -3511,9 +3511,9 @@ a genuinely incomplete traversal.
 
 **Decision:** the recursive genus-chain walk (D13) must visit **every** named-class
 member at each intersection level (breadth-first over the DAG, memoized so re-converging
-branches aren't re-walked twice), not "the" genus. `scripts/decomposition_spike.py`'s
-existing stack-based walk already does this correctly (it pushes every genus row it
-finds); the mental model implied by D13's linear diagram does not, and a naive
+branches aren't re-walked twice), not "the" genus. The stack-based walk in the
+since-retired `scripts/decomposition_spike.py` did this correctly (it pushed every genus
+row it found); the mental model implied by D13's linear diagram does not, and a naive
 reimplementation following that diagram will reproduce the bug. The investigation used
 local, untracked research code.
 
