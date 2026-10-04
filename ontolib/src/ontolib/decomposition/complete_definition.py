@@ -73,6 +73,16 @@ class AnchorDefinitionRowsCache:
         self._rows[anchor_code] = immutable
         return immutable
 
+    def referenced_concept_codes(self) -> set[str]:
+        """Named concepts already observed in cached definition rows."""
+        return set(self._rows) | {
+            value.removeprefix(NCIT_NS)
+            for rows in self._rows.values()
+            for row in rows
+            for binding in ("member", "target")
+            if (value := row.get(binding)) is not None and value.startswith(NCIT_NS)
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class _DefinitionSlice:

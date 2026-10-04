@@ -16,6 +16,7 @@ import httpx
 import pytest
 from test_support.projection import unknown_axis_diagnostic_source
 
+from ontolib.decomposition import run as run_module
 from ontolib.decomposition import stated_queries
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.axis_diagnostics import (
@@ -103,6 +104,64 @@ def _reachable(url: str) -> bool:
         return False
     resp.raise_for_status()
     return True
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_run_static_lookups_match_individual_disposable_qlever_reads(
+    isolated_qlever_url: str,
+    preserved_stated_graph: None,
+) -> None:
+    del preserved_stated_graph
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
+
+        ncit:C99760 ncit:P106 "Neoplastic Process" ;
+            owl:equivalentClass [
+                owl:intersectionOf (
+                    ncit:C99761
+                    [ a owl:Restriction ;
+                      owl:onProperty ncit:R101 ;
+                      owl:someValuesFrom ncit:C99762 ]
+                )
+            ] .
+        ncit:C99762 ncit:P106 "Anatomic Structure, System, or Substance" .
+        ncit:R101 rdfs:label "Disease_Has_Primary_Anatomic_Site" .
+    """
+
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        expected_types = {
+            "C99760": tuple(
+                await run_module._semantic_types_for_concept(client, "C99760")
+            ),
+            "C99762": tuple(
+                await run_module._semantic_types_for_concept(client, "C99762")
+            ),
+        }
+        _definition, expected_roles = await stated_queries.read_complete_genus_chain(
+            client.select, "C99760"
+        )
+        lookups = await run_module._load_run_static_lookups(
+            client,
+            source_identity="a" * 64,
+            codes=("C99760", "C99762"),
+        )
+
+    assert {
+        code: lookups.require_source("a" * 64).semantic_types_for(code)
+        for code in expected_types
+    } == expected_types
+    assert lookups.require_source("a" * 64).role_labels_for({"R101"}) == {
+        expected_roles[0].role_code: expected_roles[0].role_label
+    }
 
 
 @pytest.mark.integration

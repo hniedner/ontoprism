@@ -39,6 +39,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import UUID, uuid4
 
@@ -121,6 +122,8 @@ logger = get_logger(__name__)
 
 _PROGRESS_HEARTBEAT_SECONDS = 15.0
 _SOURCE_PREFLIGHT_MAX_CLOSURE_NODES = 20_000
+_STATIC_LOOKUP_BATCH_SIZE = 500
+_SHA256_HEX_LENGTH = 64
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Sequence
@@ -156,6 +159,53 @@ class SourcePreflightRejectedError(RuntimeError):
 
 class RunAdmissionRefusedError(RuntimeError):
     """The authoritative provenance boundary refused this invocation."""
+
+
+@dataclass(frozen=True, slots=True)
+class RunStaticLookups:
+    """Immutable NCIt facts loaded once for one source-bound run."""
+
+    source_identity: str
+    semantic_types: Mapping[str, tuple[str, ...]]
+    role_labels: Mapping[str, str | None]
+
+    def __post_init__(self) -> None:
+        if len(self.source_identity) != _SHA256_HEX_LENGTH or any(
+            character not in "0123456789abcdef" for character in self.source_identity
+        ):
+            raise ValueError("static lookup source identity must be SHA-256")
+        semantic_types = {
+            code: tuple(sorted(set(values)))
+            for code, values in self.semantic_types.items()
+        }
+        object.__setattr__(self, "semantic_types", MappingProxyType(semantic_types))
+        object.__setattr__(
+            self, "role_labels", MappingProxyType(dict(self.role_labels))
+        )
+
+    def require_source(self, source_identity: str) -> RunStaticLookups:
+        if source_identity != self.source_identity:
+            raise SourceIdentityChangedError(
+                "static NCIt lookups belong to a different source identity"
+            )
+        return self
+
+    def semantic_types_for(self, code: str) -> tuple[str, ...]:
+        try:
+            return self.semantic_types[code]
+        except KeyError as exc:
+            raise RunStateError(
+                f"static NCIt lookups do not contain semantic types for {code!r}"
+            ) from exc
+
+    def role_labels_for(self, role_codes: set[str]) -> dict[str, str | None]:
+        missing = role_codes - self.role_labels.keys()
+        if missing:
+            raise RunStateError(
+                "static NCIt lookups do not contain role labels for "
+                + ", ".join(sorted(missing))
+            )
+        return {code: self.role_labels[code] for code in role_codes}
 
 
 class SparqlClient(Protocol):
@@ -480,6 +530,8 @@ async def _detect_concept(
     label: str | None,
     walker_max_depth: int,
     anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
+    static_lookups: RunStaticLookups | None = None,
+    source_identity: str | None = None,
 ) -> tuple[
     detector.DetectionResult,
     list[RoleRestriction],
@@ -495,12 +547,21 @@ async def _detect_concept(
     computing ``residual_precoordination`` (D37): the metric is only meaningful if a
     constituent is judged by the *same* detector as the concept it came from.
     """
-    semantic_types = await _semantic_types_for_concept(client, code)
+    semantic_types = (
+        await _semantic_types_for_concept(client, code)
+        if static_lookups is None or source_identity is None
+        else static_lookups.require_source(source_identity).semantic_types_for(code)
+    )
     definition, roles = await stated_queries.read_complete_genus_chain(
         client.select,
         code,
         max_depth=walker_max_depth,
         anchor_rows_cache=anchor_rows_cache,
+        role_labels=(
+            None
+            if static_lookups is None or source_identity is None
+            else static_lookups.role_labels
+        ),
     )
     morphology_fillers = await stated_queries.resolve_morphology_fillers(
         client.select, definition, max_depth=walker_max_depth
@@ -547,6 +608,8 @@ async def _detect_candidate_or_unknown(
     label: str | None,
     walker_max_depth: int,
     anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
+    static_lookups: RunStaticLookups | None = None,
+    source_identity: str | None = None,
 ) -> (
     tuple[
         detector.DetectionResult,
@@ -564,12 +627,20 @@ async def _detect_candidate_or_unknown(
             label=label,
             walker_max_depth=walker_max_depth,
             anchor_rows_cache=anchor_rows_cache,
+            static_lookups=static_lookups,
+            source_identity=source_identity,
         )
     except complete_definition.UnsupportedDefinitionConstructorError:
         return _CandidateResult(
             decomposition=None,
             outcome="unknown",
-            semantic_types=await _semantic_types_for_concept(client, code),
+            semantic_types=(
+                await _semantic_types_for_concept(client, code)
+                if static_lookups is None or source_identity is None
+                else static_lookups.require_source(source_identity).semantic_types_for(
+                    code
+                )
+            ),
         )
 
 
@@ -590,6 +661,43 @@ async def _filler_semantic_types(
         required_variables={"code", "st"},
     )
     return extract.semantic_type_of_from_rows(rows)
+
+
+async def _load_run_static_lookups(
+    client: DecompositionSparqlClient,
+    *,
+    source_identity: str,
+    codes: tuple[str, ...],
+) -> RunStaticLookups:
+    role_labels = await stated_queries.read_all_definition_role_labels(client.select)
+    empty = RunStaticLookups(
+        source_identity=source_identity,
+        semantic_types={},
+        role_labels=role_labels,
+    )
+    return await _extend_static_semantic_types(empty, client, codes)
+
+
+async def _extend_static_semantic_types(
+    lookups: RunStaticLookups,
+    client: DecompositionSparqlClient,
+    codes: tuple[str, ...],
+) -> RunStaticLookups:
+    missing = tuple(code for code in codes if code not in lookups.semantic_types)
+    if not missing:
+        return lookups
+    additions: dict[str, tuple[str, ...]] = dict.fromkeys(missing, ())
+    for start in range(0, len(missing), _STATIC_LOOKUP_BATCH_SIZE):
+        batch = missing[start : start + _STATIC_LOOKUP_BATCH_SIZE]
+        rows = await _filler_semantic_types(client, set(batch))
+        additions.update(
+            (code, tuple(sorted(set(values)))) for code, values in rows.items()
+        )
+    return RunStaticLookups(
+        source_identity=lookups.source_identity,
+        semantic_types={**lookups.semantic_types, **additions},
+        role_labels=lookups.role_labels,
+    )
 
 
 def _semantic_type_resolver(
@@ -771,6 +879,7 @@ async def _decompose_one(
     walker_max_depth: int = 7,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
     anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
+    static_lookups: RunStaticLookups | None = None,
 ) -> _CandidateResult:
     """Detect, extract, and resolve one concept. ``decomposition`` is ``None`` when the
     concept is not a decomposition candidate at all (atomic — never counted as residual,
@@ -784,6 +893,8 @@ async def _decompose_one(
         label=label,
         walker_max_depth=walker_max_depth,
         anchor_rows_cache=anchor_rows_cache,
+        static_lookups=static_lookups,
+        source_identity=source_identity,
     )
     if isinstance(detected, _CandidateResult):
         return detected
@@ -791,7 +902,18 @@ async def _decompose_one(
 
     # Phase 1a: batch-resolve semantic_type_of for D20 axis routing.
     filler_codes = _candidate_filler_codes(roles, morphology_fillers)
-    semantic_type_of = await _filler_semantic_types(client, filler_codes)
+    semantic_type_of = (
+        await _filler_semantic_types(client, filler_codes)
+        if static_lookups is None
+        else {
+            filler: list(
+                static_lookups.require_source(source_identity).semantic_types_for(
+                    filler
+                )
+            )
+            for filler in filler_codes
+        }
+    )
 
     if not result.is_precoordinated:
         return _CandidateResult(
@@ -937,6 +1059,7 @@ class _RunSetup:
         anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
         label_errors: dict[str, str] | None = None,
         normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
+        static_lookups: RunStaticLookups | None = None,
     ) -> None:
         self.run_id = run_id
         self.source_snapshot = source_snapshot
@@ -950,6 +1073,7 @@ class _RunSetup:
             anchor_rows_cache or complete_definition.AnchorDefinitionRowsCache()
         )
         self.normalized_group_policy = normalized_group_policy
+        self.static_lookups = static_lookups
 
 
 @dataclass(frozen=True, slots=True)
@@ -1164,6 +1288,7 @@ async def _prepare_run(
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
     anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
+    static_lookups: RunStaticLookups | None = None,
 ) -> _RunSetup:
     """Admit exactly one source-bound worklist through the shared DB boundary."""
     if config.sample_manifest is not None and total_limit is not None:
@@ -1210,6 +1335,7 @@ async def _prepare_run(
         diagnostic_source=diagnostic_source,
         anchor_rows_cache=anchor_rows_cache,
         normalized_group_policy=normalized_group_policy,
+        static_lookups=static_lookups,
     )
 
 
@@ -1240,6 +1366,7 @@ async def _process_work_item(
             walker_max_depth=walker_max_depth,
             normalized_group_policy=setup.normalized_group_policy,
             anchor_rows_cache=setup.anchor_rows_cache,
+            static_lookups=setup.static_lookups,
         )
         await provenance.complete_work_item(
             setup.run_id,
@@ -1409,6 +1536,7 @@ async def _classify_residual_filler(
     source_identity: str,
     detector_identity: str,
     anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
+    static_lookups: RunStaticLookups | None = None,
 ) -> tuple[str, str, str | None]:
     try:
         result, _roles, _morphologies, definition, _types = await _detect_concept(
@@ -1417,6 +1545,8 @@ async def _classify_residual_filler(
             label=label,
             walker_max_depth=walker_max_depth,
             anchor_rows_cache=anchor_rows_cache,
+            static_lookups=static_lookups,
+            source_identity=source_identity,
         )
     except complete_definition.UnsupportedDefinitionConstructorError as exc:
         reason = str(exc)
@@ -1459,6 +1589,7 @@ async def _materialize_residual_filler(
             source_identity=setup.fingerprint.source_identity,
             detector_identity=detector_identity,
             anchor_rows_cache=setup.anchor_rows_cache,
+            static_lookups=setup.static_lookups,
         )
         await provenance.complete_residual_filler(
             setup.run_id,
@@ -1511,6 +1642,10 @@ async def _materialize_residual_classifications(
         detector_identity=detector_identity,
     )
     pending = await provenance.pending_residual_fillers(setup.run_id)
+    if setup.static_lookups is not None:
+        setup.static_lookups = await _extend_static_semantic_types(
+            setup.static_lookups, client, tuple(pending)
+        )
     labels, label_errors = await _fetch_label_batch(get_labels, pending)
     for index, filler in enumerate(pending):
         if progress is not None:
@@ -2234,6 +2369,7 @@ async def _qualify_group_policy(
     get_labels: GetLabels | None,
     label_lookup: LabelLookup,
     anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache,
+    static_lookups: RunStaticLookups,
 ) -> None:
     """Decompose each policy-bound concept the run still has to do, persisting nothing,
     before this invocation writes any run state: a decomposition its policy row rejects
@@ -2265,6 +2401,7 @@ async def _qualify_group_policy(
                 walker_max_depth=config.walker_max_depth,
                 normalized_group_policy=policy,
                 anchor_rows_cache=anchor_rows_cache,
+                static_lookups=static_lookups,
             )
         except BaseException as exc:
             exc.add_note(
@@ -2434,6 +2571,16 @@ async def run_pipeline(
     diagnostic_source = await axis_diagnostics.read_axis_diagnostic_source(
         client, snapshot.source_identity
     )
+    static_lookups = await _load_run_static_lookups(
+        client,
+        source_identity=snapshot.source_identity,
+        codes=tuple(
+            sorted(
+                set(fresh_preflight.checked_codes)
+                | anchor_rows_cache.referenced_concept_codes()
+            )
+        ),
+    )
     await _qualify_group_policy(
         active_group_policy,
         config,
@@ -2446,6 +2593,7 @@ async def run_pipeline(
         get_labels=get_labels,
         label_lookup=label_lookup,
         anchor_rows_cache=anchor_rows_cache,
+        static_lookups=static_lookups,
     )
     setup = await _prepare_run(
         config,
@@ -2460,6 +2608,7 @@ async def run_pipeline(
         diagnostic_source=diagnostic_source,
         anchor_rows_cache=anchor_rows_cache,
         normalized_group_policy=active_group_policy,
+        static_lookups=static_lookups,
     )
 
     try:
