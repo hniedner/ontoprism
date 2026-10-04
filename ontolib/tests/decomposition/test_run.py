@@ -2654,7 +2654,20 @@ async def test_unsupported_definition_constructor_reaches_unknown_outcome(
 
 
 @pytest.mark.unit
-def test_run_static_lookups_refuse_a_different_source_identity() -> None:
+@pytest.mark.parametrize("source_identity", ["short", "g" * 64])
+def test_run_static_lookups_require_a_sha256_source_identity(
+    source_identity: str,
+) -> None:
+    with pytest.raises(ValueError, match="SHA-256"):
+        run_module.RunStaticLookups(
+            source_identity=source_identity,
+            semantic_types={},
+            role_labels={},
+        )
+
+
+@pytest.mark.unit
+def test_run_static_lookups_fail_closed_on_wrong_source_or_missing_rows() -> None:
     lookups = run_module.RunStaticLookups(
         source_identity="a" * 64,
         semantic_types={"C1": ("Neoplastic Process",)},
@@ -2664,8 +2677,11 @@ def test_run_static_lookups_refuse_a_different_source_identity() -> None:
     with pytest.raises(SourceIdentityChangedError, match="static NCIt lookups"):
         lookups.require_source("b" * 64)
 
-    with pytest.raises(SourceIdentityChangedError, match="static NCIt lookups"):
-        lookups.require_source("b" * 64)
+    with pytest.raises(RunStateError, match="semantic types for 'C2'"):
+        lookups.semantic_types_for("C2")
+
+    with pytest.raises(RunStateError, match="role labels for R88"):
+        lookups.role_labels_for({"R88"})
 
 
 @pytest.mark.unit
