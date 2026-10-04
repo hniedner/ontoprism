@@ -58,7 +58,6 @@ _REPOSITORY_WRITES: Final = frozenset(
         "records_for_generation",
         "record_publication_failure",
         "rebuild",
-        "resume_run",
         "rollback",
         "run_pipeline",
         "set_active_generation",

@@ -1,8 +1,7 @@
 """Filler selection — choose the intended constituent(s) per axis (design §6).
 
 Most-specific selection compares routed fillers through caller-supplied is-a and R82
-relations. The module also records source-backed reduction dispositions and supports a
-separate non-emitting historical diagnostic path.
+relations. The module also records source-backed reduction dispositions.
 """
 
 from __future__ import annotations

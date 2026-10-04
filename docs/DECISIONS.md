@@ -3511,9 +3511,9 @@ a genuinely incomplete traversal.
 
 **Decision:** the recursive genus-chain walk (D13) must visit **every** named-class
 member at each intersection level (breadth-first over the DAG, memoized so re-converging
-branches aren't re-walked twice), not "the" genus. `scripts/decomposition_spike.py`'s
-existing stack-based walk already does this correctly (it pushes every genus row it
-finds); the mental model implied by D13's linear diagram does not, and a naive
+branches aren't re-walked twice), not "the" genus. The stack-based walk in the
+since-retired `scripts/decomposition_spike.py` did this correctly (it pushed every genus
+row it found); the mental model implied by D13's linear diagram does not, and a naive
 reimplementation following that diagram will reproduce the bug. The investigation used
 local, untracked research code.
 

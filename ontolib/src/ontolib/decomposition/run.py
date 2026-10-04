@@ -98,7 +98,6 @@ from ontolib.decomposition.provenance_models import (
     Refused,
     ResidualFillerClassification,
     RunFingerprint,
-    RunResumeIdentity,
     RunStageName,
 )
 from ontolib.decomposition.publication import (
@@ -1024,37 +1023,6 @@ async def _require_source_snapshot(
     return snapshot
 
 
-def build_resume_identity(
-    config: RunConfig,
-    snapshot: NcitSourceSnapshot,
-    *,
-    semantic_types: tuple[str, ...],
-    total_limit: int | None,
-    collapse_policy: CollapseVetoPolicy,
-) -> RunResumeIdentity:
-    sample_identity = (
-        config.sample_manifest.identity if config.sample_manifest is not None else None
-    )
-    return RunResumeIdentity(
-        schema_version=5 if sample_identity is not None else 4,
-        source_identity=snapshot.source_identity,
-        collapse_policy_identity=collapse_policy.policy_identity,
-        routing_implementation_identity=routing_implementation_identity(),
-        stage_sequence_identity=RUN_STAGE_SEQUENCE_IDENTITY,
-        branch=config.branch.value,
-        scope_root=config.scope_root,
-        scope_version=config.scope_version,
-        semantic_types=semantic_types,
-        total_limit=total_limit,
-        sample_manifest_identity=sample_identity,
-        algorithm_version=config.algorithm_version,
-        config_version=_CONFIG_VERSION,
-        walker_max_depth=config.walker_max_depth,
-        output_mode=_output_mode(config),
-        load_mode="named-graph" if config.load_to_store else "none",
-    )
-
-
 def _requested_fingerprint(
     config: RunConfig,
     snapshot: NcitSourceSnapshot,
@@ -1065,7 +1033,7 @@ def _requested_fingerprint(
     collapse_policy: CollapseVetoPolicy,
 ) -> RunFingerprint:
     return RunFingerprint(
-        schema_version=5 if config.sample_manifest is not None else 4,
+        schema_version=7 if config.sample_manifest is not None else 6,
         rehearsal_nonce=uuid4().hex if config.rehearsal else None,
         source_identity=snapshot.source_identity,
         collapse_policy_identity=collapse_policy.policy_identity,

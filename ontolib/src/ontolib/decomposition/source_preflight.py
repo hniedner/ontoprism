@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections import deque
 from collections.abc import Awaitable, Callable
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -35,7 +36,7 @@ class SourcePreflightResult(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    schema_version: int = 1
+    schema_version: Literal[2] = 2
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     worklist_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     reader_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -56,16 +57,6 @@ class SourcePreflightResult(BaseModel):
     @property
     def concept_work_allowed(self) -> bool:
         return not self.malformed_codes and not self.overflow_codes
-
-    @computed_field
-    @property
-    def identity(self) -> str:
-        payload = self.model_dump(mode="json", exclude={"identity"})
-        return hashlib.sha256(
-            json.dumps(
-                payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-            ).encode()
-        ).hexdigest()
 
 
 def _worklist_identity(worklist: tuple[str, ...]) -> str:

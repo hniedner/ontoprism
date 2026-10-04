@@ -19,7 +19,6 @@ from ontolib.decomposition.models import RoleRestriction
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
     RunFingerprint,
-    RunResumeIdentity,
 )
 
 _SOURCE = "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
@@ -279,9 +278,9 @@ def test_packaged_policy_loads_via_importlib_resources() -> None:
 
 
 @pytest.mark.unit
-def test_policy_identity_is_required_by_fingerprint_and_resume_identity() -> None:
+def test_policy_identity_is_required_by_fingerprint() -> None:
     values = {
-        "schema_version": 4,
+        "schema_version": 6,
         "source_identity": _SOURCE,
         "collapse_policy_identity": _policy().policy_identity,
         "routing_implementation_identity": "1" * 64,
@@ -301,11 +300,8 @@ def test_policy_identity_is_required_by_fingerprint_and_resume_identity() -> Non
         "emitted_at": datetime(2026, 8, 20, tzinfo=UTC),
     }
     fingerprint = RunFingerprint.model_validate(values)
-    resume = RunResumeIdentity.from_fingerprint(fingerprint)
-    assert resume.collapse_policy_identity == fingerprint.collapse_policy_identity
-
-    changed = resume.model_copy(update={"collapse_policy_identity": "f" * 64})
-    assert changed != resume
+    changed = fingerprint.model_copy(update={"collapse_policy_identity": "f" * 64})
+    assert changed.identity != fingerprint.identity
     old_schema = {**values, "schema_version": 2}
     with pytest.raises(ValueError, match="schema_version"):
         RunFingerprint.model_validate(old_schema)

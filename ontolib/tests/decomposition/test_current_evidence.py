@@ -175,7 +175,7 @@ def test_current_metrics_reject_exact_pair_true_positive_count_mismatch() -> Non
 def _fingerprint() -> RunFingerprint:
     manifest = json.loads(_MANIFEST.read_text())
     return RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity=manifest["source_identity"],
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
@@ -479,6 +479,47 @@ def test_current_specificity_path_edge_rejects_a_self_edge() -> None:
             broader_code="C12400",
             narrower_code="C12400",
             source_identity="a" * 64,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("root_code", "not-a-code"),
+        ("anchor_code", "MINT-123456789abc"),
+        ("role_code", "not-a-role"),
+        ("filler_code", "external:123"),
+    ],
+)
+def test_current_source_occurrence_rejects_noncanonical_codes(
+    field: str, value: str
+) -> None:
+    occurrence = _current_specificity_disposition(
+        "collapsed-is-a", (("is-a", "C12400", "C12402"),)
+    ).source_occurrence
+
+    with pytest.raises(ValueError, match="String should match pattern"):
+        CurrentSourceOccurrence.model_validate(
+            {**occurrence.model_dump(), field: value}
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "retained_pair",
+    [("not-an-axis", "C12402"), ("op:PrimarySite", "external:123")],
+)
+def test_current_disposition_rejects_noncanonical_retained_pair(
+    retained_pair: tuple[str, str],
+) -> None:
+    disposition = _current_specificity_disposition(
+        "collapsed-is-a", (("is-a", "C12400", "C12402"),)
+    )
+
+    with pytest.raises(ValueError, match="String should match pattern"):
+        CurrentOccurrenceDisposition.model_validate(
+            {**disposition.model_dump(), "retained_pair": retained_pair}
         )
 
 

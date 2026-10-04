@@ -1289,7 +1289,7 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
     )
     representation_identity = hashlib.sha256(artifact.read_bytes()).hexdigest()
     fingerprint = RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity=manifest.source_identity,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,

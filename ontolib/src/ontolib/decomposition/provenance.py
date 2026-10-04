@@ -69,7 +69,6 @@ from ontolib.decomposition.provenance_models import (
     RunAdmission,
     RunFingerprint,
     RunOutcomeCounts,
-    RunResumeIdentity,
     RunStageCheckpoint,
     RunStageName,
     RunSummary,
@@ -334,6 +333,8 @@ def _invalid_fingerprint_detail(raw: object, persisted_identity: str) -> str:
         return "predates the exact-run schema"
     if schema_version == 1:
         return "predates the hierarchy-scope schema"
+    if schema_version in {4, 5}:
+        return "predates the lean-run schema"
     return "is corrupt or was modified outside the pipeline"
 
 
@@ -2344,25 +2345,6 @@ class ProvenanceStore:
             raise RunIdentityMismatchError(
                 "materialized worklist does not match the immutable run fingerprint"
             )
-
-    @staticmethod
-    def require_resume_identity(
-        fingerprint: RunFingerprint,
-        expected: RunResumeIdentity,
-        run_id: str,
-    ) -> None:
-        """Apply the production caller-controlled resume identity contract."""
-        actual = RunResumeIdentity.from_fingerprint(fingerprint)
-        if actual == expected:
-            return
-        dimension = (
-            "source identity"
-            if actual.source_identity != expected.source_identity
-            else "configuration"
-        )
-        raise RunIdentityMismatchError(
-            f"resume {dimension} does not match persisted run {run_id!r}"
-        )
 
     async def pending_codes(self, run_id: str) -> list[str]:
         """Exact non-complete worklist in its original deterministic order."""

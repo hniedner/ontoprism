@@ -89,6 +89,8 @@ async def test_preflight_enumerates_closure_and_distinguishes_valid_unknowns() -
     assert result.overflow_codes == ()
     assert result.representative_metrics.residual_precoordination_unknown_count == 1
     assert result.representative_metrics.residual_precoordination is None
+    assert result.schema_version == 2
+    assert "identity" not in result.model_dump()
     assert seen == ["C1", "C2", "C36081"]
 
 

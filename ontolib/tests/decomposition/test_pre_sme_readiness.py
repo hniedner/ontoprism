@@ -51,6 +51,26 @@ def _site_line(subject: str, filler: str, *, review: bool = False) -> str:
     )
 
 
+def _completed_run(
+    artifact: Path,
+    *,
+    source_identity: str = "a" * 64,
+    source_release: str = "26.07d",
+    run_id: str = "run-test",
+) -> Any:
+    return SimpleNamespace(
+        run_id=run_id,
+        ncit_version=source_release,
+        fingerprint=SimpleNamespace(source_identity=source_identity),
+        representation_identity=(
+            hashlib.sha256(artifact.read_bytes()).hexdigest()
+            if artifact.is_file()
+            else "0" * 64
+        ),
+        publication_artifact_path=str(artifact),
+    )
+
+
 def _stale_grouping_artifacts(
     evidence: CurrentEngineEvidence,
     comparison: CurrentComparison,
@@ -200,10 +220,17 @@ def _composed_readiness_inputs(
             unresolved=0,
         ),
     )
-    audit = audit_primary_site_artifact(
-        artifact=corpus_artifact,
+    corpus_run = _completed_run(
+        corpus_artifact,
         source_identity=evidence.source_identity,
         source_release=evidence.ncit_version,
+    )
+    audit = audit_primary_site_artifact(
+        artifact=corpus_artifact,
+        run=corpus_run,
+    )
+    monkeypatch.setattr(
+        module, "_configured_completed_run_for_evidence", lambda _run_id: corpus_run
     )
     manifest = tmp_path / "source-manifest.json"
     manifest.write_text("{}", encoding="utf-8")
@@ -282,8 +309,7 @@ def test_primary_site_liveness_records_two_resolved_and_minus_one_clears(
 
     blocked = audit_primary_site_artifact(
         artifact=artifact,
-        source_identity="a" * 64,
-        source_release="26.07d",
+        run=_completed_run(artifact),
     )
 
     assert [item.model_dump() for item in blocked.cardinality_violations] == [
@@ -293,8 +319,7 @@ def test_primary_site_liveness_records_two_resolved_and_minus_one_clears(
     artifact.write_text(_site_line("C1", "C10") + _site_line("C2", "C12", review=True))
     audit = audit_primary_site_artifact(
         artifact=artifact,
-        source_identity="a" * 64,
-        source_release="26.07d",
+        run=_completed_run(artifact),
     )
 
     assert audit.resolved_site_count == 1
@@ -322,8 +347,7 @@ def test_primary_site_audit_refuses_bad_inputs_without_output(
     with pytest.raises(PreSmeValidationError):
         audit_primary_site_artifact(
             artifact=artifact,
-            source_identity="a" * 64,
-            source_release="26.07d",
+            run=_completed_run(artifact),
             output=output,
         )
 
@@ -369,8 +393,7 @@ def test_primary_site_parser_rejects_non_total_constituent_observations(
     with pytest.raises(PreSmeValidationError, match=message):
         audit_primary_site_artifact(
             artifact=artifact,
-            source_identity="a" * 64,
-            source_release="26.07d",
+            run=_completed_run(artifact),
         )
 
 
@@ -390,8 +413,7 @@ ncit:C1 op:hasConstituent [ op:axis {axis} ; op:filler ncit:C10 ] .
     with pytest.raises(PreSmeValidationError, match="axis is not an IRI"):
         audit_primary_site_artifact(
             artifact=artifact,
-            source_identity="a" * 64,
-            source_release="26.07d",
+            run=_completed_run(artifact),
         )
 
 
@@ -408,8 +430,7 @@ ncit:C2 op:hasConstituent [ op:axis op:PrimarySubsite ; op:filler ncit:C11 ] .
 
     audit = audit_primary_site_artifact(
         artifact=artifact,
-        source_identity="a" * 64,
-        source_release="26.07d",
+        run=_completed_run(artifact),
     )
 
     assert audit.resolved_sites == (
@@ -442,7 +463,8 @@ def test_primary_site_audit_model_rejects_vacuous_observation_invariants(
     message: str,
 ) -> None:
     payload = {
-        "schema_version": 3,
+        "schema_version": 4,
+        "run_id": "run-test",
         "source_identity": "a" * 64,
         "source_release": "26.07d",
         "corpus_artifact_identity": "c" * 64,
@@ -462,7 +484,8 @@ def test_primary_site_audit_model_rejects_vacuous_observation_invariants(
 @pytest.mark.unit
 def test_primary_site_audit_model_refuses_zero_observations() -> None:
     payload = {
-        "schema_version": 3,
+        "schema_version": 4,
+        "run_id": "run-test",
         "source_identity": "a" * 64,
         "source_release": "26.07d",
         "corpus_artifact_identity": "c" * 64,
@@ -954,8 +977,7 @@ def test_atomic_audit_write_preserves_primary_failure_and_reports_cleanup(
     with pytest.raises(OSError, match="primary replace failure") as raised:
         audit_primary_site_artifact(
             artifact=artifact,
-            source_identity="a" * 64,
-            source_release="26.07d",
+            run=_completed_run(artifact),
             output=tmp_path / "audit.json",
         )
 
@@ -1154,6 +1176,56 @@ def test_primary_site_generation_translates_invalid_manifest_without_output(
     output = tmp_path / "audit.json"
 
     with pytest.raises(PreSmeValidationError):
+        generate_primary_site_audit(
+            source_manifest=manifest,
+            artifact=artifact,
+            output=output,
+        )
+
+    assert not output.exists()
+
+
+@pytest.mark.unit
+def test_primary_site_generation_rejects_artifact_outside_persisted_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = __import__(
+        "scripts.research.pre_sme_readiness", fromlist=["generate_primary_site_audit"]
+    )
+    run_id = "neoplasm-00000000-0000-0000-0000-000000000001"
+    artifact = tmp_path / "corpus.ttl"
+    artifact.write_text(
+        _site_line("C1", "C10")
+        + f'<{_NCIT}C1> <{_OP}conceptOutcome> "decomposed" .\n'
+        + f'<{_NCIT}C1> <{_OP}decomposedBy> "{run_id}" .\n'
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}")
+    monkeypatch.setattr(
+        module,
+        "validate_ncit_sibling_manifest",
+        lambda _path: SimpleNamespace(
+            source_identity="a" * 64, ontology_version="26.07d"
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_configured_completed_run_for_evidence",
+        lambda _run_id: SimpleNamespace(
+            run_id=run_id,
+            ncit_version="26.07d",
+            fingerprint=SimpleNamespace(
+                source_identity="a" * 64,
+                worklist=("C1",),
+            ),
+            representation_identity="f" * 64,
+            publication_artifact_path=str(artifact),
+        ),
+        raising=False,
+    )
+    output = tmp_path / "audit.json"
+
+    with pytest.raises(PreSmeValidationError, match="persisted representation"):
         generate_primary_site_audit(
             source_manifest=manifest,
             artifact=artifact,

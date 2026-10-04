@@ -1789,6 +1789,7 @@ async def test_completed_preflight_checkpoint_restores_its_typed_result() -> Non
         max_nodes=10,
     )
     payload = result.model_dump(mode="json", exclude_computed_fields=True)
+    output_identity = stage_output_identity(payload)
     provenance = MagicMock()
     provenance.claim_stage = AsyncMock(return_value=None)
     provenance.run_stages = AsyncMock(
@@ -1796,7 +1797,7 @@ async def test_completed_preflight_checkpoint_restores_its_typed_result() -> Non
             MagicMock(
                 stage="preflight",
                 state="complete",
-                output_identity=result.identity,
+                output_identity=output_identity,
                 output_payload=payload,
             ),
         )
@@ -1806,7 +1807,7 @@ async def test_completed_preflight_checkpoint_restores_its_typed_result() -> Non
         _checkpoint_setup(), RunConfig(branch="disease"), provenance, result
     )
 
-    assert identity == result.identity
+    assert identity == output_identity
 
 
 @pytest.mark.unit
@@ -1822,6 +1823,7 @@ async def test_completed_preflight_rejects_a_restored_disallowed_result() -> Non
         max_nodes=10,
     )
     sealed = allowed.model_copy(update={"malformed_codes": ("C1",)})
+    payload = sealed.model_dump(mode="json", exclude_computed_fields=True)
     provenance = MagicMock()
     provenance.claim_stage = AsyncMock(return_value=None)
     provenance.run_stages = AsyncMock(
@@ -1829,10 +1831,8 @@ async def test_completed_preflight_rejects_a_restored_disallowed_result() -> Non
             MagicMock(
                 stage="preflight",
                 state="complete",
-                output_identity=sealed.identity,
-                output_payload=sealed.model_dump(
-                    mode="json", exclude_computed_fields=True
-                ),
+                output_identity=stage_output_identity(payload),
+                output_payload=payload,
             ),
         )
     )
@@ -2905,7 +2905,7 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
 ) -> None:
     sample = _sample_manifest("C2", "C1")
     fingerprint = RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity="a" * 64,
         collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         routing_implementation_identity="1" * 64,
@@ -3471,7 +3471,7 @@ async def test_sample_order_and_identity_are_persisted_as_exact_worklist(
 
     fingerprint = provenance._test_state["fingerprint"]
     assert metrics.total_in_scope == 2
-    assert fingerprint.schema_version == 5
+    assert fingerprint.schema_version == 7
     assert fingerprint.worklist == ("C2", "C1")
     assert fingerprint.sample_manifest_identity == sample.identity
     assert fingerprint.total_limit is None

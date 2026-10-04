@@ -284,7 +284,9 @@ def test_completion_publication_helper_preserves_state_distinctions() -> None:
         (None, "0" * 64, "is corrupt"),
         ({"schema_version": 0}, "0" * 64, "predates the exact-run schema"),
         ({"schema_version": 1}, "a" * 64, "predates the hierarchy-scope schema"),
-        ({"schema_version": 4}, "a" * 64, "is corrupt"),
+        ({"schema_version": 4}, "a" * 64, "predates the lean-run schema"),
+        ({"schema_version": 5}, "a" * 64, "predates the lean-run schema"),
+        ({"schema_version": 6}, "a" * 64, "is corrupt"),
     ],
 )
 def test_invalid_fingerprint_detail_classifies_only_known_history(
@@ -842,7 +844,7 @@ async def test_finish_run_sets_complete() -> None:
 async def test_completed_run_for_evidence_returns_validated_publication() -> None:
     sf = _make_mock_sf()
     fingerprint = RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
@@ -886,7 +888,7 @@ async def test_completed_run_for_evidence_returns_validated_publication() -> Non
 async def test_published_evidence_reader_rejects_a_rehearsal() -> None:
     sf = _make_mock_sf()
     fingerprint = RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
@@ -924,7 +926,7 @@ async def test_published_evidence_reader_rejects_a_rehearsal() -> None:
 async def test_oracle_metrics_reader_returns_only_a_completed_rehearsal() -> None:
     sf = _make_mock_sf()
     fingerprint = RunFingerprint(
-        schema_version=5,
+        schema_version=7,
         source_identity="a" * 64,
         collapse_policy_identity="0" * 64,
         routing_implementation_identity="1" * 64,
@@ -1854,7 +1856,7 @@ def test_real_run_identities_are_stable_without_a_rehearsal_nonce() -> None:
     )
 
     assert fingerprint.identity == (
-        "2657d41d7db0015ce46df71b876d1937916810871589a7d505d7f5c39631f9fb"
+        "36b84c00623fae0d3c7f495e54e70a3712622388d72d3649f91a2d98ac876b07"
     )
     assert FullRunExecutionIdentity.from_fingerprint(fingerprint).identity == (
         "64c4ce58c94f9fe5bddc3c43dd94a1eaf8a53fe1a3a1afca4b1e79bb927f1847"

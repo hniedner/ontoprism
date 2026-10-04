@@ -116,6 +116,13 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
+CurrentConceptCode = Annotated[str, Field(pattern=r"^C[0-9]+$")]
+CurrentFillerCode = Annotated[str, Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12})$")]
+CurrentAxisCode = Annotated[
+    str, Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
+]
+
+
 def _identity(value: object) -> str:
     return hashlib.sha256(
         json.dumps(
@@ -130,13 +137,13 @@ def _identity(value: object) -> str:
 
 class CurrentSourceOccurrence(_StrictModel):
     occurrence_id: str = Field(pattern=_SHA256)
-    root_code: str
+    root_code: CurrentConceptCode
     source_fact_id: str = Field(pattern=_SHA256)
     source_group_id: str = Field(pattern=_SHA256)
-    anchor_code: str
+    anchor_code: CurrentConceptCode
     depth: int = Field(ge=0)
-    role_code: str
-    filler_code: str
+    role_code: CurrentAxisCode
+    filler_code: CurrentFillerCode
     structural_path: tuple[int, ...]
     member_position: int = Field(ge=0)
 
@@ -144,11 +151,11 @@ class CurrentSourceOccurrence(_StrictModel):
 class CurrentSourceFact(_StrictModel):
     fact_id: str = Field(pattern=_SHA256)
     source_group_id: str = Field(pattern=_SHA256)
-    anchor_code: str
+    anchor_code: CurrentConceptCode
     depth: int = Field(ge=0)
     kind: Literal["genus", "restriction"]
-    filler_code: str
-    role_code: str | None
+    filler_code: CurrentFillerCode
+    role_code: CurrentAxisCode | None
 
     @model_validator(mode="after")
     def _kind_matches_role(self) -> Self:
@@ -245,9 +252,9 @@ class CurrentOccurrenceDisposition(_StrictModel):
     normalized_axis: str
     semantic_route: SemanticRoute
     semantic_type: str | None
-    retained_pair: tuple[str, str]
-    r82_part: str | None
-    r82_whole: str | None
+    retained_pair: tuple[CurrentAxisCode, CurrentFillerCode]
+    r82_part: CurrentConceptCode | None
+    r82_whole: CurrentConceptCode | None
     specificity_path: tuple[CurrentSpecificityPathEdge, ...] = Field(
         default=(), exclude_if=lambda value: not value
     )

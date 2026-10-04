@@ -45,6 +45,7 @@ from ontolib.decomposition.proposal_registry_migration import (
     validate_migrated_proposal_registry,
 )
 from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.decomposition.provenance_models import CompletedRunForEvidence
 from ontolib.decomposition.r101_run_conservation import R101ConservationCounts
 from ontolib.terminologies.ncit.sibling_store import (
     SiblingStoreValidationError,
@@ -149,7 +150,8 @@ def _primary_site_cardinality_violations(
 
 
 class PrimarySiteAudit(_StrictModel):
-    schema_version: Literal[3]
+    schema_version: Literal[4]
+    run_id: str = Field(pattern=r"^[A-Za-z0-9_.:-]+$", min_length=1)
     source_identity: str = Field(pattern=_SHA256)
     source_release: str
     corpus_artifact_identity: str = Field(pattern=_SHA256)
@@ -199,6 +201,7 @@ class _PrimarySiteStore(Store):
         self.resolved: list[PrimarySiteObservation] = []
         self.review: list[PrimarySiteObservation] = []
         self._seen: set[tuple[str, str, bool]] = set()
+        self.run_ids: set[str] = set()
 
     @property
     def has_unbound_parts(self) -> bool:
@@ -215,6 +218,13 @@ class _PrimarySiteStore(Store):
         subject, predicate, value = triple
         if isinstance(subject, rdflib.BNode):
             self._add_part(subject, predicate, value)
+            return
+        if predicate == rdflib.URIRef(vocab.DECOMPOSED_BY):
+            if not isinstance(value, rdflib.Literal) or not isinstance(
+                value.toPython(), str
+            ):
+                raise PreSmeValidationError("decomposed-by run ID is not text")
+            self.run_ids.add(str(value))
             return
         if predicate != rdflib.URIRef(vocab.HAS_CONSTITUENT):
             return
@@ -300,19 +310,29 @@ def _parse_primary_sites(artifact: Path) -> tuple[str, _PrimarySiteStore]:
     return artifact_identity, store
 
 
-def audit_primary_site_artifact(
+def _require_corpus_run_binding(
+    artifact_identity: str,
+    run: CompletedRunForEvidence,
+) -> None:
+    if artifact_identity != run.representation_identity:
+        raise PreSmeValidationError(
+            "corpus artifact differs from the persisted representation"
+        )
+
+
+def _audit_from_parsed_artifact(
     *,
-    artifact: Path,
-    source_identity: str,
-    source_release: str,
+    artifact_identity: str,
+    store: _PrimarySiteStore,
+    run: CompletedRunForEvidence,
     output: Path | None = None,
 ) -> PrimarySiteAudit:
-    """Audit every primary-site observation in one parser pass."""
-    artifact_identity, store = _parse_primary_sites(artifact)
+    _require_corpus_run_binding(artifact_identity, run)
     payload: dict[str, object] = {
-        "schema_version": 3,
-        "source_identity": source_identity,
-        "source_release": source_release,
+        "schema_version": 4,
+        "run_id": run.run_id,
+        "source_identity": run.fingerprint.source_identity,
+        "source_release": run.ncit_version,
         "corpus_artifact_identity": artifact_identity,
         "resolved_sites": tuple(store.resolved),
         "review_required_sites": tuple(store.review),
@@ -327,6 +347,22 @@ def audit_primary_site_artifact(
     if output is not None:
         _atomic_write(output, _canonical_bytes(audit))
     return audit
+
+
+def audit_primary_site_artifact(
+    *,
+    artifact: Path,
+    run: CompletedRunForEvidence,
+    output: Path | None = None,
+) -> PrimarySiteAudit:
+    """Audit a persisted completed run's exact primary-site artifact in one parse."""
+    artifact_identity, store = _parse_primary_sites(artifact)
+    return _audit_from_parsed_artifact(
+        artifact_identity=artifact_identity,
+        store=store,
+        run=run,
+        output=output,
+    )
 
 
 def _jsonable(value: object) -> object:
@@ -344,10 +380,23 @@ def generate_primary_site_audit(
 ) -> PrimarySiteAudit:
     try:
         manifest = validate_ncit_sibling_manifest(source_manifest)
-        return audit_primary_site_artifact(
-            artifact=artifact,
-            source_identity=manifest.source_identity,
-            source_release=manifest.ontology_version,
+        artifact_identity, store = _parse_primary_sites(artifact)
+        if len(store.run_ids) != 1:
+            raise PreSmeValidationError(
+                "corpus artifact must bind exactly one decomposition run"
+            )
+        run = _configured_completed_run_for_evidence(next(iter(store.run_ids)))
+        if (
+            run.fingerprint.source_identity != manifest.source_identity
+            or run.ncit_version != manifest.ontology_version
+        ):
+            raise PreSmeValidationError(
+                "corpus run source differs from the validated source manifest"
+            )
+        return _audit_from_parsed_artifact(
+            artifact_identity=artifact_identity,
+            store=store,
+            run=run,
             output=output,
         )
     except PreSmeValidationError:
@@ -1187,6 +1236,19 @@ def _configured_r101_counts(run_id: str) -> R101ConservationCounts:
     return asyncio.run(load())
 
 
+def _configured_completed_run_for_evidence(run_id: str) -> CompletedRunForEvidence:
+    async def load() -> CompletedRunForEvidence:
+        engine = make_engine(get_settings().database_url)
+        try:
+            return await ProvenanceStore(
+                make_sessionmaker(engine)
+            ).completed_run_for_evidence(run_id)
+        finally:
+            await dispose_engine(engine)
+
+    return asyncio.run(load())
+
+
 def generate_pre_sme_readiness(
     *,
     source_manifest: Path,
@@ -1230,6 +1292,7 @@ def generate_pre_sme_readiness(
         audit = PrimarySiteAudit.model_validate_json(
             _load_json_no_duplicates(primary_site_audit, "primary-site audit")[1]
         )
+        corpus_run = _configured_completed_run_for_evidence(audit.run_id)
         group = load_group_review_packet(group_packet)
         normalized_group_policy = load_packaged_normalized_group_policy()
         issue_274_detector = Issue274DetectorReport.model_validate_json(
@@ -1245,6 +1308,7 @@ def generate_pre_sme_readiness(
     except (OSError, SiblingStoreValidationError, ValidationError, ValueError) as exc:
         raise PreSmeValidationError(str(exc)) from exc
     require_current_verify_evidence(gate.git_head, expected_git_head)
+    _require_corpus_run_binding(artifact_identity, corpus_run)
     (
         axis_contract_violations,
         normalized_group_violations,
@@ -1265,7 +1329,19 @@ def generate_pre_sme_readiness(
     )
     checks = (
         (manifest.source_identity == evidence.source_identity, "sample source"),
-        (manifest.source_identity == audit.source_identity, "audit source"),
+        (
+            manifest.source_identity
+            == audit.source_identity
+            == corpus_run.fingerprint.source_identity,
+            "audit source",
+        ),
+        (
+            manifest.ontology_version
+            == audit.source_release
+            == corpus_run.ncit_version,
+            "audit release",
+        ),
+        (audit.run_id == corpus_run.run_id, "audit run"),
         (artifact_identity == audit.corpus_artifact_identity, "audit artifact"),
         (
             proposals.registry_identity == evidence.proposal_registry_identity,

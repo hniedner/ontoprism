@@ -23,8 +23,8 @@ from pydantic import (
 from ontolib.decomposition.branches import ScopeRoot, ScopeVersion
 from ontolib.decomposition.models import ConceptOutcome
 
-_STANDARD_RUN_SCHEMA = 4
-_SAMPLE_RUN_SCHEMA = 5
+_STANDARD_RUN_SCHEMA = 6
+_SAMPLE_RUN_SCHEMA = 7
 RunStageName = Literal[
     "preflight",
     "concept-workset",
@@ -231,7 +231,7 @@ class RunFingerprint(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    schema_version: Literal[4, 5] = 4
+    schema_version: Literal[6, 7] = 6
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     routing_implementation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -320,67 +320,6 @@ class CompletedRehearsalForOracleMetrics(BaseModel):
         if self.fingerprint.rehearsal_nonce is None:
             raise ValueError("oracle metrics run is not a rehearsal")
         return self
-
-
-class RunResumeIdentity(BaseModel):
-    """Caller-controlled dimensions that must match a persisted resumable run."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    schema_version: Literal[4, 5] = 4
-    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    routing_implementation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    stage_sequence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    branch: Literal["neoplasm", "disease"]
-    scope_root: ScopeRoot
-    scope_version: ScopeVersion
-    semantic_types: tuple[str, ...]
-    total_limit: int | None = Field(default=None, gt=0)
-    sample_manifest_identity: str | None = Field(
-        default=None,
-        pattern=r"^[0-9a-f]{64}$",
-    )
-    algorithm_version: str = Field(min_length=1)
-    config_version: str = Field(min_length=1)
-    walker_max_depth: int = Field(gt=0)
-    output_mode: Literal["none", "file"]
-    load_mode: Literal["none", "named-graph"]
-
-    @model_validator(mode="after")
-    def _scope_root_matches_branch(self) -> Self:
-        _require_matching_scope_root(self.branch, self.scope_root)
-        _require_matching_sample_schema(
-            self.schema_version,
-            self.sample_manifest_identity,
-            self.total_limit,
-        )
-        _require_matching_output_load(self.output_mode, self.load_mode)
-        return self
-
-    @classmethod
-    def from_fingerprint(cls, fingerprint: RunFingerprint) -> RunResumeIdentity:
-        """Project only the dimensions a resume invocation can independently know."""
-        return cls(
-            schema_version=fingerprint.schema_version,
-            source_identity=fingerprint.source_identity,
-            collapse_policy_identity=fingerprint.collapse_policy_identity,
-            routing_implementation_identity=(
-                fingerprint.routing_implementation_identity
-            ),
-            stage_sequence_identity=fingerprint.stage_sequence_identity,
-            branch=fingerprint.branch,
-            scope_root=fingerprint.scope_root,
-            scope_version=fingerprint.scope_version,
-            semantic_types=fingerprint.semantic_types,
-            total_limit=fingerprint.total_limit,
-            sample_manifest_identity=fingerprint.sample_manifest_identity,
-            algorithm_version=fingerprint.algorithm_version,
-            config_version=fingerprint.config_version,
-            walker_max_depth=fingerprint.walker_max_depth,
-            output_mode=fingerprint.output_mode,
-            load_mode=fingerprint.load_mode,
-        )
 
 
 class RunStageCheckpoint(BaseModel):
@@ -504,7 +443,7 @@ class ResidualFillerClassification(BaseModel):
 
 
 def _require_matching_sample_schema(
-    schema_version: Literal[4, 5],
+    schema_version: Literal[6, 7],
     sample_manifest_identity: str | None,
     total_limit: int | None,
 ) -> None:

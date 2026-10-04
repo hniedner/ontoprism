@@ -11,6 +11,7 @@ import subprocess
 import textwrap
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -126,6 +127,45 @@ def test_sibling_store_fixture_uses_tmp_and_removes_its_owned_root(
         assert root.is_dir()
 
     assert not root.exists()
+
+
+@pytest.mark.unit
+def test_sibling_store_fixture_refuses_a_preexisting_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = __import__("test_support.integration_resources", fromlist=["uuid"])
+    owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
+    generated = "1234567890abcdef1234567890abcdef"
+    monkeypatch.setattr(module.uuid, "uuid4", lambda: SimpleNamespace(hex=generated))
+    root = (
+        tmp_path
+        / "tmp/integration-data"
+        / f".ontoprism-ncit-sibling-test-{owner.nonce}-{generated}"
+    )
+    root.mkdir(parents=True)
+
+    with (
+        pytest.raises(ResourceOwnershipError, match="pre-existing"),
+        owned_qlever_sibling_store_root(owner, repository_root=tmp_path),
+    ):
+        pytest.fail("pre-existing root was yielded")
+
+    assert root.is_dir()
+
+
+@pytest.mark.unit
+def test_sibling_store_fixture_refuses_cleanup_after_marker_change(
+    tmp_path: Path,
+) -> None:
+    owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
+    with (
+        pytest.raises(ResourceOwnershipError, match="owner identity"),
+        owned_qlever_sibling_store_root(owner, repository_root=tmp_path) as root,
+    ):
+        (root / ".ontoprism-test-owner").write_text("another-run\n")
+
+    assert root.is_dir()
+    shutil.rmtree(root)
 
 
 @pytest.mark.unit
