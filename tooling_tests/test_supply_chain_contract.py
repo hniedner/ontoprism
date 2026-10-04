@@ -46,8 +46,8 @@ _REVIEWED_UPDATED_ACTION_PINS = {
     },
     ".github/workflows/scorecard.yml": {
         "github/codeql-action/upload-sarif": (
-            "1c5b675653bb5c22dbe9b12b556ec555138e09fd",
-            "v4.38.1",
+            "2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2",
+            "v4.38.2",
         ),
     },
 }
@@ -426,11 +426,11 @@ def test_workflow_action_contract_rejects_changed_comment_with_same_sha(
         ".github/workflows/scorecard.yml",
         (
             "github/codeql-action/upload-sarif@"
-            "1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1"
+            "2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4.38.2"
         ),
         (
             "github/codeql-action/upload-sarif@"
-            "1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.2"
+            "2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2  # v4.38.3"
         ),
     )
 
