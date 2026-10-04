@@ -1822,7 +1822,9 @@ async def test_completed_preflight_rejects_a_restored_disallowed_result() -> Non
         walker_max_depth=7,
         max_nodes=10,
     )
-    sealed = allowed.model_copy(update={"malformed_codes": ("C1",)})
+    sealed = allowed.model_copy(
+        update={"checked_codes": ("C1",), "malformed_codes": ("C1",)}
+    )
     payload = sealed.model_dump(mode="json", exclude_computed_fields=True)
     provenance = MagicMock()
     provenance.claim_stage = AsyncMock(return_value=None)
