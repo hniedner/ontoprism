@@ -10,9 +10,11 @@ from ontolib.decomposition.models import (
     DefinitionGroup,
     DetectionResult,
     GenusDefinitionFact,
+    OccurrenceDisposition,
     RestrictionDefinitionFact,
     RoleRestriction,
     SpecificityPathEdge,
+    SpecificityRelationKind,
     canonical_definition_fact_id,
     canonical_definition_group_id,
 )
@@ -27,6 +29,46 @@ def test_specificity_path_edge_rejects_a_self_edge() -> None:
             broader_code="C1",
             narrower_code="C1",
             source_identity="c" * 64,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("path", "message"),
+    [
+        ((("r82", "C1", "C2"),), "contains another relation kind"),
+        ((("is-a", "C3", "C2"),), "does not start at source filler"),
+        ((("is-a", "C1", "C3"),), "does not end at retained filler"),
+        (
+            (("is-a", "C1", "C3"), ("is-a", "C4", "C2")),
+            "is not contiguous",
+        ),
+    ],
+)
+def test_is_a_collapse_rejects_an_invalid_specificity_path(
+    path: tuple[tuple[SpecificityRelationKind, str, str], ...], message: str
+) -> None:
+    edges = tuple(
+        SpecificityPathEdge(
+            kind=kind,
+            broader_code=broader,
+            narrower_code=narrower,
+            source_identity="c" * 64,
+        )
+        for kind, broader, narrower in path
+    )
+
+    with pytest.raises(ValueError, match=message):
+        OccurrenceDisposition(
+            kind="collapsed-is-a",
+            source_occurrence_id="a" * 64,
+            source_fact_id="b" * 64,
+            normalized_axis="op:PrimarySite",
+            source_filler="C1",
+            retained_filler="C2",
+            semantic_route="p106-organ",
+            semantic_type="Body Part, Organ, or Organ Component",
+            specificity_path=edges,
         )
 
 
