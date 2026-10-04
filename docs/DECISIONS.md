@@ -882,9 +882,9 @@ specific embryonic or fetal origins. The stated NCIt assertion, complete definit
 group, occurrence, and provenance remain evidence rather than being deleted.
 
 This is a local-SME `concept-scoped-accuracy-exclusion`, not NCI acceptance or publication.
-Machine readiness may mark only the R103 requirement satisfied; group review, R101 authorization,
-and final scientific acceptance/publication remain separate human requirements, so overall
-authorization remains false.
+At the time, machine readiness could mark only the R103 requirement satisfied; group review,
+R101 authorization, and final scientific acceptance/publication remained separate human
+requirements, so overall authorization remained false.
 
 **C2860 specificity resolution (2026-09-07):** the accountable user selected
 `qualify-global-most-specific-claim` for `C2860/R103/C12950`. `C12950` remains the
