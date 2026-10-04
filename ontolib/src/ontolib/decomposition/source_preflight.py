@@ -6,9 +6,9 @@ import hashlib
 import json
 from collections import deque
 from collections.abc import Awaitable, Callable
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from ontolib.decomposition.complete_definition import (
     CompleteDefinitionError,
@@ -52,6 +52,23 @@ class SourcePreflightResult(BaseModel):
     malformed_codes: tuple[str, ...]
     overflow_codes: tuple[str, ...]
     representative_metrics: CompletionRunMetrics
+
+    @model_validator(mode="after")
+    def _outcome_sets_are_consistent(self) -> Self:
+        if self.unsupported_codes != tuple(sorted(self.unsupported_reasons)):
+            raise ValueError("unsupported codes differ from unsupported reasons")
+        categories = (
+            set(self.supported_codes),
+            set(self.unsupported_codes),
+            set(self.malformed_codes),
+            set(self.overflow_codes),
+        )
+        all_codes = set().union(*categories)
+        if sum(len(category) for category in categories) != len(all_codes):
+            raise ValueError("preflight outcome categories overlap")
+        if self.checked_codes != tuple(sorted(all_codes)):
+            raise ValueError("checked codes differ from classified outcomes")
+        return self
 
     @computed_field
     @property

@@ -92,7 +92,7 @@ def test_runtime_imports_and_commands_do_not_reach_r103_review_chain():
         [
             sys.executable,
             "-c",
-            "import argparse, importlib, inspect, sys; "
+            "import argparse, importlib, sys; "
             "[importlib.import_module(name) for name in ("
             "'ontolib.decomposition.run', "
             "'ontolib.decomposition.proposal_registry_migration', "
@@ -100,7 +100,6 @@ def test_runtime_imports_and_commands_do_not_reach_r103_review_chain():
             "'scripts.research.golden_review', "
             "'scripts.research.current_evidence')]; "
             "adjudication=importlib.import_module('scripts.adjudication'); "
-            "readiness=importlib.import_module('scripts.research.pre_sme_readiness'); "
             "replay=importlib.import_module('scripts.validation.run_agent_replay'); "
             "choices=next(a.choices for a in adjudication._parser()._actions "
             "if isinstance(a, argparse._SubParsersAction)); "
@@ -108,9 +107,6 @@ def test_runtime_imports_and_commands_do_not_reach_r103_review_chain():
             "assert not [name for name in vars(replay) "
             "if name.startswith('_generate_r103') "
             "or name.startswith('_transcribe_r103')]; "
-            "assert not [name for name in "
-            "inspect.signature(readiness.generate_pre_sme_readiness).parameters "
-            "if name.startswith('r103_')]; "
             "assert not [m for m in sys.modules "
             "if any(p.startswith('r103_') for p in m.split('.'))]",
         ],
@@ -146,15 +142,12 @@ def test_runtime_commands_do_not_expose_corpus_baseline_workflow():
         [
             sys.executable,
             "-c",
-            "import argparse, importlib, inspect; "
+            "import argparse, importlib; "
             "adjudication=importlib.import_module('scripts.adjudication'); "
-            "readiness=importlib.import_module('scripts.research.pre_sme_readiness'); "
             "replay=importlib.import_module('scripts.validation.run_agent_replay'); "
             "choices=next(a.choices for a in adjudication._parser()._actions "
             "if isinstance(a, argparse._SubParsersAction)); "
             "assert 'generate-corpus-baseline' not in choices; "
-            "assert 'corpus_baseline' not in "
-            "inspect.signature(readiness.generate_pre_sme_readiness).parameters; "
             "assert '_generate_current_corpus_baseline' not in vars(replay)",
         ],
         capture_output=True,
@@ -208,7 +201,8 @@ def test_product_runtime_does_not_ship_retired_evidence_workflows() -> None:
             "'ontolib.decomposition.pre_resume',"
             "'ontolib.decomposition.resume_dry_run',"
             "'ontolib.decomposition.fanout_baseline',"
-            "'ontolib.decomposition.semantic_bundles');"
+            "'ontolib.decomposition.semantic_bundles',"
+            "'scripts.research.pre_sme_readiness');"
             "assert not [name for name in modules if name in sys.modules];"
             "adjudication=importlib.import_module('scripts.adjudication');"
             "choices=next(a.choices for a in adjudication._parser()._actions "

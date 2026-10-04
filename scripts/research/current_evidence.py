@@ -121,6 +121,8 @@ CurrentFillerCode = Annotated[str, Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]{12}
 CurrentAxisCode = Annotated[
     str, Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
 ]
+CurrentRelease = Annotated[str, Field(min_length=1)]
+CurrentRunId = Annotated[str, Field(pattern=r"^[A-Za-z0-9_.:-]+$", min_length=1)]
 
 
 def _identity(value: object) -> str:
@@ -165,8 +167,8 @@ class CurrentSourceFact(_StrictModel):
 
 
 class CurrentConstituent(_StrictModel):
-    axis: str = Field(pattern=r"^(?:op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
-    filler: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]+)$")
+    axis: CurrentAxisCode
+    filler: CurrentFillerCode
     axis_ambiguous: bool
     source_group_ids: tuple[str, ...]
     normalized_group_id: str | None = Field(default=None, pattern=_SHA256)
@@ -356,10 +358,10 @@ class CurrentConceptEvidence(_StrictModel):
 
 class CurrentEngineEvidence(_StrictModel):
     schema_version: Literal[5]
-    ncit_version: str
+    ncit_version: CurrentRelease
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
-    run_id: str
+    run_id: CurrentRunId
     run_fingerprint_identity: str = Field(pattern=_SHA256)
     walker_max_depth: int = Field(ge=1)
     artifact_identity: str = Field(pattern=_SHA256)
@@ -628,10 +630,10 @@ class CurrentRowReplay(_StrictModel):
 
 class CurrentComparison(_StrictModel):
     schema_version: Literal[4]
-    ncit_version: str
+    ncit_version: CurrentRelease
     source_identity: str = Field(pattern=_SHA256)
     sample_manifest_identity: str = Field(pattern=_SHA256)
-    run_id: str
+    run_id: CurrentRunId
     run_fingerprint_identity: str = Field(pattern=_SHA256)
     walker_max_depth: int = Field(ge=1)
     artifact_identity: str = Field(pattern=_SHA256)

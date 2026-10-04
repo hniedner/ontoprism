@@ -1124,18 +1124,18 @@ two reported high advisories are resolved at patched transitive versions, and op
 (`npm audit --prefix frontend --json` and `npm install-scripts ls --prefix frontend`,
 2026-08-14).
 
-**Current-status addition (2026-09-06):** `MachineReadinessReport` schema 2 now emits
+**Historical status (2026-09-06; retired in M14):** `MachineReadinessReport` schema 2 emitted
 all five canonical metric names with their denominator rules, represents strict M1.6
 improvement and #44's inclusive 0.9 indicators separately, and carries the closed
 semantic blocker taxonomy as `clear`, `blocked`, or explicitly owned `not-evaluated`
-states (`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
-2026-09-06). The retired R101-isolated comparison did not classify total full-corpus delta;
+states. The retired R101-isolated comparison did not classify total full-corpus delta;
 primary-site cardinality remains evaluated. #417 replaced the retired two-run R101
 comparison with per-run occurrence conservation, so unexplained R101 loss is now
 evaluated from the run's persisted categories. #274 owns the deferred axis,
 normalized-group, and golden-cohort detectors and #127 owns total delta classification
-(`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py::test_semantic_gate_taxonomy_is_complete_unique_and_deferred_by_default ontolib/tests/decomposition/test_pre_sme_readiness.py::test_supported_semantic_violations_emit_blocked_reports -v`,
-2026-09-06). The current high-severity npm audit reports no vulnerabilities
+(2026-09-06). M14 removed the readiness module and tests after retiring their last
+maintained invokers; this paragraph records the former contract rather than an active
+workflow. The current high-severity npm audit reports no vulnerabilities
 (`npm audit --prefix frontend --audit-level=high`, 2026-09-06).
 
 **Current-status addition (2026-09-21):** #341 removed the historical two-run R101 report and

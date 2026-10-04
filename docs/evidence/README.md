@@ -50,7 +50,7 @@ review artifacts are produced only through the immutable candidate chain. Genera
 independent ignored axis diagnostics with:
 
 ```bash
-pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
+pdm run python scripts/adjudication.py generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
 ```
 
 The historical record contains 11 corrections and 4 escalations. Those dispositions are

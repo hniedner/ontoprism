@@ -299,7 +299,8 @@ Current-source evidence is generated through `scripts.research.current_evidence`
 completed persisted run whose exact artifact is validated against its recorded
 representation identity. It does not regenerate or modify the SME oracle or row
 decisions. The fixed `agent-replay` evidence-generation operations were retired in M14;
-the registry now contains only maintained Podman diagnostics and lifecycle operations.
+the registry now contains maintained Podman diagnostics and lifecycle operations plus
+reviewed-artifact quarantine.
 
 Run creation remains a separate operation. A refused fresh run is never changed into an implicit
 resume, and a complete, published run cannot be resumed. The completed-run replay route was
@@ -390,32 +391,12 @@ files remain byte-identical historical inputs to
 `proposal-registry-schema2-migration.json`; they are not active review or readiness
 workflows.
 
-### Final machine-readiness evidence
+### Retired machine-readiness evidence
 
-The retained readiness library validates the current comparison, explicit tracked
-historical row decisions, R101 reuse result, proposal registry, source manifest,
-current-HEAD verification evidence, and primary-site audit. The primary-site audit now
-accepts only the exact representation identity of the completed persisted full-corpus
-run named by the artifact, so a stale or partial Turtle file cannot inherit the current
-source identity.
-
-Report generation validates all remaining fixed input
-identities and cohort invariants, including the
-row-decision identity that supplies the immutable historical 48/106 SME include rate,
-refuses verify evidence from another Git HEAD, and writes atomically. Schema 4 reports the five named metric contracts,
-the strict M1.6 improvement gate, the separate #44 quality indicators, and one canonical
-entry for each semantic blocker. The identity-bound #274 axis-contract, normalized-group,
-and unadjudicated-golden-change detectors are evaluated; the broader total-delta classifier
-remains `not-evaluated` under #127. Any evaluated violation produces a blocked report rather
-than publication authorization. The output
-always records authorization false and publication `not-attempted`
-(`pdm run agent-test ontolib/tests/decomposition/test_pre_sme_readiness.py -v`,
-2026-09-06).
-
-The two-run R101 diagnostic and review tooling was removed in #341 after its decisions were
-transcribed into packaged policy data. #417 replaced it with per-run occurrence conservation;
-readiness now evaluates D74 unexplained R101 loss from the current evidence run. The broader
-total-delta classifier remains `not-evaluated` under #127.
+M14 removed the machine-readiness library and its tests after retiring the last maintained
+invokers. Historical readiness artifacts remain historical records only; they are not an
+active publication gate or supported regeneration path. Per-run occurrence conservation
+remains part of the persisted decomposition run contract.
 
 The long-running CLI reports exact worklist progress and residual-metric progress. Interrupted runs
 must be resumed with `--resume <run-id>`; completed work items are fenced and are not reprocessed.

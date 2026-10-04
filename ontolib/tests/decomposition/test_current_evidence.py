@@ -689,6 +689,7 @@ def test_current_constituent_preserves_unknown_role_axis_for_review() -> None:
         ("PrimarySite", "C12400"),
         ("op:PrimarySite!", "C12400"),
         ("op:PrimarySite", "bad"),
+        ("op:PrimarySite", "MINT-abc"),
     ],
 )
 def test_current_constituent_rejects_malformed_axis_or_filler(
@@ -1481,6 +1482,49 @@ def test_current_output_models_reject_self_identity_drift(model: type[object]) -
         raw["comparison_identity"] = "0" * 64
     with pytest.raises(ValueError, match="identity"):
         model.model_validate(copy.deepcopy(raw))  # type: ignore[attr-defined]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("model", "path", "identity_field", "field"),
+    [
+        (
+            CurrentEngineEvidence,
+            _TRACKED_CURRENT_EVIDENCE,
+            "evidence_identity",
+            "ncit_version",
+        ),
+        (
+            CurrentEngineEvidence,
+            _TRACKED_CURRENT_EVIDENCE,
+            "evidence_identity",
+            "run_id",
+        ),
+        (
+            CurrentComparison,
+            _TRACKED_CURRENT_COMPARISON,
+            "comparison_identity",
+            "ncit_version",
+        ),
+        (
+            CurrentComparison,
+            _TRACKED_CURRENT_COMPARISON,
+            "comparison_identity",
+            "run_id",
+        ),
+    ],
+)
+def test_current_outputs_reject_empty_release_and_run_identifiers(
+    model: type[object], path: Path, identity_field: str, field: str
+) -> None:
+    payload = json.loads(path.read_text())
+    payload[field] = ""
+    payload[identity_field] = _payload_identity(
+        {key: value for key, value in payload.items() if key != identity_field}
+    )
+
+    with pytest.raises(ValueError, match="at least 1 character"):
+        model.model_validate_json(json.dumps(payload))  # type: ignore[attr-defined]
 
 
 @pytest.mark.unit
