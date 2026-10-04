@@ -3,14 +3,14 @@
 #   docker build --build-arg ONTOPRISM_VERSION=<SCM-version> -f backend/Dockerfile -t ontoprism-api .
 # The runtime deps live in the root pyproject; ontolib + backend are local packages.
 
-FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS builder
+FROM python:3.14.7-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d AS builder
 WORKDIR /app
 RUN pip install --no-cache-dir pdm==2.28.0
 COPY pyproject.toml pdm.lock ./
 # Export only the root project's production dependencies from the lockfile.
 RUN pdm export --prod --no-hashes -o /tmp/requirements.txt
 
-FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
+FROM python:3.14.7-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d
 WORKDIR /app
 ARG ONTOPRISM_VERSION=0+unknown
 ENV PYTHONUNBUFFERED=1 \
