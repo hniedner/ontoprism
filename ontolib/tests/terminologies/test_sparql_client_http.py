@@ -14,12 +14,14 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
+from unittest.mock import MagicMock
 
 import pytest
 
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
+from ontolib.terminologies.sparql_transport import SparqlTransportClient
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -36,6 +38,21 @@ _MISSING_PROJECTION = "missing_projection"
 _CLOSE_CONNECTION = "close_connection"
 _CLOSE_FIRST_CONNECTION = "close_first_connection"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.mark.unit
+def test_transport_disables_connection_keepalive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    constructed = MagicMock()
+    monkeypatch.setattr(
+        "ontolib.terminologies.sparql_transport.httpx.AsyncClient", constructed
+    )
+
+    SparqlTransportClient("http://localhost:7001")._get_client()
+
+    limits = constructed.call_args.kwargs["limits"]
+    assert limits.max_keepalive_connections == 0
 
 
 def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:

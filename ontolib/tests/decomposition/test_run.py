@@ -10,7 +10,7 @@ from collections.abc import Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
@@ -2708,20 +2708,15 @@ async def test_static_lookups_require_a_source_identity_at_detection() -> None:
             static_lookups=lookups,
         )
 
-    with patch.object(
-        run_module,
-        "_detect_concept",
-        AsyncMock(side_effect=UnsupportedDefinitionConstructorError("unsupported")),
-    ) as detect:
+    with pytest.raises(SourceIdentityChangedError, match="different source identity"):
         await run_module._detect_candidate_or_unknown(
             "C1",
             MagicMock(),
             label=None,
             walker_max_depth=7,
             static_lookups=lookups,
-            source_identity="a" * 64,
+            source_identity="b" * 64,
         )
-    assert detect.await_args.kwargs["source_identity"] == "a" * 64
 
 
 @pytest.mark.unit
@@ -4452,6 +4447,8 @@ async def test_a_concept_the_policy_does_not_name_is_decomposed_once() -> None:
         if "SELECT ?code ?st" in query and "C6135>" in query
     ]
     assert len(semantic_type_reads) == 1
+    assert sum("SELECT ?role ?roleLabel" in query for query in client.queries) == 0
+    assert sum("BIND(REPLACE(STR(?concept)" in query for query in client.queries) == 1
 
 
 @pytest.mark.unit
