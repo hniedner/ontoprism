@@ -215,51 +215,50 @@ async def _run(
     primary_error: BaseException | None = None
     try:
         try:
-            try:
-                async with ncit_sparql_client(settings.ncit_sparql_url) as client:
-                    store = NcitGraphStore(client)
-                    try:
-                        metrics = await run_pipeline(
-                            config,
-                            client,
-                            provenance,
-                            get_source_snapshot=lambda: _source_snapshot(
-                                source_manifest,
-                                settings.ncit_sparql_url,
-                            ),
-                            get_labels=store.exact_labels_for,
-                            label_lookup=_make_label_lookup(NcitSearchIndex(sf)),
-                            total_limit=total_limit,
-                            progress=(
-                                progress
-                                if progress is not None
-                                else partial(_print_progress, prefix=prefix)
-                            ),
-                            source_preflight_progress=partial(
-                                _print_source_preflight_progress, prefix=prefix
-                            ),
-                            residual_progress=partial(
-                                _print_residual_progress, prefix=prefix
-                            ),
-                        )
-                    except BaseException as exc:
-                        primary_error = exc
-                        raise
-            except BaseException as exc:
-                if primary_error is not None and exc is not primary_error:
-                    primary_error.add_note(
-                        "Closing the NCIt client also failed: "
-                        f"{type(exc).__name__}: {exc}"
+            async with ncit_sparql_client(settings.ncit_sparql_url) as client:
+                store = NcitGraphStore(client)
+                try:
+                    metrics = await run_pipeline(
+                        config,
+                        client,
+                        provenance,
+                        get_source_snapshot=lambda: _source_snapshot(
+                            source_manifest,
+                            settings.ncit_sparql_url,
+                        ),
+                        get_labels=store.exact_labels_for,
+                        label_lookup=_make_label_lookup(NcitSearchIndex(sf)),
+                        total_limit=total_limit,
+                        progress=(
+                            progress
+                            if progress is not None
+                            else partial(_print_progress, prefix=prefix)
+                        ),
+                        source_preflight_progress=partial(
+                            _print_source_preflight_progress, prefix=prefix
+                        ),
+                        residual_progress=partial(
+                            _print_residual_progress, prefix=prefix
+                        ),
                     )
-                    raise primary_error from exc
-                raise
-        except Exception:
-            logger.exception(
-                "decompose run failed (branch=%s resume=%s)", branch, resume
-            )
+                except BaseException as exc:
+                    primary_error = exc
+                    raise
+        except BaseException as exc:
+            if primary_error is not None and exc is not primary_error:
+                primary_error.add_note(
+                    f"Closing the NCIt client also failed: {type(exc).__name__}: {exc}"
+                )
+                raise primary_error from exc
             raise
     except BaseException as exc:
         primary_error = exc
+        logger.exception(
+            "decompose %s failed (branch=%s resume=%s)",
+            "rehearsal" if rehearsal else "run",
+            branch,
+            resume,
+        )
         raise
     finally:
         try:

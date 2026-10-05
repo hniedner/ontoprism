@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ontolib.decomposition.enhancement_delta import DELTA_SQL, DeltaOccurrence
@@ -257,7 +257,8 @@ def _bounded_failure(error: BaseException) -> tuple[str, str]:
     its end. Every cut of the message's text ends in an ellipsis.
     """
     error_type = type(error).__name__[:_FAILURE_TYPE_LIMIT] or "Exception"
-    own = str(error) or error_type
+    own_error = error.orig if isinstance(error, DBAPIError) else error
+    own = str(own_error) or error_type
     account = _failure_account(error)
     suffix = "".join(f"\n{_clip(line, _FAILURE_LINE_LIMIT)}" for line in account)
     suffix = _clip(suffix, _FAILURE_MESSAGE_LIMIT - min(len(own), _FAILURE_OWN_FLOOR))
