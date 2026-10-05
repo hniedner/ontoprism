@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import os
 import runpy
 import subprocess
@@ -282,6 +283,72 @@ def _sample_manifest() -> DecompositionSampleManifest:
             ),
         ),
     )
+
+
+@pytest.mark.unit
+async def test_run_logs_cancellation_notes_and_cause_inside_the_coroutine(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cause = RuntimeError("source drift while cancelling")
+    cause.add_note("partial run rows remain inspectable")
+    cancellation = asyncio.CancelledError("operator interrupted")
+    cancellation.add_note("invalidation was still being recorded")
+    cancellation.__cause__ = cause
+
+    async def pipeline(*_args: object, **_kwargs: object) -> decompose.RunMetrics:
+        raise cancellation
+
+    _install_run_collaborators(monkeypatch, pipeline)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(asyncio.CancelledError):
+        await decompose._run(
+            source_manifest=tmp_path / "candidate.json",
+            branch=decompose.DecompositionBranch.NEOPLASM,
+            out=None,
+            load=False,
+            emit_equivalence=False,
+            resume=None,
+            total_limit=1,
+        )
+
+    exposed = caplog.text
+    assert "decompose run failed" in exposed
+    assert "operator interrupted" in exposed
+    assert "invalidation was still being recorded" in exposed
+    assert "source drift while cancelling" in exposed
+    assert "partial run rows remain inspectable" in exposed
+
+
+@pytest.mark.unit
+async def test_run_failure_log_identifies_a_rehearsal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def pipeline(*_args: object, **_kwargs: object) -> decompose.RunMetrics:
+        raise RuntimeError("rehearsal publication failed and remains retryable")
+
+    _install_run_collaborators(monkeypatch, pipeline)
+    monkeypatch.setattr(
+        decompose, "load_sample_manifest", lambda _path: _sample_manifest()
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError):
+        await decompose._run(
+            source_manifest=tmp_path / "candidate.json",
+            branch=decompose.DecompositionBranch.NEOPLASM,
+            out=None,
+            load=False,
+            emit_equivalence=False,
+            resume=None,
+            total_limit=None,
+            sample_manifest=tmp_path / "sample.json",
+            rehearsal=True,
+        )
+
+    assert "decompose rehearsal failed" in caplog.text
 
 
 @pytest.mark.unit

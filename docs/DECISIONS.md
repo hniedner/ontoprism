@@ -355,15 +355,15 @@ answer the owner had already given.
 
 ## 2026-09-18 — cancellation while recording a failure
 
-### D90. Publication shields its failure record; the decomposition run abandons its own
+### D90. Irrecoverable failure records are shielded with bounded waits
 
 **Context.** Two helpers record a failure without letting the recording error replace the
 original one, and they treat a cancellation differently (#366 review, issue #371).
 `publication._record_failure_without_masking` starts the write as a task under
-`asyncio.shield`, lets it finish while the first cancellation waits (a second cancellation
-abandons it), then re-raises the cancellation. `run._journal_without_masking` awaits the
-write directly, so a cancellation abandons it. Shielding keeps the record but lets a stuck
-database write delay a cancellation. Abandoning cancels at once but can lose the record.
+`asyncio.shield`, lets it finish while the first cancellation waits, then re-raises the
+cancellation. `run._journal_without_masking` awaits recoverable writes directly, so a
+cancellation abandons them. Shielding keeps a record but can delay cancellation; every
+new shield therefore needs an explicit bound.
 
 **Decision.** Keep the split; it follows what each lost record costs.
 - Publication shields. `record_publication_failure` is the only write that moves the run
@@ -375,17 +375,20 @@ database write delay a cancellation. Abandoning cancels at once but can lose the
   behind is recovered later: the next resume reclaims work-item, residual-filler and stage
   claims, and an unwritten `fail_run` leaves the run `running` for the next resume to
   reopen.
-- Three known gaps, where the only trace is the notes on the propagating cancellation and
+- `invalidate_run` is the exception (#397). Source drift makes the run non-resumable, so
+  the invalidation task is shielded after cancellation for at most five seconds. A timeout
+  or write failure is attached to the propagating source-drift error; the original
+  cancellation then continues.
+- Two remaining gaps, where the only trace is the notes on the propagating cancellation and
   its cause. Since #388 a failure record written later for the same cancellation (the
   stage or run failure) persists those notes and the cause chain within the column bounds.
-  Of the three, only the rehearsal can get one: `fail_run` does not touch a run that is
-  already complete, and `invalidate_run` is itself the last write. Through the CLI a
-  Ctrl-C drops the trace: `asyncio.run` replaces the cancellation with a bare
-  `KeyboardInterrupt`, typer exits 130, and nothing is printed or logged (#391).
+  Of the two, only the rehearsal can get one: `fail_run` does not touch a run that is
+  already complete. The CLI now logs every `BaseException` inside `scripts.decompose._run`
+  before `asyncio.run` converts cancellation to `KeyboardInterrupt`; the traceback, notes,
+  and cause chain therefore appear in the configured application log while typer still
+  exits 130.
   - the publication-stage seal of a run that is already complete, which has no resume and
     may stay claimed;
-  - an unwritten `invalidate_run`: it follows a source change, so the run cannot be
-    resumed and stays `running` with its partial results (#386);
   - a rehearsal run, which is never resumed, so none of its abandoned writes is recovered.
     Rehearsals are throwaway runs.
 - A new failure-recording helper chooses by the same test: shield only when nothing later

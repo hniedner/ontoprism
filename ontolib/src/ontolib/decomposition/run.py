@@ -124,6 +124,7 @@ _PROGRESS_HEARTBEAT_SECONDS = 15.0
 _SOURCE_PREFLIGHT_MAX_CLOSURE_NODES = 20_000
 _STATIC_LOOKUP_BATCH_SIZE = 500
 _SHA256_HEX_LENGTH = 64
+_INVALIDATION_RECORD_TIMEOUT_SECONDS = 5.0
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Sequence
@@ -1787,6 +1788,11 @@ async def _publish_or_complete_run(
                 PublicationPreflightError | PublicationFinalizationError,
             ):
                 raise
+            if config.rehearsal:
+                raise RunPublicationError(
+                    f"Rehearsal {setup.run_id!r} publication failed; "
+                    "a rehearsal cannot be resumed"
+                ) from publish_error
             raise RunPublicationError(
                 f"Run {setup.run_id!r} publication failed and remains retryable"
             ) from publish_error
@@ -2484,14 +2490,9 @@ async def _record_pipeline_failure(
             "Inspect the run's decomp_constituent, decomp_minted_proposal, "
             "decomp_definition_* and decomp_work_item rows before reuse."
         )
-        try:
-            recorded = await provenance.invalidate_run(setup.run_id, exc)
-        except BaseException:
-            exc.add_note(
-                f"Invalidating run {setup.run_id!r} did not complete; partial "
-                f"results may survive. {advice}"
-            )
-            raise
+        recorded = await _record_invalidation(
+            provenance, setup.run_id, exc, advice=advice
+        )
         message = (
             "Partial results were NOT discarded: run "
             f"{setup.run_id!r} was no longer 'running'. {advice}"
@@ -2504,6 +2505,40 @@ async def _record_pipeline_failure(
         )
     if not recorded:
         exc.add_note(message)
+
+
+async def _record_invalidation(
+    provenance: ProvenanceStore,
+    run_id: str,
+    original: BaseException,
+    *,
+    advice: str,
+) -> bool:
+    task = asyncio.create_task(provenance.invalidate_run(run_id, original))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError as cancellation:
+        try:
+            async with asyncio.timeout(_INVALIDATION_RECORD_TIMEOUT_SECONDS):
+                await task
+        except TimeoutError:
+            original.add_note(
+                f"Invalidating run {run_id!r} timed out after "
+                f"{_INVALIDATION_RECORD_TIMEOUT_SECONDS:g}s; partial results may "
+                f"survive. {advice}"
+            )
+        except BaseException as invalidation_error:
+            original.add_note(
+                f"Invalidating run {run_id!r} failed during cancellation: "
+                f"{type(invalidation_error).__name__}: {invalidation_error}. {advice}"
+            )
+        raise cancellation from original
+    except BaseException:
+        original.add_note(
+            f"Invalidating run {run_id!r} did not complete; partial results may "
+            f"survive. {advice}"
+        )
+        raise
 
 
 async def run_pipeline(

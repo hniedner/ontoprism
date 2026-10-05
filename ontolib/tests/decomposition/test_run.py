@@ -3186,10 +3186,7 @@ async def test_surviving_partial_results_are_reported_on_the_raised_error() -> N
 
 
 @pytest.mark.unit
-async def test_an_interrupted_invalidation_still_warns_about_partial_results() -> None:
-    """When `invalidate_run` is cancelled (its transaction may not have
-    committed), the drift error must still carry the partial-results warning as
-    it propagates as the cancellation's cause."""
+async def test_cancellation_waits_for_the_invalidation_write() -> None:
     client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
@@ -3200,7 +3197,17 @@ async def test_an_interrupted_invalidation_still_warns_about_partial_results() -
             total_in_scope=0, decomposed=0, residual=0, minted_count=0
         )
     )
-    provenance.invalidate_run = AsyncMock(side_effect=asyncio.CancelledError())
+    invalidation_started = asyncio.Event()
+    release_invalidation = asyncio.Event()
+    invalidation_finished = asyncio.Event()
+
+    async def invalidate(_run_id: str, _error: BaseException) -> bool:
+        invalidation_started.set()
+        await release_invalidation.wait()
+        invalidation_finished.set()
+        return True
+
+    provenance.invalidate_run = AsyncMock(side_effect=invalidate)
     source = AsyncMock(
         side_effect=[
             _source_snapshot(),
@@ -3209,23 +3216,55 @@ async def test_an_interrupted_invalidation_still_warns_about_partial_results() -
         ]
     )
 
-    with pytest.raises(asyncio.CancelledError) as cancellation:
-        await run_pipeline(
+    task = asyncio.create_task(
+        run_pipeline(
             RunConfig(branch="neoplasm"),
             client,
             provenance,
             get_source_snapshot=source,
         )
+    )
+    await invalidation_started.wait()
+    task.cancel()
+    await asyncio.sleep(0)
 
+    assert not task.done()
+    release_invalidation.set()
+    with pytest.raises(asyncio.CancelledError) as cancellation:
+        await task
+
+    assert invalidation_finished.is_set()
     drift = cancellation.value.__cause__
     assert isinstance(drift, SourceIdentityChangedError)
-    (note,) = drift.__notes__
-    assert note.startswith("Invalidating run ")
-    assert note.endswith(
-        "did not complete; partial results may survive. Inspect the run's "
-        "decomp_constituent, decomp_minted_proposal, decomp_definition_* and "
-        "decomp_work_item rows before reuse."
+    assert not getattr(drift, "__notes__", [])
+
+
+@pytest.mark.unit
+async def test_cancelled_invalidation_wait_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provenance = MagicMock()
+    started = asyncio.Event()
+
+    async def never_finishes(_run_id: str, _error: BaseException) -> bool:
+        started.set()
+        await asyncio.Future()
+        return True
+
+    provenance.invalidate_run = AsyncMock(side_effect=never_finishes)
+    monkeypatch.setattr(run_module, "_INVALIDATION_RECORD_TIMEOUT_SECONDS", 0.01)
+    setup = _checkpoint_setup()
+    drift = SourceIdentityChangedError("source changed")
+    task = asyncio.create_task(
+        run_module._record_pipeline_failure(provenance, setup, drift)
     )
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=0.2)
+
+    assert any("timed out" in note for note in drift.__notes__)
 
 
 @pytest.mark.unit
@@ -3723,6 +3762,33 @@ async def test_publication_failure_is_recorded_as_retryable_before_completion(
     staging = next(path for path in tmp_path.iterdir() if ".staging-" in path.name)
     assert staging.exists()
     assert not out.exists()
+
+
+@pytest.mark.unit
+async def test_rehearsal_publication_failure_does_not_claim_it_is_retryable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_publication(**_kwargs: object) -> None:
+        raise OSError("publication failed")
+
+    monkeypatch.setattr(run_module, "publish_artifact", fail_publication)
+    config = RunConfig(branch="neoplasm", rehearsal=True)
+
+    with pytest.raises(RunPublicationError) as failure:
+        await run_module._publish_or_complete_run(
+            setup=_checkpoint_setup(),
+            config=config,
+            client=MagicMock(),
+            provenance=MagicMock(),
+            decompositions=[],
+            metrics={},
+            publication=(tmp_path / "staging.ttl", tmp_path / "output.ttl"),
+        )
+
+    assert "rehearsal" in str(failure.value)
+    assert "cannot be resumed" in str(failure.value)
+    assert "retryable" not in str(failure.value)
 
 
 @pytest.mark.unit
