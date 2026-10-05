@@ -394,6 +394,8 @@ class _LifecycleClient:
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str]]:
         del required_variables
+        if "VALUES ?requestedConcept" in query:
+            return []
         if "SELECT DISTINCT ?expression" in query and "owl:equivalentClass" in query:
             return []
         if "?restriction owl:onProperty ?role" in query:
