@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -389,6 +390,23 @@ async def test_update_does_not_replay_ambiguous_transport_failure(
 
     assert _Handler.closed_connection_requests == 1
     assert len(_Handler.update_requests) == 1
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_sequential_real_qlever_queries_avoid_keepalive_stall(
+    isolated_qlever_url: str,
+) -> None:
+    query = "SELECT * WHERE { ?s ?p ?o } LIMIT 1"
+    async with SparqlHttpClient.for_qlever(
+        isolated_qlever_url, named_graphs=()
+    ) as client:
+        started = time.perf_counter()
+        for _ in range(20):
+            assert await client.select(query)
+        elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.4, f"20 sequential QLever queries took {elapsed:.3f}s"
 
 
 @pytest.mark.integration

@@ -224,6 +224,9 @@ is the oracle demo. Every engine change shows corpus shape on the seeded 1,000-c
 sample rehearsal (or on a stored full run). Demos show whole-run
 distributions, not only one hand-picked concept. At the start of an engine milestone,
 check the applicable decisions against the implementation. Profile before optimising.
+A time breakdown must reconcile with the process's wall-clock time measured from outside
+(`/usr/bin/time`); report any gap over 5% and what fills it. A measurement used to decide
+an issue must exercise the code that issue names.
 Cleanup in a runtime import path (engine, backend, `oracle-metrics`) is not deferred
 as "when touched".
 
