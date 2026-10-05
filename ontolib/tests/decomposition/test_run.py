@@ -2692,6 +2692,24 @@ def test_run_static_lookups_fail_closed_on_wrong_source_or_missing_rows() -> Non
 
 
 @pytest.mark.unit
+async def test_static_lookups_require_a_source_identity_at_detection() -> None:
+    lookups = run_module.RunStaticLookups(
+        source_identity="a" * 64,
+        semantic_types={"C1": ("Neoplastic Process",)},
+        role_labels={},
+    )
+
+    with pytest.raises(RunStateError, match="source identity"):
+        await run_module._detect_concept(
+            "C1",
+            MagicMock(),
+            label=None,
+            walker_max_depth=7,
+            static_lookups=lookups,
+        )
+
+
+@pytest.mark.unit
 async def test_missing_requested_label_fails_the_named_work_item() -> None:
     setup = _checkpoint_setup()
     setup.pending = ["C1"]

@@ -548,6 +548,8 @@ async def _detect_concept(
     computing ``residual_precoordination`` (D37): the metric is only meaningful if a
     constituent is judged by the *same* detector as the concept it came from.
     """
+    if static_lookups is not None and source_identity is None:
+        raise RunStateError("static NCIt lookups require a source identity")
     semantic_types = (
         await _semantic_types_for_concept(client, code)
         if static_lookups is None or source_identity is None
@@ -629,7 +631,6 @@ async def _detect_candidate_or_unknown(
             walker_max_depth=walker_max_depth,
             anchor_rows_cache=anchor_rows_cache,
             static_lookups=static_lookups,
-            source_identity=source_identity,
         )
     except complete_definition.UnsupportedDefinitionConstructorError:
         return _CandidateResult(
