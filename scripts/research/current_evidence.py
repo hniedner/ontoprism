@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -13,8 +12,12 @@ from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, Protocol, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
+from ontolib.common.boundary_models import (
+    StrictFrozenBoundaryModel,
+    pydantic_json_sha256,
+)
 from ontolib.decomposition.axis_contracts import normalized_axis_for_role
 from ontolib.decomposition.evaluation import (
     PairPartition,
@@ -112,8 +115,7 @@ class RehearsalOracleMetricsStore(Protocol):
     async def decompositions_for_run(self, run_id: str) -> list[Decomposition]: ...
 
 
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_StrictModel = StrictFrozenBoundaryModel
 
 
 CurrentConceptCode = Annotated[str, Field(pattern=r"^C[0-9]+$")]
@@ -125,16 +127,7 @@ CurrentRelease = Annotated[str, Field(min_length=1)]
 CurrentRunId = Annotated[str, Field(pattern=r"^[A-Za-z0-9_.:-]+$", min_length=1)]
 
 
-def _identity(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-            default=lambda item: item.model_dump(mode="json"),
-        ).encode()
-    ).hexdigest()
+_identity = pydantic_json_sha256
 
 
 class CurrentSourceOccurrence(_StrictModel):

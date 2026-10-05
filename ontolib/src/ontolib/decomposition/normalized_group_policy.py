@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass, replace
 from importlib.resources import files
 from pathlib import Path
@@ -11,7 +9,11 @@ from typing import Literal, Self
 
 from pydantic import Field, model_validator
 
-from ontolib.common.boundary_models import StrictFrozenBoundaryModel
+from ontolib.common.boundary_models import (
+    StrictFrozenBoundaryModel,
+    canonical_json_sha256,
+    pydantic_json_default,
+)
 from ontolib.decomposition.evaluation import compare_common_pair_partition
 from ontolib.decomposition.models import Constituent, Decomposition, GenusDefinitionFact
 
@@ -70,15 +72,7 @@ CERVICAL_STAGE_RATIONALE = (
 
 
 def canonical_identity(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-            default=lambda item: item.model_dump(mode="json"),
-        ).encode()
-    ).hexdigest()
+    return canonical_json_sha256(value, default=pydantic_json_default)
 
 
 class SourceCoordinate(StrictFrozenBoundaryModel):

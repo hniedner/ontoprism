@@ -32,6 +32,7 @@ from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import iterparse
 from pydantic import BaseModel, ConfigDict
 
+from ontolib.common.boundary_models import canonical_json_sha256
 from ontolib.core.download_cache import (
     DownloadOutcome,
     cached_download,
@@ -359,11 +360,7 @@ def _drop_cache(zip_path: Path) -> None:
     manifest_path(zip_path).unlink(missing_ok=True)
 
 
-def _identity(payload: object) -> str:
-    canonical = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode()
-    return hashlib.sha256(canonical).hexdigest()
+_identity = canonical_json_sha256
 
 
 def _require_artifact(result: OwlDownloadResult) -> OwlArtifactRecord:

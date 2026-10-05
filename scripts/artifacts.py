@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import heapq
 import json
 import os
@@ -18,6 +17,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
+from ontolib.common.boundary_models import canonical_json_line_bytes, sha256_hex
 from ontolib.decomposition.artifact_contract import COMPOSE_PROJECT, POSTGRES_VOLUME
 from ontolib.decomposition.run_artifacts import (
     ArtifactManifest,
@@ -715,8 +715,7 @@ def inventory_repository(
     }
 
 
-def _canonical_bytes(payload: dict[str, object]) -> bytes:
-    return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+_canonical_bytes = canonical_json_line_bytes
 
 
 def _fsync_directory(path: Path) -> None:
@@ -734,7 +733,7 @@ def _required_int(value: object, label: str) -> int:
 
 
 def bind_plan_identity(payload: dict[str, object]) -> dict[str, Any]:
-    identity = hashlib.sha256(_canonical_bytes(payload)).hexdigest()
+    identity = sha256_hex(_canonical_bytes(payload))
     return {**payload, "plan_identity": identity}
 
 

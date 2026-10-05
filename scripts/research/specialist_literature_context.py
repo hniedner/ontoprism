@@ -11,7 +11,9 @@ from datetime import date
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
+
+from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 
 CONCEPT_ORDER = ("C27262", "C102870", "C6135", "C4791", "C100054", "C198031", "C35756")
 _CONTROLLING_AUTHORITY_MAX = 2
@@ -19,8 +21,7 @@ _MIN_FEATURE_LENGTH = 3
 _DISTINCT_PAIR_THRESHOLD = 2
 
 
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_StrictModel = StrictFrozenBoundaryModel
 
 
 class LiteraturePairKey(_StrictModel):

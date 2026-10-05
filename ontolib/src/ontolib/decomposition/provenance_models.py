@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -18,6 +17,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from ontolib.common.boundary_models import canonical_json_bytes, canonical_json_sha256
 
 # Pydantic resolves these aliases while constructing the runtime model schema.
 from ontolib.decomposition.branches import ScopeRoot, ScopeVersion
@@ -42,7 +43,7 @@ RUN_STAGE_SEQUENCE: tuple[RunStageName, ...] = (
     "publication",
 )
 RUN_STAGE_SEQUENCE_IDENTITY = hashlib.sha256(
-    json.dumps(RUN_STAGE_SEQUENCE, separators=(",", ":")).encode()
+    canonical_json_bytes(RUN_STAGE_SEQUENCE)
 ).hexdigest()
 
 
@@ -164,10 +165,7 @@ class FullRunExecutionIdentity(BaseModel):
 
 def canonical_json_identity(payload: object) -> str:
     """SHA-256 over the canonical JSON encoding shared by writers and inspectors."""
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    return canonical_json_sha256(payload)
 
 
 def _require_rehearsal_unpublished(

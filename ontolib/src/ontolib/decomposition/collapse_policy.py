@@ -11,7 +11,9 @@ from contextlib import suppress
 from importlib.resources import files
 from typing import TYPE_CHECKING, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
+
+from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -30,8 +32,7 @@ class CollapsePolicyError(ValueError):
     """The collapse policy is stale, ambiguous, or inapplicable to this source."""
 
 
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_StrictModel = StrictFrozenBoundaryModel
 
 
 class CollapseVeto(_StrictModel):

@@ -5,11 +5,11 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
+from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_StrictModel = StrictFrozenBoundaryModel
 
 
 class StableGovernance(_StrictModel):

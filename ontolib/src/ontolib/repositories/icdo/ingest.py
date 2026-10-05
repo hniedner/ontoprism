@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import zipfile
@@ -12,6 +11,8 @@ from typing import TYPE_CHECKING, Literal
 import xlrd
 from openpyxl import load_workbook
 from pydantic import ValidationError
+
+from ontolib.common.boundary_models import sha256_hex
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -60,8 +61,7 @@ class SourceFormatError(ValueError):
     """Publisher source does not satisfy the certified workbook contract."""
 
 
-def _sha256(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
+_sha256 = sha256_hex
 
 
 def _text(value: object) -> str | None:
