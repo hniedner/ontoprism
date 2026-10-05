@@ -2002,6 +2002,22 @@ def test_a_stored_database_failure_starts_with_the_driver_message() -> None:
 
 
 @pytest.mark.unit
+def test_a_database_wrapper_without_a_driver_error_keeps_meaningful_text() -> None:
+    error = DBAPIError(
+        "SELECT source_identity FROM decomp_run",
+        None,
+        None,
+        False,
+    )
+
+    error_type, message = provenance_module._bounded_failure(error)
+
+    assert error_type == "DBAPIError"
+    assert message != "None"
+    assert "SELECT source_identity FROM decomp_run" in message
+
+
+@pytest.mark.unit
 def test_a_cause_chain_cut_at_its_depth_bound_says_so() -> None:
     error = RuntimeError("top")
     link = error
