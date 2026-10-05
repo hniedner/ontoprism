@@ -550,10 +550,12 @@ async def _detect_concept(
     """
     if static_lookups is not None and source_identity is None:
         raise RunStateError("static NCIt lookups require a source identity")
+    if static_lookups is not None and source_identity is not None:
+        static_lookups = static_lookups.require_source(source_identity)
     semantic_types = (
         await _semantic_types_for_concept(client, code)
-        if static_lookups is None or source_identity is None
-        else static_lookups.require_source(source_identity).semantic_types_for(code)
+        if static_lookups is None
+        else static_lookups.semantic_types_for(code)
     )
     definition, roles = await stated_queries.read_complete_genus_chain(
         client.select,
@@ -561,9 +563,7 @@ async def _detect_concept(
         max_depth=walker_max_depth,
         anchor_rows_cache=anchor_rows_cache,
         resolve_role_labels=(
-            None
-            if static_lookups is None or source_identity is None
-            else static_lookups.require_source(source_identity).role_labels_for
+            None if static_lookups is None else static_lookups.role_labels_for
         ),
     )
     morphology_fillers = await stated_queries.resolve_morphology_fillers(
@@ -631,6 +631,7 @@ async def _detect_candidate_or_unknown(
             walker_max_depth=walker_max_depth,
             anchor_rows_cache=anchor_rows_cache,
             static_lookups=static_lookups,
+            source_identity=source_identity,
         )
     except complete_definition.UnsupportedDefinitionConstructorError:
         return _CandidateResult(
@@ -638,10 +639,8 @@ async def _detect_candidate_or_unknown(
             outcome="unknown",
             semantic_types=(
                 await _semantic_types_for_concept(client, code)
-                if static_lookups is None or source_identity is None
-                else static_lookups.require_source(source_identity).semantic_types_for(
-                    code
-                )
+                if static_lookups is None
+                else static_lookups.semantic_types_for(code)
             ),
         )
 
@@ -2329,7 +2328,6 @@ async def _qualify_collapse_policy(
             label=None,
             walker_max_depth=walker_max_depth,
             anchor_rows_cache=anchor_rows_cache,
-            source_identity=source_identity,
         )
         occurrences.extend(definition.occurrences)
     policy.qualify_live_occurrences(occurrences, source_identity=source_identity)

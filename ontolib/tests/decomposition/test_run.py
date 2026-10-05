@@ -10,7 +10,7 @@ from collections.abc import Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
 import pytest
@@ -2707,6 +2707,21 @@ async def test_static_lookups_require_a_source_identity_at_detection() -> None:
             walker_max_depth=7,
             static_lookups=lookups,
         )
+
+    with patch.object(
+        run_module,
+        "_detect_concept",
+        AsyncMock(side_effect=UnsupportedDefinitionConstructorError("unsupported")),
+    ) as detect:
+        await run_module._detect_candidate_or_unknown(
+            "C1",
+            MagicMock(),
+            label=None,
+            walker_max_depth=7,
+            static_lookups=lookups,
+            source_identity="a" * 64,
+        )
+    assert detect.await_args.kwargs["source_identity"] == "a" * 64
 
 
 @pytest.mark.unit
