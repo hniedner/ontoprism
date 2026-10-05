@@ -8,6 +8,7 @@ import pytest
 from scripts.adjudication import main as adjudication_main
 from scripts.research.golden_review import load_migrated_historical_adjudication
 
+from ontolib.decomposition import proposal_registry_migration as migration_module
 from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
@@ -54,6 +55,31 @@ def _recompute_envelope_identity(payload: dict[str, object]) -> None:
             ensure_ascii=True,
         ).encode("ascii")
     ).hexdigest()
+
+
+@pytest.mark.unit
+def test_historical_file_hash_translates_read_failures(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    envelope = load_proposal_registry_migration_envelope(MIGRATION)
+    monkeypatch.setattr(migration_module, "_load_json", lambda _path: {})
+    expected = next(
+        item
+        for item in envelope.historical_artifacts
+        if item.kind == "neoplasm-adjudication"
+    )
+    monkeypatch.setattr(
+        migration_module,
+        "_artifact_identity",
+        lambda _kind, _value: expected.artifact_identity,
+    )
+
+    with pytest.raises(ProposalRegistryMigrationError, match="cannot be read"):
+        validate_historical_migration_artifact(
+            envelope,
+            "neoplasm-adjudication",
+            tmp_path / "missing.json",
+        )
 
 
 @pytest.mark.unit

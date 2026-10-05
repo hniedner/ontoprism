@@ -133,6 +133,46 @@ async def _completion_metrics(
     }
 
 
+async def test_resume_reclaims_a_stage_left_running() -> None:
+    run_id = _new_run_id("neoplasm")
+    fingerprint = _fingerprint()
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    stage_input = "b" * 64
+    try:
+        assert isinstance(
+            await store.admit_run(
+                run_id,
+                "26.07d",
+                fingerprint,
+                FullRunExecutionIdentity.from_fingerprint(fingerprint),
+            ),
+            FreshAdmitted,
+        )
+        first_claim = await store.claim_stage(run_id, "preflight", stage_input)
+        assert first_claim is not None
+
+        resumed = await store.admit_run(
+            "unused-resume-id",
+            "26.07d",
+            fingerprint,
+            FullRunExecutionIdentity.from_fingerprint(fingerprint),
+            resume_run_id=run_id,
+        )
+        assert resumed == ResumeAdmitted(run_id=run_id, resume_kind=ResumeKind.SEMANTIC)
+
+        second_claim = await store.claim_stage(run_id, "preflight", stage_input)
+        assert second_claim is not None
+        assert second_claim != first_claim
+        stage = (await store.run_stages(run_id))[0]
+        assert stage.state == "running"
+        assert stage.attempt_count == 2
+        assert stage.claim_token == second_claim
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
 @pytest.mark.asyncio
 async def test_stage_checkpoints_are_ordered_fenced_and_preserve_completed_upstream(
     isolated_postgres_settings,
@@ -354,7 +394,13 @@ class _LifecycleClient:
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str]]:
         del required_variables
+        if "VALUES ?requestedConcept" in query:
+            return []
         if "SELECT DISTINCT ?expression" in query and "owl:equivalentClass" in query:
+            return []
+        if "?restriction owl:onProperty ?role" in query:
+            return []
+        if "SELECT ?code ?st" in query:
             return []
         raise AssertionError(f"unexpected query: {query}")
 

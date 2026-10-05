@@ -9,13 +9,13 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 from pydantic import (
-    BaseModel,
-    ConfigDict,
     Field,
     TypeAdapter,
     computed_field,
     model_validator,
 )
+
+from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 
 type IcdoEdition = Literal["3.2", "4.0"]
 type IcdoAxis = Literal["morphology", "topography"]
@@ -27,8 +27,7 @@ type IcdoRepositorySort = Literal[
 _BEHAVIOUR = TypeAdapter(IcdoBehaviour)
 
 
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+_StrictModel = StrictFrozenBoundaryModel
 
 
 class MorphologyCode32(_StrictModel):

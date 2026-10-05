@@ -20,7 +20,10 @@ from openpyxl.styles import Protection
 from openpyxl.worksheet.datavalidation import DataValidation
 from pydantic import Field, model_validator
 
-from ontolib.common.boundary_models import StrictFrozenBoundaryModel
+from ontolib.common.boundary_models import (
+    StrictFrozenBoundaryModel,
+    pydantic_json_sha256,
+)
 from ontolib.decomposition.evaluation import (
     PartitionComparison,
     PartitionDiagnosis,
@@ -84,16 +87,7 @@ class R82PathEdge(StrictFrozenBoundaryModel):
     source_identity: str = Field(pattern=_SHA256)
 
 
-def _identity(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-            default=lambda item: item.model_dump(mode="json"),
-        ).encode()
-    ).hexdigest()
+_identity = pydantic_json_sha256
 
 
 class HistoricalAgreement(StrictFrozenBoundaryModel):

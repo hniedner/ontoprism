@@ -161,6 +161,33 @@ async def test_preflight_rejects_malformed_and_overflow() -> None:
 
 
 @pytest.mark.unit
+async def test_preflight_classifies_codes_after_batch_preload_rejection() -> None:
+    async def preload(_codes: tuple[str, ...]) -> None:
+        raise CompleteDefinitionError("batch row cannot identify its concept")
+
+    async def read(code: str) -> CompleteDefinition:
+        if code == "C1":
+            raise CompleteDefinitionError("definition RDF list contains a cycle")
+        raise DefinitionBoundExceededError("definition exceeds the nesting bound")
+
+    result = await run_source_preflight(
+        ("C1", "C2"),
+        read_definition=read,
+        source_identity="a" * 64,
+        reader_identity="b" * 64,
+        query_identity="c" * 64,
+        tool_identity="qlever-v1",
+        walker_max_depth=7,
+        max_nodes=4096,
+        preload_definitions=preload,
+    )
+
+    assert result.checked_codes == ("C1", "C2")
+    assert result.malformed_codes == ("C1",)
+    assert result.overflow_codes == ("C2",)
+
+
+@pytest.mark.unit
 async def test_preflight_does_not_infer_overflow_from_malformed_error_text() -> None:
     async def read(_code: str) -> CompleteDefinition:
         raise CompleteDefinitionError("malformed row contains a bound label")

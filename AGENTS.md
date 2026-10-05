@@ -14,9 +14,8 @@ owner changes it.
 The product is an **NCIt Neoplasm decomposition demonstrator with expert review**.
 Ontology-generic platform work, NAACCR, vision stages 3–5, post-coordination grammar,
 cloud, promotion of mappings to identity grade, and literature generation are scheduled
-after G1 and start only after a "go" from it. Two things are not parked: correcting the
-existing cross-references (#226, #151, #159, #120), and keeping the repositories current
-(#490 to #494). A standard backend library and component set reused by the shipped
+after G1 and start only after a "go" from it. Keeping the repositories current
+(#490 to #494) is not parked. A standard backend library and component set reused by the shipped
 repositories (#488) does not unpark the ontology-generic platform. Follow the
 owner-approved numbered delivery milestones (M10 onward) in due-date order: each states
 its value and issue order, contains at most five issues and ends with one reviewed PR to
@@ -36,7 +35,7 @@ Experts work the `needs-SME` queue in the completed graph-based curation interfa
 independent gate G1; the owner records their decisions and go/no-go. If no independent
 expert commits to sessions by **2026-11-06**, stop platform work and write up the
 findings (told closure, P334 histology anchoring, detector saturation, D58 cases) for
-NCI EVS. G1 no longer precedes the owner-approved corrected full run (#470).
+NCI EVS. The owner-approved corrected full run (#470) does not wait for G1.
 
 ## Workflow
 
@@ -116,7 +115,7 @@ and passes. Whether a `main` merge released is not judged here (#131).
   A PR to `main` also expects CodeQL and Analyze jobs. For dependency/workflow-only PRs,
   neutral aggregate CodeQL with no Analyze jobs is the documented exception. GitHub's
   `main integrity` ruleset enforces the five aggregate checks; it does not require the
-  branch to be up to date, matching the base-skew rule above.
+  branch to be up to date, so new commits on `main` do not void a PR's checks.
 - No dead code or internal legacy compatibility. The product is pre-production: rebuild
   internal data rather than preserving old-schema readers or fallbacks.
 - Never signal a process you did not start or select one by port/name. Record the PID
@@ -217,13 +216,15 @@ information: fix and rerun its failing lane, then run full `verify` once at the 
 
 ## Long-running jobs
 
-Look at corpus shape before building on a run's output. From #457 on, every engine
-report gives both the official oracle score (flagged emissions unscoreable) and the
-plain exact-pair score. Until #457 lands, `oracle-metrics` output (the official score)
-is the oracle demo. Every engine change shows corpus shape on the seeded 1,000-concept
+Look at corpus shape before building on a run's output. Every engine report gives both
+the official oracle score (flagged emissions unscoreable) and the plain exact-pair
+score. Every engine change shows corpus shape on the seeded 1,000-concept
 sample rehearsal (or on a stored full run). Demos show whole-run
 distributions, not only one hand-picked concept. At the start of an engine milestone,
 check the applicable decisions against the implementation. Profile before optimising.
+A time breakdown must reconcile with the process's wall-clock time measured from outside
+(`/usr/bin/time`); report any gap over 5% and what fills it. A measurement used to decide
+an issue must exercise the code that issue names.
 Cleanup in a runtime import path (engine, backend, `oracle-metrics`) is not deferred
 as "when touched".
 

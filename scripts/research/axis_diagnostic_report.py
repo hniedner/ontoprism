@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 import re
@@ -12,7 +11,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
+
+from ontolib.common.boundary_models import (
+    StrictFrozenBoundaryModel,
+    pydantic_json_sha256,
+)
 
 try:
     from scripts.research.current_evidence import (
@@ -98,20 +102,10 @@ _SME_SUGGESTIONS = 106
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 
 
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_StrictModel = StrictFrozenBoundaryModel
 
 
-def _identity(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-            default=lambda item: item.model_dump(mode="json"),
-        ).encode()
-    ).hexdigest()
+_identity = pydantic_json_sha256
 
 
 class SerializedSourceOccurrence(_StrictModel):

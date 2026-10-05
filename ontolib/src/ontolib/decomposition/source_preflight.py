@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
+from ontolib.common.boundary_models import canonical_json_sha256
 from ontolib.decomposition.complete_definition import (
     CompleteDefinitionError,
     DefinitionBoundExceededError,
@@ -23,6 +22,7 @@ from ontolib.decomposition.models import (
 from ontolib.decomposition.provenance_models import CompletionRunMetrics
 
 ReadDefinition = Callable[[str], Awaitable[CompleteDefinition]]
+PreloadDefinitions = Callable[[tuple[str, ...]], Awaitable[None]]
 PreflightProgress = Callable[[int, int, str], None]
 _PROGRESS_INTERVAL = 1000
 
@@ -77,9 +77,7 @@ class SourcePreflightResult(BaseModel):
 
 
 def _worklist_identity(worklist: tuple[str, ...]) -> str:
-    return hashlib.sha256(
-        json.dumps(worklist, separators=(",", ":"), ensure_ascii=True).encode()
-    ).hexdigest()
+    return canonical_json_sha256(worklist)
 
 
 def _representative_unknown_metrics() -> CompletionRunMetrics:
@@ -209,6 +207,7 @@ async def run_source_preflight(
     walker_max_depth: int,
     max_nodes: int,
     progress: PreflightProgress | None = None,
+    preload_definitions: PreloadDefinitions | None = None,
 ) -> SourcePreflightResult:
     """Census exact roots plus their defined-genus and filler dependencies.
 
@@ -216,7 +215,9 @@ async def run_source_preflight(
     whole worklist. Dependencies are read once and are not recursively expanded. The
     queue is drained even after unsupported constructors are recorded; only malformed
     or over-bound definitions make ``concept_work_allowed`` false. ``overflow_codes``
-    holds concepts whose own complete definition exceeds a reader bound.
+    holds concepts whose own complete definition exceeds a reader bound. A batch
+    preload is an optimisation only: definition errors fall back to the individual
+    reads that attribute and classify each affected concept.
     """
     # A worklist concept carries its 1-based position; a dependency carries None and
     # is read but not expanded.
@@ -227,19 +228,18 @@ async def run_source_preflight(
     census = _DefinitionCensus(read_definition)
     closure_count = 0
     _report_preflight_start(progress, worklist)
-    while queue:
-        code, position = queue.popleft()
-        definition = await census.read(code)
-        _report_preflight_position(progress, position, len(worklist), code)
-        closure_count = _queue_dependencies(
-            definition,
-            position,
-            scheduled=scheduled,
-            queue=queue,
-            closure_count=closure_count,
-            max_nodes=max_nodes,
-            worklist_count=len(worklist),
-        )
+    if preload_definitions is not None:
+        await _preload_or_fall_back(preload_definitions, worklist)
+    closure_count = await _drain_census(
+        queue,
+        census,
+        worklist=worklist,
+        scheduled=scheduled,
+        closure_count=closure_count,
+        max_nodes=max_nodes,
+        progress=progress,
+        preload_definitions=preload_definitions,
+    )
     return SourcePreflightResult(
         source_identity=source_identity,
         worklist_identity=_worklist_identity(worklist),
@@ -257,3 +257,57 @@ async def run_source_preflight(
         overflow_codes=tuple(sorted(census.overflow)),
         representative_metrics=_representative_unknown_metrics(),
     )
+
+
+async def _drain_census(
+    queue: deque[tuple[str, int | None]],
+    census: _DefinitionCensus,
+    *,
+    worklist: tuple[str, ...],
+    scheduled: set[str],
+    closure_count: int,
+    max_nodes: int,
+    progress: PreflightProgress | None,
+    preload_definitions: PreloadDefinitions | None,
+) -> int:
+    dependencies_to_preload: set[str] = set()
+    while queue:
+        code, position = queue.popleft()
+        if position is None:
+            await _preload_or_fall_back(
+                preload_definitions, tuple(sorted(dependencies_to_preload))
+            )
+            dependencies_to_preload.clear()
+        definition = await census.read(code)
+        _report_preflight_position(progress, position, len(worklist), code)
+        closure_count = _queue_dependencies(
+            definition,
+            position,
+            scheduled=scheduled,
+            queue=queue,
+            closure_count=closure_count,
+            max_nodes=max_nodes,
+            worklist_count=len(worklist),
+        )
+        if (
+            preload_definitions is not None
+            and definition is not None
+            and position is not None
+        ):
+            dependencies_to_preload.update(_dependencies(definition) - set(worklist))
+    return closure_count
+
+
+async def _preload_or_fall_back(
+    preload_definitions: PreloadDefinitions | None,
+    codes: tuple[str, ...],
+) -> None:
+    if preload_definitions is None or not codes:
+        return
+    try:
+        await preload_definitions(codes)
+    except CompleteDefinitionError:
+        # The individual census reads preserve concept attribution and distinguish
+        # malformed definitions from bound overflow. Cached rows from earlier blocks
+        # remain valid and are still reused.
+        return

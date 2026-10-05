@@ -10,6 +10,7 @@ from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.exc import DBAPIError
 
 from ontolib.decomposition import provenance as provenance_module
 from ontolib.decomposition.models import (
@@ -1979,6 +1980,41 @@ def test_a_long_note_keeps_its_label_and_the_error_keeps_its_start() -> None:
     assert "\nRecording the stage failure also failed: OperationalError" in message
     assert "\ncaused by KeyError: 'C1'" in message
     assert "\u2026\nRecording the stage failure also failed" in message
+
+
+@pytest.mark.unit
+def test_a_stored_database_failure_starts_with_the_driver_message() -> None:
+    driver = RuntimeError("duplicate key violates unique constraint decomp_run_pkey")
+    error = DBAPIError(
+        "INSERT INTO decomp_run " + "x" * 500,
+        {"run_id": "neoplasm-run"},
+        driver,
+        False,
+    )
+
+    error_type, message = provenance_module._bounded_failure(error)
+
+    assert error_type == "DBAPIError"
+    assert message.startswith(
+        "duplicate key violates unique constraint decomp_run_pkey"
+    )
+    assert "INSERT INTO decomp_run" not in message
+
+
+@pytest.mark.unit
+def test_a_database_wrapper_without_a_driver_error_keeps_meaningful_text() -> None:
+    error = DBAPIError(
+        "SELECT source_identity FROM decomp_run",
+        None,
+        None,
+        False,
+    )
+
+    error_type, message = provenance_module._bounded_failure(error)
+
+    assert error_type == "DBAPIError"
+    assert message != "None"
+    assert "SELECT source_identity FROM decomp_run" in message
 
 
 @pytest.mark.unit

@@ -8,13 +8,12 @@ These builders apply the OWL restriction-traversal pattern inside a
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
+from ontolib.common.boundary_models import canonical_json_bytes, sha256_hex
 from ontolib.decomposition.complete_definition import (
     AnchorDefinitionRowsCache,
     read_complete_definition,
@@ -73,16 +72,10 @@ _SAFE_LITERAL = re.compile(r'^[^"\\\n{}]+$')
 
 
 def _canonical(value: object) -> bytes:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    ).encode("ascii")
+    return canonical_json_bytes(value)
 
 
-def _sha256(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+_sha256 = sha256_hex
 
 
 def r82_fact_identity(
@@ -1189,7 +1182,20 @@ def _build_role_labels_query(role_codes: Iterable[str]) -> str:
     """
 
 
-async def _definition_role_labels(
+def _build_all_role_labels_query() -> str:
+    return f"""{_PREFIXES}
+        SELECT DISTINCT ?role ?roleLabel WHERE {{
+            GRAPH <{STATED_GRAPH_IRI}> {{
+                ?restriction owl:onProperty ?role .
+            }}
+            OPTIONAL {{ ?role rdfs:label ?roleLabel }}
+            FILTER(STRSTARTS(STR(?role), "{NCIT_NS}R"))
+        }}
+        ORDER BY STR(?role) STR(?roleLabel)
+    """
+
+
+async def read_definition_role_labels(
     select_fn: SelectRows,
     role_codes: set[str],
 ) -> dict[str, str | None]:
@@ -1199,9 +1205,26 @@ async def _definition_role_labels(
         _build_role_labels_query(role_codes),
         required_variables={"role"},
     )
-    labels: dict[str, str | None] = {}
+    labels: dict[str, str | None] = dict.fromkeys(role_codes)
     for row in rows:
         _record_definition_role_label(labels, role_codes, row)
+    return labels
+
+
+async def read_all_definition_role_labels(
+    select_fn: SelectRows,
+) -> dict[str, str | None]:
+    """Read every NCIt role used by a stated restriction in one request."""
+    rows = await select_fn(_build_all_role_labels_query(), required_variables={"role"})
+    labels: dict[str, str | None] = {}
+    for row in rows:
+        role_iri = _required_row_binding(row, "role")
+        if not role_iri.startswith(f"{NCIT_NS}R"):
+            raise ValueError("role label row is not an NCIt role IRI")
+        role_code = role_iri.removeprefix(NCIT_NS)
+        if not role_code[1:].isdigit():
+            raise ValueError("role label row is not an NCIt role IRI")
+        _merge_definition_role_label(labels, role_code, row.get("roleLabel"))
     return labels
 
 
@@ -1288,6 +1311,7 @@ async def read_complete_genus_chain(
     *,
     max_depth: int = 5,
     anchor_rows_cache: AnchorDefinitionRowsCache | None = None,
+    resolve_role_labels: Callable[[set[str]], Mapping[str, str | None]] | None = None,
 ) -> tuple[CompleteDefinition, list[RoleRestriction]]:
     """Return the complete definition and its detector-compatible role projection.
 
@@ -1296,14 +1320,18 @@ async def read_complete_genus_chain(
     proof-bearing reader gives detection and projection the same complete structure.
     ``max_depth`` limits only the detector-compatible role projection; the complete
     record retains its independent fail-closed named-definition depth bound.
+    ``resolve_role_labels`` supplies one complete mapping for the projected role set;
+    omitting it reads those labels from the stated graph.
     """
     complete = await read_complete_definition(
         select_fn, code, anchor_rows_cache=anchor_rows_cache
     )
     restrictions = _projected_restriction_facts(complete, max_depth)
-    labels = await _definition_role_labels(
-        select_fn,
-        {fact.role_code for fact in restrictions},
+    role_codes = {fact.role_code for fact in restrictions}
+    labels = (
+        await read_definition_role_labels(select_fn, role_codes)
+        if resolve_role_labels is None
+        else resolve_role_labels(role_codes)
     )
     return complete, _detector_role_projection(complete, restrictions, labels)
 

@@ -10,14 +10,13 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
+from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 from ontolib.repositories.cadsr.models import CdeSummary
 from ontolib.repositories.cadsr.repository import CdeRepository
 
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_StrictModel = StrictFrozenBoundaryModel
 
 
 class CadsrUsageRow(_StrictModel):

@@ -4,13 +4,16 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import pytest
 
 from ontolib.decomposition.complete_definition import (
+    _MAX_BATCH_CONCEPTS,
     AnchorDefinitionRowsCache,
     CompleteDefinitionError,
     UnsupportedDefinitionConstructorError,
+    build_complete_definition_batch_query,
     build_complete_definition_query,
     definition_facts_from_rows,
     read_complete_definition,
@@ -33,6 +36,124 @@ from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("block_size", [0, _MAX_BATCH_CONCEPTS + 1])
+async def test_definition_preload_rejects_unbounded_block_sizes(
+    block_size: int,
+) -> None:
+    cache = AnchorDefinitionRowsCache()
+
+    with pytest.raises(
+        ValueError, match=rf"block_size must be 1\.\.{_MAX_BATCH_CONCEPTS}"
+    ):
+        await cache.preload(AsyncMock(), ("C1",), block_size=block_size)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "codes", [(), tuple(f"C{index}" for index in range(_MAX_BATCH_CONCEPTS + 1))]
+)
+def test_definition_batch_query_rejects_an_empty_or_oversized_request(
+    codes: tuple[str, ...],
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=rf"batch must contain 1\.\.{_MAX_BATCH_CONCEPTS} concepts",
+    ):
+        build_complete_definition_batch_query(codes)
+
+
+@pytest.mark.unit
+def test_definition_batch_query_accepts_a_full_bounded_batch() -> None:
+    codes = tuple(f"C{index}" for index in range(_MAX_BATCH_CONCEPTS))
+
+    query = build_complete_definition_batch_query(codes)
+
+    assert query.count("<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C") == (
+        _MAX_BATCH_CONCEPTS
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ({"expression": "_:root"}, "missing its requested NCIt concept"),
+        (
+            {"requestedConcept": f"{NCIT_NS}C2", "expression": "_:root"},
+            "returned an unrequested concept",
+        ),
+    ],
+)
+async def test_definition_preload_rejects_uncorrelated_batch_rows(
+    row: dict[str, str], message: str
+) -> None:
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str]]:
+        del query
+        assert required_variables == {
+            "requestedConcept",
+            "expression",
+            "list",
+            "cell",
+        }
+        return [row]
+
+    with pytest.raises(CompleteDefinitionError, match=message):
+        await AnchorDefinitionRowsCache().preload(select, ("C1",))
+
+
+@pytest.mark.unit
+async def test_definition_preload_falls_back_for_a_nested_definition() -> None:
+    outer = {
+        "expression": "_:outer",
+        "parentExpression": None,
+        "nestingDepth": "0",
+        "list": "_:outer-cell",
+        "cell": "_:outer-cell",
+        "next": "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil",
+        "member": "_:inner",
+        "role": None,
+        "target": None,
+        "childExpression": None,
+        "nestedExpression": "_:inner",
+    }
+    inner = {
+        "expression": "_:inner",
+        "parentExpression": "_:outer",
+        "nestingDepth": "1",
+        "list": "_:inner-cell",
+        "cell": "_:inner-cell",
+        "next": "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil",
+        "member": _iri("C2"),
+        "role": None,
+        "target": None,
+        "childExpression": None,
+        "nestedExpression": None,
+    }
+    requests: list[str] = []
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        requests.append(query)
+        if "VALUES ?requestedConcept" in query:
+            return [{**outer, "requestedConcept": _iri("C1")}]
+        if "BIND(0 AS ?requestedNestingDepth)" in query:
+            return [outer]
+        return [outer, inner]
+
+    cache = AnchorDefinitionRowsCache()
+    await cache.preload(select, ("C1",))
+    definition = await read_complete_definition(select, "C1", anchor_rows_cache=cache)
+
+    assert len(definition.groups) == 2
+    assert sum("VALUES ?requestedConcept" in query for query in requests) == 1
+    assert sum("BIND(0 AS ?requestedNestingDepth)" in query for query in requests) == 2
+    assert sum("BIND(1 AS ?requestedNestingDepth)" in query for query in requests) == 1
 
 
 def _iri(code: str) -> str:

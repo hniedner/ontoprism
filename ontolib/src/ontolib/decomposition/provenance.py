@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ontolib.decomposition.enhancement_delta import DELTA_SQL, DeltaOccurrence
@@ -251,13 +251,17 @@ def _bounded_failure(error: BaseException) -> tuple[str, str]:
     """Type and message to persist for ``error``, within the column bounds.
 
     The message is the error's own text, then its account (see ``_failure_account``),
-    one line each. Each account line longer than ``_FAILURE_LINE_LIMIT`` is cut to that
-    length, ending in an ellipsis, so its label survives. The error's own text is cut
-    next, down to ``_FAILURE_OWN_FLOOR`` characters. Only then is the account cut from
-    its end. Every cut of the message's text ends in an ellipsis.
+    one line each. When ``DBAPIError`` carries a wrapped driver error, that driver's
+    text is used so SQL statements and bound parameters are not persisted; a wrapper
+    without one falls back to its own text. Each account line longer than
+    ``_FAILURE_LINE_LIMIT`` is cut to that length, ending in an ellipsis, so its label
+    survives. The error's own text is cut next, down to
+    ``_FAILURE_OWN_FLOOR`` characters. Only then is the account cut from its end. Every
+    cut of the message's text ends in an ellipsis.
     """
     error_type = type(error).__name__[:_FAILURE_TYPE_LIMIT] or "Exception"
-    own = str(error) or error_type
+    own_error = (error.orig or error) if isinstance(error, DBAPIError) else error
+    own = str(own_error) or error_type
     account = _failure_account(error)
     suffix = "".join(f"\n{_clip(line, _FAILURE_LINE_LIMIT)}" for line in account)
     suffix = _clip(suffix, _FAILURE_MESSAGE_LIMIT - min(len(own), _FAILURE_OWN_FLOOR))

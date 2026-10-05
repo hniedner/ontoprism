@@ -31,8 +31,8 @@ external tool (ROBOT/ELK, a DB driver, a serializer) or on real store data, add:
 asserting the same verdict; (c) a **data-shape test** pinning what the *real store* looks like
 (`test_upstream_data_contract.py`); and (d) a **gate-liveness** test proving each gate's reject
 branch is reachable. The external tool must actually run in CI, or its tests silently skip and
-the bugs stay invisible (ROBOT is now installed in the CI integration job for exactly this
-reason). **Exception — data-shape contracts skip in CI by design**: they must interrogate the
+the bugs stay invisible (ROBOT is installed in the CI integration job for this reason).
+**Exception — data-shape contracts skip in CI by design**: they must interrogate the
 *real* store, and seeding a fixture would make them assert facts about the fixture. They are a
 **pre-merge local gate** (`pdm run test-integration-full-store` against the configured
 live stores); a skip is not a pass. The safe default `pdm run test-integration` uses
@@ -58,7 +58,7 @@ out explicitly in the PR; never silently drop the gate.
 
 ### Documented coverage exceptions (current)
 
-- **`backend`/`ontolib` `graph_store.py`** — the NCIt SPARQL-parsing layer is exercised
+- **`ontolib` `graph_store.py` (NCIt and Uberon)** — the SPARQL-parsing layer is exercised
   by the disposable-QLever `integration` suite (combined into the strict `test-ci` gate);
   the gate still passes comfortably (~95%) on everything else.
 - **Frontend `GraphExplorer.svelte` / `GraphMinimap.svelte`** — imperative sigma

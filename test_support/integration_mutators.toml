@@ -232,6 +232,16 @@ tests = ["test_cached_and_uncached_complete_definitions_match_in_disposable_qlev
 fixtures = ["isolated_qlever_url", "preserved_stated_graph"]
 
 [[mutator]]
+path = "ontolib/tests/decomposition/test_stated_integration.py"
+tests = ["test_run_static_lookups_match_individual_disposable_qlever_reads"]
+fixtures = ["isolated_qlever_url", "preserved_stated_graph"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_stated_integration.py"
+tests = ["test_batched_source_census_matches_individual_definition_reads"]
+fixtures = ["isolated_qlever_url", "preserved_stated_graph"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_fixture_safety_integration.py"
 fixtures = ["isolated_qlever_url"]
 
@@ -302,6 +312,11 @@ fixtures = ["isolated_postgres_settings"]
 [[mutator]]
 path = "ontolib/tests/terminologies/test_sparql_client_http.py"
 tests = ["test_version_cardinality_verdict_matches_real_qlever_and_http_double"]
+fixtures = ["isolated_qlever_url"]
+
+[[mutator]]
+path = "ontolib/tests/terminologies/test_sparql_client_http.py"
+tests = ["test_sequential_real_qlever_queries_avoid_keepalive_stall"]
 fixtures = ["isolated_qlever_url"]
 
 [[mutator]]

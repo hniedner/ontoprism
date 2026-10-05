@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 
+from ontolib.common.boundary_models import file_sha256, sha256_hex
 from ontolib.core.download_cache import read_manifest
 from ontolib.core.exceptions import StorageError
 
@@ -60,7 +61,7 @@ class ExtractedCadsrArchive:
         if len(self.xml_paths) != self.source.member_count:
             raise ValueError("archive member count does not match extracted paths")
         member_names = "\n".join(path.name for path in self.xml_paths).encode()
-        if hashlib.sha256(member_names).hexdigest() != self.source.member_names_sha256:
+        if sha256_hex(member_names) != self.source.member_names_sha256:
             raise ValueError("archive member identity does not match extracted paths")
 
 
@@ -100,12 +101,7 @@ def _validate_source(source: CadsrSource) -> None:
     _validate_timestamp_range(source)
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(_COPY_CHUNK_SIZE):
-            digest.update(chunk)
-    return digest.hexdigest()
+_sha256 = file_sha256
 
 
 def _member_match(info: zipfile.ZipInfo) -> re.Match[str]:

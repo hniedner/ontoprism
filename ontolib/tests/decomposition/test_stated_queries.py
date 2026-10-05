@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from collections.abc import Collection
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -28,6 +29,7 @@ from ontolib.decomposition.stated_queries import (
     build_semantic_type_of_query,
     build_semantic_type_query,
     r82_fact_identity,
+    read_all_definition_role_labels,
     read_complete_genus_chain,
     resolve_morphology_filler,
     resolve_morphology_fillers,
@@ -36,6 +38,25 @@ from ontolib.decomposition.stated_queries import (
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "role_iri",
+    ["https://example.org/R101", f"{NCIT_NS}Role101"],
+)
+async def test_all_definition_role_labels_reject_malformed_role_iris(
+    role_iri: str,
+) -> None:
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str]]:
+        del query
+        assert required_variables == {"role"}
+        return [{"role": role_iri, "roleLabel": "Primary site"}]
+
+    with pytest.raises(ValueError, match="not an NCIt role IRI"):
+        await read_all_definition_role_labels(select)
 
 
 def _iri(code: str) -> str:
@@ -870,6 +891,27 @@ async def test_walk_genus_chain_anchors_depth0_roles_on_the_start_concept() -> N
 
     assert len(roles) == 1
     assert roles[0].anchoring_genus == "C6135"
+
+
+@pytest.mark.unit
+async def test_complete_genus_chain_resolves_projected_role_labels_as_one_set() -> None:
+    rows_by_code = {
+        "C1": _definition_rows(
+            "_:root",
+            ("_:r1", _iri("R101"), _iri("C2"), False),
+        )
+    }
+    select = _walker_select_double(rows_by_code, role_labels={})
+    resolve = MagicMock(return_value={"R101": "Disease_Has_Primary_Anatomic_Site"})
+
+    _definition, roles = await read_complete_genus_chain(
+        select,
+        "C1",
+        resolve_role_labels=resolve,
+    )
+
+    resolve.assert_called_once_with({"R101"})
+    assert roles[0].role_code == "R101"
 
 
 @pytest.mark.unit

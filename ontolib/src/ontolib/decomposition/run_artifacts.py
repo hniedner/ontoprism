@@ -15,6 +15,8 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict
 
+from ontolib.common.boundary_models import canonical_json_line_bytes, sha256_hex
+
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _RUN_ID = re.compile(
@@ -74,12 +76,10 @@ def _has_normalized_parts(path: PurePosixPath) -> bool:
     return all(part not in {"", ".", ".."} for part in path.parts)
 
 
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+_sha256 = sha256_hex
 
 
-def _canonical_bytes(payload: dict[str, object]) -> bytes:
-    return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+_canonical_bytes = canonical_json_line_bytes
 
 
 def _strict_fields(payload: dict[str, Any], expected: set[str], label: str) -> None:

@@ -370,12 +370,33 @@ class _FakeClient:
             )
         if "rdfs:subClassOf+" in query:
             return self._ancestors
+        if "VALUES ?requestedConcept" in query:
+            requested = set(re.findall(r"<[^>]+#(C[0-9]+)>", query))
+            return [
+                {**row, "requestedConcept": _iri(code)}
+                for code in requested
+                for row in self._complete_rows.get(code, ())
+            ]
         if (
             "SELECT DISTINCT ?expression ?parentExpression" in query
             and "?requestedNestingDepth" in query
         ):
             code = self._code_in(query)
             return self._complete_rows.get(code or "", [])
+        if "?restriction owl:onProperty ?role" in query:
+            role_codes = {
+                str(row["role"]).removeprefix(NCIT_NS)
+                for rows in self._complete_rows.values()
+                for row in rows
+                if row.get("role") is not None
+            }
+            return [
+                {
+                    "role": _iri(role_code),
+                    "roleLabel": self._role_labels.get(role_code),
+                }
+                for role_code in sorted(role_codes)
+            ]
         if "SELECT ?role ?roleLabel" in query:
             return [
                 {"role": _iri(role_code), "roleLabel": label}
@@ -386,7 +407,18 @@ class _FakeClient:
             code = self._code_in(query)
             return self._genus_walk.get(code or "", [])
         if "BIND(REPLACE(STR(?concept)" in query:
-            return self._semantic_type_of_rows
+            requested = set(re.findall(r"<[^>]+#(C[0-9]+)>", query))
+            configured = [
+                {"code": code, "st": semantic_type}
+                for code in requested
+                for semantic_type in self._semantic_types.get(code, ())
+            ]
+            explicit = [
+                row
+                for row in self._semantic_type_of_rows
+                if row.get("code") in requested
+            ]
+            return [*configured, *explicit]
         if "SELECT DISTINCT ?part ?whole ?assertedPart ?restriction" in query:
             requested = re.findall(r"\(<[^>]+#(C[0-9]+)> <[^>]+#(C[0-9]+)>\)", query)
             return [
@@ -1542,7 +1574,7 @@ async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
         frozenset({"child", "parent"})
     }
     assert requirements_for("?overflowChild") == {frozenset({"overflowChild"})}
-    assert requirements_for("SELECT ?semanticType") == {frozenset({"semanticType"})}
+    assert requirements_for("SELECT ?code ?st") == {frozenset({"code", "st"})}
     assert requirements_for("BIND(REPLACE(STR(?concept)") == {frozenset({"code", "st"})}
     assert requirements_for("rdfs:subClassOf+") == set()
     assert requirements_for("SELECT DISTINCT ?node ?kind ?target") == {
@@ -2629,6 +2661,74 @@ async def test_unsupported_definition_constructor_reaches_unknown_outcome(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("source_identity", ["short", "g" * 64])
+def test_run_static_lookups_require_a_sha256_source_identity(
+    source_identity: str,
+) -> None:
+    with pytest.raises(ValueError, match="SHA-256"):
+        run_module.RunStaticLookups(
+            source_identity=source_identity,
+            semantic_types={},
+            role_labels={},
+        )
+
+
+@pytest.mark.unit
+def test_run_static_lookups_fail_closed_on_wrong_source_or_missing_rows() -> None:
+    lookups = run_module.RunStaticLookups(
+        source_identity="a" * 64,
+        semantic_types={"C1": ("Neoplastic Process",)},
+        role_labels={"R101": "Disease_Has_Primary_Anatomic_Site"},
+    )
+
+    with pytest.raises(SourceIdentityChangedError, match="static NCIt lookups"):
+        lookups.require_source("b" * 64)
+
+    with pytest.raises(RunStateError, match="semantic types for 'C2'"):
+        lookups.semantic_types_for("C2")
+
+    with pytest.raises(RunStateError, match="role labels for R88"):
+        lookups.role_labels_for({"R88"})
+
+
+@pytest.mark.unit
+async def test_static_lookups_require_a_source_identity_at_detection() -> None:
+    lookups = run_module.RunStaticLookups(
+        source_identity="a" * 64,
+        semantic_types={"C1": ("Neoplastic Process",)},
+        role_labels={},
+    )
+
+    with pytest.raises(RunStateError, match="source identity"):
+        await run_module._detect_concept(
+            "C1",
+            MagicMock(),
+            label=None,
+            walker_max_depth=7,
+            static_lookups=lookups,
+        )
+
+    with pytest.raises(SourceIdentityChangedError, match="different source identity"):
+        await run_module._detect_candidate_or_unknown(
+            "C1",
+            MagicMock(),
+            label=None,
+            walker_max_depth=7,
+            static_lookups=lookups,
+            source_identity="b" * 64,
+        )
+
+
+@pytest.mark.unit
+async def test_empty_filler_set_needs_no_semantic_type_query() -> None:
+    client = MagicMock()
+    client.select = AsyncMock()
+
+    assert await run_module._filler_semantic_types(client, set()) == {}
+    client.select.assert_not_called()
+
+
+@pytest.mark.unit
 async def test_missing_requested_label_fails_the_named_work_item() -> None:
     setup = _checkpoint_setup()
     setup.pending = ["C1"]
@@ -3130,10 +3230,8 @@ async def test_surviving_partial_results_are_reported_on_the_raised_error() -> N
 
 
 @pytest.mark.unit
-async def test_an_interrupted_invalidation_still_warns_about_partial_results() -> None:
-    """When `invalidate_run` is cancelled (its transaction may not have
-    committed), the drift error must still carry the partial-results warning as
-    it propagates as the cancellation's cause."""
+@pytest.mark.parametrize("recorded", [True, False])
+async def test_cancellation_waits_for_the_invalidation_write(recorded: bool) -> None:
     client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
@@ -3144,7 +3242,17 @@ async def test_an_interrupted_invalidation_still_warns_about_partial_results() -
             total_in_scope=0, decomposed=0, residual=0, minted_count=0
         )
     )
-    provenance.invalidate_run = AsyncMock(side_effect=asyncio.CancelledError())
+    invalidation_started = asyncio.Event()
+    release_invalidation = asyncio.Event()
+    invalidation_finished = asyncio.Event()
+
+    async def invalidate(_run_id: str, _error: BaseException) -> bool:
+        invalidation_started.set()
+        await release_invalidation.wait()
+        invalidation_finished.set()
+        return recorded
+
+    provenance.invalidate_run = AsyncMock(side_effect=invalidate)
     source = AsyncMock(
         side_effect=[
             _source_snapshot(),
@@ -3153,23 +3261,58 @@ async def test_an_interrupted_invalidation_still_warns_about_partial_results() -
         ]
     )
 
-    with pytest.raises(asyncio.CancelledError) as cancellation:
-        await run_pipeline(
+    task = asyncio.create_task(
+        run_pipeline(
             RunConfig(branch="neoplasm"),
             client,
             provenance,
             get_source_snapshot=source,
         )
+    )
+    await invalidation_started.wait()
+    task.cancel()
+    await asyncio.sleep(0)
 
+    assert not task.done()
+    release_invalidation.set()
+    with pytest.raises(asyncio.CancelledError) as cancellation:
+        await task
+
+    assert invalidation_finished.is_set()
     drift = cancellation.value.__cause__
     assert isinstance(drift, SourceIdentityChangedError)
-    (note,) = drift.__notes__
-    assert note.startswith("Invalidating run ")
-    assert note.endswith(
-        "did not complete; partial results may survive. Inspect the run's "
-        "decomp_constituent, decomp_minted_proposal, decomp_definition_* and "
-        "decomp_work_item rows before reuse."
+    notes = getattr(drift, "__notes__", [])
+    assert any("Partial results were NOT discarded" in note for note in notes) is (
+        not recorded
     )
+
+
+@pytest.mark.unit
+async def test_cancelled_invalidation_wait_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provenance = MagicMock()
+    started = asyncio.Event()
+
+    async def never_finishes(_run_id: str, _error: BaseException) -> bool:
+        started.set()
+        await asyncio.Future()
+        return True
+
+    provenance.invalidate_run = AsyncMock(side_effect=never_finishes)
+    monkeypatch.setattr(run_module, "_INVALIDATION_RECORD_TIMEOUT_SECONDS", 0.01)
+    setup = _checkpoint_setup()
+    drift = SourceIdentityChangedError("source changed")
+    task = asyncio.create_task(
+        run_module._record_pipeline_failure(provenance, setup, drift)
+    )
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=0.2)
+
+    assert any("timed out" in note for note in drift.__notes__)
 
 
 @pytest.mark.unit
@@ -3667,6 +3810,33 @@ async def test_publication_failure_is_recorded_as_retryable_before_completion(
     staging = next(path for path in tmp_path.iterdir() if ".staging-" in path.name)
     assert staging.exists()
     assert not out.exists()
+
+
+@pytest.mark.unit
+async def test_rehearsal_publication_failure_does_not_claim_it_is_retryable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_publication(**_kwargs: object) -> None:
+        raise OSError("publication failed")
+
+    monkeypatch.setattr(run_module, "publish_artifact", fail_publication)
+    config = RunConfig(branch="neoplasm", rehearsal=True)
+
+    with pytest.raises(RunPublicationError) as failure:
+        await run_module._publish_or_complete_run(
+            setup=_checkpoint_setup(),
+            config=config,
+            client=MagicMock(),
+            provenance=MagicMock(),
+            decompositions=[],
+            metrics={},
+            publication=(tmp_path / "staging.ttl", tmp_path / "output.ttl"),
+        )
+
+    assert "rehearsal" in str(failure.value)
+    assert "cannot be resumed" in str(failure.value)
+    assert "retryable" not in str(failure.value)
 
 
 @pytest.mark.unit
@@ -4278,15 +4448,16 @@ async def test_a_concept_the_policy_does_not_name_is_decomposed_once() -> None:
         _group_policy_bound_to("C424242"),
     )
 
-    # In this run C6135's single-concept semantic-type read comes only from
-    # _decompose_one: the source preflight reads definitions only, the collapse policy
-    # is empty, and C6135 is nobody's residual filler. One read is one decomposition.
+    # The run-scoped batch replaces the old per-concept read. Policy qualification and
+    # work-item processing reuse the same source-bound value.
     semantic_type_reads = [
         query
         for query in client.queries
-        if "P106" in query and "VALUES" not in query and "C6135>" in query
+        if "SELECT ?code ?st" in query and "C6135>" in query
     ]
     assert len(semantic_type_reads) == 1
+    assert sum("SELECT ?role ?roleLabel" in query for query in client.queries) == 0
+    assert sum("BIND(REPLACE(STR(?concept)" in query for query in client.queries) == 1
 
 
 @pytest.mark.unit

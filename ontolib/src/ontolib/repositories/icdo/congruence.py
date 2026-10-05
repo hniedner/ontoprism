@@ -7,7 +7,9 @@ import json
 from collections import Counter
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 
 if TYPE_CHECKING:
     from ontolib.repositories.icdo.models import CanonicalDataset, IcdoRecord
@@ -25,8 +27,7 @@ EvidenceKind = Literal[
 ]
 
 
-class _Model(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_Model = StrictFrozenBoundaryModel
 
 
 class CongruenceEvidence(_Model):

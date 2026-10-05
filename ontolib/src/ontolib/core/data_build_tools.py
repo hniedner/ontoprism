@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -18,6 +17,8 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from ontolib.common.boundary_models import file_sha256
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -162,11 +163,7 @@ class CommandRunner(Protocol):
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return f"sha256:{digest.hexdigest()}"
+    return f"sha256:{file_sha256(path)}"
 
 
 def _verify_artifact(path: Path, artifact: PinnedArtifact) -> None:
