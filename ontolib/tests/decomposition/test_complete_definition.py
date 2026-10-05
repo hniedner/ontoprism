@@ -66,6 +66,17 @@ def test_definition_batch_query_rejects_an_empty_or_oversized_request(
 
 
 @pytest.mark.unit
+def test_definition_batch_query_accepts_a_full_bounded_batch() -> None:
+    codes = tuple(f"C{index}" for index in range(_MAX_BATCH_CONCEPTS))
+
+    query = build_complete_definition_batch_query(codes)
+
+    assert query.count("<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C") == (
+        _MAX_BATCH_CONCEPTS
+    )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("row", "message"),
     [
