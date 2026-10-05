@@ -251,13 +251,15 @@ def _bounded_failure(error: BaseException) -> tuple[str, str]:
     """Type and message to persist for ``error``, within the column bounds.
 
     The message is the error's own text, then its account (see ``_failure_account``),
-    one line each. Each account line longer than ``_FAILURE_LINE_LIMIT`` is cut to that
-    length, ending in an ellipsis, so its label survives. The error's own text is cut
-    next, down to ``_FAILURE_OWN_FLOOR`` characters. Only then is the account cut from
-    its end. Every cut of the message's text ends in an ellipsis.
+    one line each. For ``DBAPIError``, the own text comes from its wrapped driver error
+    so SQL statements and bound parameters are not persisted. Each account line longer
+    than ``_FAILURE_LINE_LIMIT`` is cut to that length, ending in an ellipsis, so its
+    label survives. The error's own text is cut next, down to
+    ``_FAILURE_OWN_FLOOR`` characters. Only then is the account cut from its end. Every
+    cut of the message's text ends in an ellipsis.
     """
     error_type = type(error).__name__[:_FAILURE_TYPE_LIMIT] or "Exception"
-    own_error = error.orig if isinstance(error, DBAPIError) else error
+    own_error = (error.orig or error) if isinstance(error, DBAPIError) else error
     own = str(own_error) or error_type
     account = _failure_account(error)
     suffix = "".join(f"\n{_clip(line, _FAILURE_LINE_LIMIT)}" for line in account)

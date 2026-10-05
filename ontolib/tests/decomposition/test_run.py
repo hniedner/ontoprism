@@ -3193,7 +3193,8 @@ async def test_surviving_partial_results_are_reported_on_the_raised_error() -> N
 
 
 @pytest.mark.unit
-async def test_cancellation_waits_for_the_invalidation_write() -> None:
+@pytest.mark.parametrize("recorded", [True, False])
+async def test_cancellation_waits_for_the_invalidation_write(recorded: bool) -> None:
     client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
@@ -3212,7 +3213,7 @@ async def test_cancellation_waits_for_the_invalidation_write() -> None:
         invalidation_started.set()
         await release_invalidation.wait()
         invalidation_finished.set()
-        return True
+        return recorded
 
     provenance.invalidate_run = AsyncMock(side_effect=invalidate)
     source = AsyncMock(
@@ -3243,7 +3244,10 @@ async def test_cancellation_waits_for_the_invalidation_write() -> None:
     assert invalidation_finished.is_set()
     drift = cancellation.value.__cause__
     assert isinstance(drift, SourceIdentityChangedError)
-    assert not getattr(drift, "__notes__", [])
+    notes = getattr(drift, "__notes__", [])
+    assert any("Partial results were NOT discarded" in note for note in notes) is (
+        not recorded
+    )
 
 
 @pytest.mark.unit

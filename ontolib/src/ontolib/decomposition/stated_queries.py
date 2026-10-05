@@ -9,7 +9,7 @@ These builders apply the OWL restriction-traversal pattern inside a
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
@@ -1311,7 +1311,7 @@ async def read_complete_genus_chain(
     *,
     max_depth: int = 5,
     anchor_rows_cache: AnchorDefinitionRowsCache | None = None,
-    role_labels: Mapping[str, str | None] | None = None,
+    resolve_role_labels: Callable[[set[str]], Mapping[str, str | None]] | None = None,
 ) -> tuple[CompleteDefinition, list[RoleRestriction]]:
     """Return the complete definition and its detector-compatible role projection.
 
@@ -1320,6 +1320,8 @@ async def read_complete_genus_chain(
     proof-bearing reader gives detection and projection the same complete structure.
     ``max_depth`` limits only the detector-compatible role projection; the complete
     record retains its independent fail-closed named-definition depth bound.
+    ``resolve_role_labels`` supplies one complete mapping for the projected role set;
+    omitting it reads those labels from the stated graph.
     """
     complete = await read_complete_definition(
         select_fn, code, anchor_rows_cache=anchor_rows_cache
@@ -1328,8 +1330,8 @@ async def read_complete_genus_chain(
     role_codes = {fact.role_code for fact in restrictions}
     labels = (
         await read_definition_role_labels(select_fn, role_codes)
-        if role_labels is None
-        else {code: role_labels[code] for code in role_codes}
+        if resolve_role_labels is None
+        else resolve_role_labels(role_codes)
     )
     return complete, _detector_role_projection(complete, restrictions, labels)
 

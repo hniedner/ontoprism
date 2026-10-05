@@ -164,7 +164,7 @@ class RunAdmissionRefusedError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class RunStaticLookups:
-    """Immutable NCIt facts loaded once for one source-bound run."""
+    """Immutable NCIt facts for one source-bound run, extended only by replacement."""
 
     source_identity: str
     semantic_types: Mapping[str, tuple[str, ...]]
@@ -558,10 +558,10 @@ async def _detect_concept(
         code,
         max_depth=walker_max_depth,
         anchor_rows_cache=anchor_rows_cache,
-        role_labels=(
+        resolve_role_labels=(
             None
             if static_lookups is None or source_identity is None
-            else static_lookups.role_labels
+            else static_lookups.require_source(source_identity).role_labels_for
         ),
     )
     morphology_fillers = await stated_queries.resolve_morphology_fillers(
@@ -901,7 +901,8 @@ async def _decompose_one(
         return detected
     result, roles, morphology_fillers, definition, semantic_types = detected
 
-    # Phase 1a: batch-resolve semantic_type_of for D20 axis routing.
+    # Phase 1a: resolve semantic_type_of for D20 axis routing from the run-scoped
+    # lookup, or batch-read it for callers that do not have one.
     filler_codes = _candidate_filler_codes(roles, morphology_fillers)
     semantic_type_of = (
         await _filler_semantic_types(client, filler_codes)
@@ -2327,6 +2328,7 @@ async def _qualify_collapse_policy(
             label=None,
             walker_max_depth=walker_max_depth,
             anchor_rows_cache=anchor_rows_cache,
+            source_identity=source_identity,
         )
         occurrences.extend(definition.occurrences)
     policy.qualify_live_occurrences(occurrences, source_identity=source_identity)
@@ -2536,6 +2538,12 @@ async def _record_invalidation(
                 f"Invalidating run {run_id!r} failed during cancellation: "
                 f"{type(invalidation_error).__name__}: {invalidation_error}. {advice}"
             )
+        else:
+            if not task.result():
+                original.add_note(
+                    "Partial results were NOT discarded: run "
+                    f"{run_id!r} was no longer 'running'. {advice}"
+                )
         raise cancellation from original
     except BaseException:
         original.add_note(

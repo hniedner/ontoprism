@@ -215,7 +215,9 @@ async def run_source_preflight(
     whole worklist. Dependencies are read once and are not recursively expanded. The
     queue is drained even after unsupported constructors are recorded; only malformed
     or over-bound definitions make ``concept_work_allowed`` false. ``overflow_codes``
-    holds concepts whose own complete definition exceeds a reader bound.
+    holds concepts whose own complete definition exceeds a reader bound. A batch
+    preload is an optimisation only: definition errors fall back to the individual
+    reads that attribute and classify each affected concept.
     """
     # A worklist concept carries its 1-based position; a dependency carries None and
     # is read but not expanded.
@@ -227,7 +229,7 @@ async def run_source_preflight(
     closure_count = 0
     _report_preflight_start(progress, worklist)
     if preload_definitions is not None:
-        await preload_definitions(worklist)
+        await _preload_or_fall_back(preload_definitions, worklist)
     closure_count = await _drain_census(
         queue,
         census,
@@ -272,7 +274,10 @@ async def _drain_census(
     while queue:
         code, position = queue.popleft()
         if position is None:
-            await _preload_pending(preload_definitions, dependencies_to_preload)
+            await _preload_or_fall_back(
+                preload_definitions, tuple(sorted(dependencies_to_preload))
+            )
+            dependencies_to_preload.clear()
         definition = await census.read(code)
         _report_preflight_position(progress, position, len(worklist), code)
         closure_count = _queue_dependencies(
@@ -284,15 +289,25 @@ async def _drain_census(
             max_nodes=max_nodes,
             worklist_count=len(worklist),
         )
-        if preload_definitions is not None and definition is not None and position:
+        if (
+            preload_definitions is not None
+            and definition is not None
+            and position is not None
+        ):
             dependencies_to_preload.update(_dependencies(definition) - set(worklist))
     return closure_count
 
 
-async def _preload_pending(
+async def _preload_or_fall_back(
     preload_definitions: PreloadDefinitions | None,
-    pending: set[str],
+    codes: tuple[str, ...],
 ) -> None:
-    if preload_definitions is not None and pending:
-        await preload_definitions(tuple(sorted(pending)))
-        pending.clear()
+    if preload_definitions is None or not codes:
+        return
+    try:
+        await preload_definitions(codes)
+    except CompleteDefinitionError:
+        # The individual census reads preserve concept attribution and distinguish
+        # malformed definitions from bound overflow. Cached rows from earlier blocks
+        # remain valid and are still reused.
+        return

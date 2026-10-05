@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from collections.abc import Collection
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -870,6 +871,27 @@ async def test_walk_genus_chain_anchors_depth0_roles_on_the_start_concept() -> N
 
     assert len(roles) == 1
     assert roles[0].anchoring_genus == "C6135"
+
+
+@pytest.mark.unit
+async def test_complete_genus_chain_resolves_projected_role_labels_as_one_set() -> None:
+    rows_by_code = {
+        "C1": _definition_rows(
+            "_:root",
+            ("_:r1", _iri("R101"), _iri("C2"), False),
+        )
+    }
+    select = _walker_select_double(rows_by_code, role_labels={})
+    resolve = MagicMock(return_value={"R101": "Disease_Has_Primary_Anatomic_Site"})
+
+    _definition, roles = await read_complete_genus_chain(
+        select,
+        "C1",
+        resolve_role_labels=resolve,
+    )
+
+    resolve.assert_called_once_with({"R101"})
+    assert roles[0].role_code == "R101"
 
 
 @pytest.mark.unit

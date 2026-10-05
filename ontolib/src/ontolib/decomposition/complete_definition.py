@@ -92,7 +92,7 @@ class AnchorDefinitionRowsCache:
             await _preload_block(self._rows, select_fn, block)
 
     def referenced_concept_codes(self) -> set[str]:
-        """Named concepts already observed in cached definition rows."""
+        """Cached anchors plus named concepts referenced by their definition rows."""
         return set(self._rows) | {
             value.removeprefix(NCIT_NS)
             for rows in self._rows.values()
