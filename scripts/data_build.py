@@ -19,7 +19,6 @@ Config (store URL, DB paths) comes from the backend settings / env.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import shutil
@@ -41,6 +40,7 @@ from backend.repository_metadata import (
     observe_uberon_repository,
 )
 from backend.uberon_search_publication import publish_uberon_search
+from ontolib.common.boundary_models import file_sha256
 from ontolib.core.data_build_tools import configured_robot_installation
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.provenance import ProvenanceStore
@@ -525,12 +525,7 @@ def _build_cadsr() -> None:
     )
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+_sha256 = file_sha256
 
 
 def _code_commit(repo: Path | None = None) -> str:

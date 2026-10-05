@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import TYPE_CHECKING, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from ontolib.common.boundary_models import canonical_json_sha256
 
 # Pydantic resolves these aliases while constructing the runtime model schema.
 from ontolib.decomposition.branches import ScopeRoot, ScopeVersion
@@ -134,13 +134,7 @@ class DecompositionSampleManifest(BaseModel):
     @property
     def identity(self) -> str:
         """SHA-256 over the exact canonical manifest representation."""
-        encoded = json.dumps(
-            self.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode()
-        return hashlib.sha256(encoded).hexdigest()
+        return canonical_json_sha256(self.model_dump(mode="json"))
 
 
 def load_sample_manifest(path: Path) -> DecompositionSampleManifest:

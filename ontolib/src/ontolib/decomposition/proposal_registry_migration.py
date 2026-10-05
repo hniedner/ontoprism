@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import tempfile
@@ -10,9 +9,15 @@ from collections import Counter
 from pathlib import Path
 from typing import Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import Field, ValidationError, model_validator
 from pydantic_core import to_jsonable_python
 
+from ontolib.common.boundary_models import (
+    StrictFrozenBoundaryModel,
+    canonical_json_bytes,
+    file_sha256,
+    sha256_hex,
+)
 from ontolib.decomposition.proposal_registry import (
     ConceptProposal,
     ProposalRegistry,
@@ -80,26 +85,20 @@ class ProposalRegistryMigrationError(ValueError):
     """The immutable historical evidence cannot support the schema-2 binding."""
 
 
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_StrictModel = StrictFrozenBoundaryModel
 
 
 def _canonical(value: object) -> bytes:
-    return json.dumps(
-        to_jsonable_python(value),
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    ).encode("ascii")
+    return canonical_json_bytes(to_jsonable_python(value))
 
 
 def _identity(value: object) -> str:
-    return hashlib.sha256(_canonical(value)).hexdigest()
+    return sha256_hex(_canonical(value))
 
 
 def _file_sha256(path: Path) -> str:
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        return file_sha256(path)
     except OSError as error:
         raise ProposalRegistryMigrationError(
             f"migration input cannot be read: {path}"

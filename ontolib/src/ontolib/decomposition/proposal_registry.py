@@ -12,8 +12,12 @@ from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
+from ontolib.common.boundary_models import (
+    StrictFrozenBoundaryModel,
+    canonical_json_sha256,
+)
 from ontolib.decomposition.minting import MintedConcept, normalize_label
 
 if TYPE_CHECKING:
@@ -40,11 +44,7 @@ _OP_AXIS = re.compile(r"op:[A-Za-z][A-Za-z0-9]*")
 _ABSOLUTE_IRI = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:[^\s<>\"{}|\\^`]+")
 
 
-def _identity(value: object) -> str:
-    encoded = json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
+_identity = canonical_json_sha256
 
 
 def _text(value: str, field: str) -> str:
@@ -175,8 +175,7 @@ def _validate_relation_replacement(
         _text(replacement_version, "replacement relation version")
 
 
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_StrictModel = StrictFrozenBoundaryModel
 
 
 class CertifiedNcitRelease(_StrictModel):

@@ -16,12 +16,16 @@ from defusedxml.ElementTree import iterparse
 from pydantic import (
     AwareDatetime,
     BaseModel,
-    ConfigDict,
     Field,
     PositiveInt,
     model_validator,
 )
 
+from ontolib.common.boundary_models import (
+    StrictFrozenBoundaryModel,
+    canonical_json_sha256,
+    file_sha256,
+)
 from ontolib.core.data_build_tools import (
     JENA_JRE_IMAGE,
     JENA_RIOT_ARTIFACT,
@@ -68,26 +72,17 @@ class UberonArtifactError(RuntimeError):
     """An Uberon/CL source or QLever index failed a source-bound contract."""
 
 
-class _Proof(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_Proof = StrictFrozenBoundaryModel
 
 
-def _identity(value: object) -> str:
-    payload = json.dumps(
-        value, ensure_ascii=True, separators=(",", ":"), sort_keys=True
-    ).encode()
-    return hashlib.sha256(payload).hexdigest()
+_identity = canonical_json_sha256
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
+        return file_sha256(path)
     except OSError as exc:
         raise UberonArtifactError(f"cannot read Uberon artifact: {exc}") from exc
-    return digest.hexdigest()
 
 
 class UberonArtifactManifest(_Proof):

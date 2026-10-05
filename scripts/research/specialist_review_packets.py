@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import Any, Literal, Self, cast
 
 from defusedxml.ElementTree import iterparse
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
+from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 
 try:
@@ -71,8 +72,7 @@ PairScopeStatus = Literal[
 ]
 
 
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_StrictModel = StrictFrozenBoundaryModel
 
 
 class PairKey(_StrictModel):

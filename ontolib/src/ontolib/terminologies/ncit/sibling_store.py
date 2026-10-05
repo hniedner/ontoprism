@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 import re
@@ -14,8 +13,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from ontolib.common.boundary_models import (
+    StrictFrozenBoundaryModel,
+    canonical_json_sha256,
+)
 from ontolib.core.data_build_tools import (
     JENA_INSTALL_DIR_ENV,
     JENA_JRE_IMAGE,
@@ -60,17 +63,10 @@ class SiblingStoreValidationError(RuntimeError):
     """An NCIt sibling candidate cannot be certified for later activation."""
 
 
-class _StrictProofModel(BaseModel):
-    """Reject proof fields that are unknown or require type coercion."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_StrictProofModel = StrictFrozenBoundaryModel
 
 
-def _identity(payload: object) -> str:
-    canonical = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode()
-    return hashlib.sha256(canonical).hexdigest()
+_identity = canonical_json_sha256
 
 
 class LoaderIdentity(_StrictProofModel):

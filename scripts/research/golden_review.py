@@ -18,14 +18,16 @@ from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string, get_column_letter
 from pydantic import (
     AfterValidator,
-    BaseModel,
-    ConfigDict,
     Field,
     TypeAdapter,
     ValidationError,
     model_validator,
 )
 
+from ontolib.common.boundary_models import (
+    StrictFrozenBoundaryModel,
+    canonical_json_sha256,
+)
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.proposal_registry import (
     ConceptProposal,
@@ -102,18 +104,10 @@ def _canonical_text(value: str, field: str) -> str:
     return value
 
 
-def _payload_identity(value: object) -> str:
-    encoded = json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
+_payload_identity = canonical_json_sha256
 
 
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+_StrictModel = StrictFrozenBoundaryModel
 
 
 class Reviewer(_StrictModel):

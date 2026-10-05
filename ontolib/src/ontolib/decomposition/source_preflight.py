@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
+from ontolib.common.boundary_models import canonical_json_sha256
 from ontolib.decomposition.complete_definition import (
     CompleteDefinitionError,
     DefinitionBoundExceededError,
@@ -77,9 +76,7 @@ class SourcePreflightResult(BaseModel):
 
 
 def _worklist_identity(worklist: tuple[str, ...]) -> str:
-    return hashlib.sha256(
-        json.dumps(worklist, separators=(",", ":"), ensure_ascii=True).encode()
-    ).hexdigest()
+    return canonical_json_sha256(worklist)
 
 
 def _representative_unknown_metrics() -> CompletionRunMetrics:

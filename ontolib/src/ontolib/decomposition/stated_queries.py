@@ -8,13 +8,12 @@ These builders apply the OWL restriction-traversal pattern inside a
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
+from ontolib.common.boundary_models import canonical_json_bytes, sha256_hex
 from ontolib.decomposition.complete_definition import (
     AnchorDefinitionRowsCache,
     read_complete_definition,
@@ -73,16 +72,10 @@ _SAFE_LITERAL = re.compile(r'^[^"\\\n{}]+$')
 
 
 def _canonical(value: object) -> bytes:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    ).encode("ascii")
+    return canonical_json_bytes(value)
 
 
-def _sha256(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+_sha256 = sha256_hex
 
 
 def r82_fact_identity(
