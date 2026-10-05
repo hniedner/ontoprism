@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from ontolib.decomposition.complete_definition import (
+    _MAX_BATCH_CONCEPTS,
     AnchorDefinitionRowsCache,
     CompleteDefinitionError,
     UnsupportedDefinitionConstructorError,
@@ -38,22 +39,29 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("block_size", [0, 101])
+@pytest.mark.parametrize("block_size", [0, _MAX_BATCH_CONCEPTS + 1])
 async def test_definition_preload_rejects_unbounded_block_sizes(
     block_size: int,
 ) -> None:
     cache = AnchorDefinitionRowsCache()
 
-    with pytest.raises(ValueError, match=r"block_size must be 1\.\.100"):
+    with pytest.raises(
+        ValueError, match=rf"block_size must be 1\.\.{_MAX_BATCH_CONCEPTS}"
+    ):
         await cache.preload(AsyncMock(), ("C1",), block_size=block_size)
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("codes", [(), tuple(f"C{index}" for index in range(101))])
+@pytest.mark.parametrize(
+    "codes", [(), tuple(f"C{index}" for index in range(_MAX_BATCH_CONCEPTS + 1))]
+)
 def test_definition_batch_query_rejects_an_empty_or_oversized_request(
     codes: tuple[str, ...],
 ) -> None:
-    with pytest.raises(ValueError, match=r"batch must contain 1\.\.100 concepts"):
+    with pytest.raises(
+        ValueError,
+        match=rf"batch must contain 1\.\.{_MAX_BATCH_CONCEPTS} concepts",
+    ):
         build_complete_definition_batch_query(codes)
 
 

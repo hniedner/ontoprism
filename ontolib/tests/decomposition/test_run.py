@@ -2722,6 +2722,7 @@ async def test_static_lookups_require_a_source_identity_at_detection() -> None:
 @pytest.mark.unit
 async def test_empty_filler_set_needs_no_semantic_type_query() -> None:
     client = MagicMock()
+    client.select = AsyncMock()
 
     assert await run_module._filler_semantic_types(client, set()) == {}
     client.select.assert_not_called()
