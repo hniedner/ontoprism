@@ -1914,6 +1914,9 @@ async def _source_preflight_result(
             anchor_rows_cache=anchor_rows_cache,
         )
 
+    async def preload_definitions(codes: tuple[str, ...]) -> None:
+        await anchor_rows_cache.preload(client.select, codes)
+
     try:
         return await run_source_preflight(
             worklist,
@@ -1925,6 +1928,7 @@ async def _source_preflight_result(
             walker_max_depth=config.walker_max_depth,
             max_nodes=_SOURCE_PREFLIGHT_MAX_CLOSURE_NODES,
             progress=progress,
+            preload_definitions=preload_definitions,
         )
     except ClosureBudgetExceededError as exc:
         exc.add_note(

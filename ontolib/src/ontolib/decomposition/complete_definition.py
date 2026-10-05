@@ -26,6 +26,7 @@ from ontolib.terminologies.sparql_transport import safe_iri
 
 _MAX_INTERSECTION_MEMBERS = 64
 _MAX_NESTING_DEPTH = 4
+_MAX_BATCH_CONCEPTS = 100
 _PREFIXES = f"""
 PREFIX rdf: <{RDF_NS}>
 PREFIX owl: <{OWL_NS}>
@@ -73,6 +74,23 @@ class AnchorDefinitionRowsCache:
         self._rows[anchor_code] = immutable
         return immutable
 
+    async def preload(
+        self,
+        select_fn: SelectRows,
+        anchor_codes: Sequence[str],
+        *,
+        block_size: int = _MAX_BATCH_CONCEPTS,
+    ) -> None:
+        """Batch depth-zero rows, preserving individual nested-definition reads."""
+        if block_size <= 0 or block_size > _MAX_BATCH_CONCEPTS:
+            raise ValueError(f"block_size must be 1..{_MAX_BATCH_CONCEPTS}")
+        missing = tuple(
+            dict.fromkeys(code for code in anchor_codes if code not in self._rows)
+        )
+        for start in range(0, len(missing), block_size):
+            block = missing[start : start + block_size]
+            await _preload_block(self._rows, select_fn, block)
+
     def referenced_concept_codes(self) -> set[str]:
         """Named concepts already observed in cached definition rows."""
         return set(self._rows) | {
@@ -84,6 +102,43 @@ class AnchorDefinitionRowsCache:
         }
 
 
+def _batch_rows_by_code(
+    rows: Sequence[Row], requested: set[str]
+) -> dict[str, list[Row]]:
+    grouped: dict[str, list[Row]] = {}
+    for row in rows:
+        concept_iri = row.get("requestedConcept")
+        if concept_iri is None or not concept_iri.startswith(NCIT_NS):
+            raise CompleteDefinitionError(
+                "batch definition row is missing its requested NCIt concept"
+            )
+        code = concept_iri.removeprefix(NCIT_NS)
+        if code not in requested:
+            raise CompleteDefinitionError(
+                "batch definition row returned an unrequested concept"
+            )
+        grouped.setdefault(code, []).append(row)
+    return grouped
+
+
+async def _preload_block(
+    cache: dict[str, tuple[Row, ...]],
+    select_fn: SelectRows,
+    block: tuple[str, ...],
+) -> None:
+    rows = await select_fn(
+        build_complete_definition_batch_query(block),
+        required_variables={"requestedConcept", "expression", "list", "cell"},
+    )
+    grouped = _batch_rows_by_code(rows, set(block))
+    for code in block:
+        current = grouped.get(code, [])
+        _validate_requested_nesting_depth(current, 0)
+        if _level_requires_nested_query(current, 0):
+            current = await _read_anchor_definition_rows(select_fn, code)
+        cache[code] = tuple(MappingProxyType(dict(row)) for row in current)
+
+
 @dataclass(frozen=True, slots=True)
 class _DefinitionSlice:
     facts: tuple[DefinitionFact, ...]
@@ -92,13 +147,10 @@ class _DefinitionSlice:
     occurrences: tuple[SourceDefinitionOccurrence, ...]
 
 
-def _expression_pattern(concept_iri: str, nesting_depth: int) -> str:
+def _expression_pattern(concept: str, nesting_depth: int) -> str:
     if nesting_depth == 0:
-        return (
-            f"<{concept_iri}> owl:equivalentClass ?expression .\n"
-            "BIND(0 AS ?nestingDepth)"
-        )
-    lines = [f"<{concept_iri}> owl:equivalentClass ?rootExpression ."]
+        return f"{concept} owl:equivalentClass ?expression .\nBIND(0 AS ?nestingDepth)"
+    lines = [f"{concept} owl:equivalentClass ?rootExpression ."]
     parent = "?rootExpression"
     for level in range(1, nesting_depth + 1):
         member = f"?pathMember{level}"
@@ -131,9 +183,9 @@ def build_complete_definition_query(
     """Read the proven prefix through one requested stated-OWL nesting level."""
     if nesting_depth < 0 or nesting_depth > _MAX_NESTING_DEPTH:
         raise ValueError(f"nesting depth must be between 0 and {_MAX_NESTING_DEPTH}")
-    concept_iri = safe_iri(concept_code, NCIT_NS)
+    concept = f"<{safe_iri(concept_code, NCIT_NS)}>"
     expression_pattern = "\nUNION\n".join(
-        "{\n" + _expression_pattern(concept_iri, depth) + "\n}"
+        "{\n" + _expression_pattern(concept, depth) + "\n}"
         for depth in range(nesting_depth + 1)
     )
     return f"""{_PREFIXES}
@@ -167,6 +219,41 @@ WHERE {{
     }}
 }}
 ORDER BY STR(?expression) STR(?cell)
+"""
+
+
+def build_complete_definition_batch_query(concept_codes: Sequence[str]) -> str:
+    """Read depth-zero definition rows for a bounded block of named concepts."""
+    codes = tuple(dict.fromkeys(concept_codes))
+    if not codes or len(codes) > _MAX_BATCH_CONCEPTS:
+        raise ValueError(f"batch must contain 1..{_MAX_BATCH_CONCEPTS} concepts")
+    values = " ".join(f"<{safe_iri(code, NCIT_NS)}>" for code in codes)
+    expression_pattern = _expression_pattern("?requestedConcept", 0)
+    return f"""{_PREFIXES}
+SELECT DISTINCT ?requestedConcept ?expression ?parentExpression ?nestingDepth
+       ?requestedNestingDepth ?list ?cell ?next ?member ?role ?target
+       ?childExpression ?nestedExpression ?unionList
+WHERE {{
+    VALUES ?requestedConcept {{ {values} }}
+    GRAPH <{STATED_GRAPH_IRI}> {{
+        {expression_pattern}
+        BIND(0 AS ?requestedNestingDepth)
+        ?expression owl:intersectionOf ?list .
+        ?list rdf:rest* ?cell .
+        {{ ?cell rdf:first ?cellWitness }} UNION {{ ?cell rdf:rest ?cellWitness }}
+        OPTIONAL {{ ?cell rdf:first ?member }}
+        OPTIONAL {{ ?cell rdf:rest ?next }}
+        OPTIONAL {{ ?member owl:onProperty ?role ; owl:someValuesFrom ?target }}
+        OPTIONAL {{ ?member owl:equivalentClass ?childExpression }}
+        OPTIONAL {{ ?member owl:unionOf ?unionList }}
+        OPTIONAL {{
+            FILTER(isBlank(?member))
+            ?member owl:equivalentClass? ?nestedExpression .
+            ?nestedExpression owl:intersectionOf ?nestedList .
+        }}
+    }}
+}}
+ORDER BY STR(?requestedConcept) STR(?expression) STR(?cell)
 """
 
 

@@ -370,6 +370,13 @@ class _FakeClient:
             )
         if "rdfs:subClassOf+" in query:
             return self._ancestors
+        if "VALUES ?requestedConcept" in query:
+            requested = set(re.findall(r"<[^>]+#(C[0-9]+)>", query))
+            return [
+                {**row, "requestedConcept": _iri(code)}
+                for code in requested
+                for row in self._complete_rows.get(code, ())
+            ]
         if (
             "SELECT DISTINCT ?expression ?parentExpression" in query
             and "?requestedNestingDepth" in query

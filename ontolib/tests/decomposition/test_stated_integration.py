@@ -56,6 +56,7 @@ from ontolib.decomposition.normalized_group_policy import (
 )
 from ontolib.decomposition.run import _decompose_one as _decompose_one_impl
 from ontolib.decomposition.scope import read_scope_hierarchy_edges
+from ontolib.decomposition.source_preflight import run_source_preflight
 from ontolib.decomposition.stated_queries import (
     build_ancestor_pairs_query,
     build_genus_walk_members_query,
@@ -104,6 +105,84 @@ def _reachable(url: str) -> bool:
         return False
     resp.raise_for_status()
     return True
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_batched_source_census_matches_individual_definition_reads(
+    isolated_qlever_url: str,
+    preserved_stated_graph: None,
+) -> None:
+    del preserved_stated_graph
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdf: <{RDF_NS}> .
+
+        ncit:C99800 owl:equivalentClass [
+            owl:intersectionOf (
+                ncit:C99801
+                [ a owl:Restriction ;
+                  owl:onProperty ncit:R101 ;
+                  owl:someValuesFrom ncit:C99802 ]
+            )
+        ] .
+        ncit:C99801 owl:equivalentClass [
+            owl:intersectionOf ( ncit:C99803 )
+        ] .
+        ncit:C99810 owl:equivalentClass [
+            owl:intersectionOf (
+                ncit:C99811
+                [ owl:unionOf ( ncit:C99812 ncit:C99813 ) ]
+            )
+        ] .
+        ncit:C99820 owl:equivalentClass [ owl:intersectionOf _:broken ] .
+        _:broken rdf:first ncit:C99821 .
+    """
+    common = {
+        "source_identity": "a" * 64,
+        "reader_identity": "b" * 64,
+        "query_identity": "c" * 64,
+        "tool_identity": "26.07d",
+        "walker_max_depth": 7,
+        "max_nodes": 100,
+    }
+
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+
+        async def individual(code: str):  # type: ignore[no-untyped-def]
+            return await read_complete_definition(client.select, code)
+
+        expected = await run_source_preflight(
+            ("C99800", "C99810", "C99820"), read_definition=individual, **common
+        )
+        cache = AnchorDefinitionRowsCache()
+
+        async def cached(code: str):  # type: ignore[no-untyped-def]
+            return await read_complete_definition(
+                client.select, code, anchor_rows_cache=cache
+            )
+
+        async def preload(codes: tuple[str, ...]) -> None:
+            await cache.preload(client.select, codes, block_size=2)
+
+        observed = await run_source_preflight(
+            ("C99800", "C99810", "C99820"),
+            read_definition=cached,
+            preload_definitions=preload,
+            **common,
+        )
+
+    assert observed == expected
+    assert observed.unsupported_codes == ("C99810",)
+    assert observed.malformed_codes == ("C99820",)
+    assert observed.concept_work_allowed is False
 
 
 @pytest.mark.integration
