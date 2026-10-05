@@ -22,6 +22,7 @@ from ontolib.decomposition.models import (
 from ontolib.decomposition.provenance_models import CompletionRunMetrics
 
 ReadDefinition = Callable[[str], Awaitable[CompleteDefinition]]
+PreloadDefinitions = Callable[[tuple[str, ...]], Awaitable[None]]
 PreflightProgress = Callable[[int, int, str], None]
 _PROGRESS_INTERVAL = 1000
 
@@ -206,6 +207,7 @@ async def run_source_preflight(
     walker_max_depth: int,
     max_nodes: int,
     progress: PreflightProgress | None = None,
+    preload_definitions: PreloadDefinitions | None = None,
 ) -> SourcePreflightResult:
     """Census exact roots plus their defined-genus and filler dependencies.
 
@@ -224,19 +226,18 @@ async def run_source_preflight(
     census = _DefinitionCensus(read_definition)
     closure_count = 0
     _report_preflight_start(progress, worklist)
-    while queue:
-        code, position = queue.popleft()
-        definition = await census.read(code)
-        _report_preflight_position(progress, position, len(worklist), code)
-        closure_count = _queue_dependencies(
-            definition,
-            position,
-            scheduled=scheduled,
-            queue=queue,
-            closure_count=closure_count,
-            max_nodes=max_nodes,
-            worklist_count=len(worklist),
-        )
+    if preload_definitions is not None:
+        await preload_definitions(worklist)
+    closure_count = await _drain_census(
+        queue,
+        census,
+        worklist=worklist,
+        scheduled=scheduled,
+        closure_count=closure_count,
+        max_nodes=max_nodes,
+        progress=progress,
+        preload_definitions=preload_definitions,
+    )
     return SourcePreflightResult(
         source_identity=source_identity,
         worklist_identity=_worklist_identity(worklist),
@@ -254,3 +255,44 @@ async def run_source_preflight(
         overflow_codes=tuple(sorted(census.overflow)),
         representative_metrics=_representative_unknown_metrics(),
     )
+
+
+async def _drain_census(
+    queue: deque[tuple[str, int | None]],
+    census: _DefinitionCensus,
+    *,
+    worklist: tuple[str, ...],
+    scheduled: set[str],
+    closure_count: int,
+    max_nodes: int,
+    progress: PreflightProgress | None,
+    preload_definitions: PreloadDefinitions | None,
+) -> int:
+    dependencies_to_preload: set[str] = set()
+    while queue:
+        code, position = queue.popleft()
+        if position is None:
+            await _preload_pending(preload_definitions, dependencies_to_preload)
+        definition = await census.read(code)
+        _report_preflight_position(progress, position, len(worklist), code)
+        closure_count = _queue_dependencies(
+            definition,
+            position,
+            scheduled=scheduled,
+            queue=queue,
+            closure_count=closure_count,
+            max_nodes=max_nodes,
+            worklist_count=len(worklist),
+        )
+        if preload_definitions is not None and definition is not None and position:
+            dependencies_to_preload.update(_dependencies(definition) - set(worklist))
+    return closure_count
+
+
+async def _preload_pending(
+    preload_definitions: PreloadDefinitions | None,
+    pending: set[str],
+) -> None:
+    if preload_definitions is not None and pending:
+        await preload_definitions(tuple(sorted(pending)))
+        pending.clear()
