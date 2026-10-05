@@ -376,6 +376,20 @@ class _FakeClient:
         ):
             code = self._code_in(query)
             return self._complete_rows.get(code or "", [])
+        if "?restriction owl:onProperty ?role" in query:
+            role_codes = {
+                str(row["role"]).removeprefix(NCIT_NS)
+                for rows in self._complete_rows.values()
+                for row in rows
+                if row.get("role") is not None
+            }
+            return [
+                {
+                    "role": _iri(role_code),
+                    "roleLabel": self._role_labels.get(role_code),
+                }
+                for role_code in sorted(role_codes)
+            ]
         if "SELECT ?role ?roleLabel" in query:
             return [
                 {"role": _iri(role_code), "roleLabel": label}
@@ -386,7 +400,18 @@ class _FakeClient:
             code = self._code_in(query)
             return self._genus_walk.get(code or "", [])
         if "BIND(REPLACE(STR(?concept)" in query:
-            return self._semantic_type_of_rows
+            requested = set(re.findall(r"<[^>]+#(C[0-9]+)>", query))
+            configured = [
+                {"code": code, "st": semantic_type}
+                for code in requested
+                for semantic_type in self._semantic_types.get(code, ())
+            ]
+            explicit = [
+                row
+                for row in self._semantic_type_of_rows
+                if row.get("code") in requested
+            ]
+            return [*configured, *explicit]
         if "SELECT DISTINCT ?part ?whole ?assertedPart ?restriction" in query:
             requested = re.findall(r"\(<[^>]+#(C[0-9]+)> <[^>]+#(C[0-9]+)>\)", query)
             return [
@@ -1542,7 +1567,7 @@ async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
         frozenset({"child", "parent"})
     }
     assert requirements_for("?overflowChild") == {frozenset({"overflowChild"})}
-    assert requirements_for("SELECT ?semanticType") == {frozenset({"semanticType"})}
+    assert requirements_for("SELECT ?code ?st") == {frozenset({"code", "st"})}
     assert requirements_for("BIND(REPLACE(STR(?concept)") == {frozenset({"code", "st"})}
     assert requirements_for("rdfs:subClassOf+") == set()
     assert requirements_for("SELECT DISTINCT ?node ?kind ?target") == {
@@ -2626,6 +2651,37 @@ async def test_unsupported_definition_constructor_reaches_unknown_outcome(
     assert result.outcome == "unknown"
     assert result.decomposition is None
     assert result.semantic_types == ("Neoplastic Process",)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("source_identity", ["short", "g" * 64])
+def test_run_static_lookups_require_a_sha256_source_identity(
+    source_identity: str,
+) -> None:
+    with pytest.raises(ValueError, match="SHA-256"):
+        run_module.RunStaticLookups(
+            source_identity=source_identity,
+            semantic_types={},
+            role_labels={},
+        )
+
+
+@pytest.mark.unit
+def test_run_static_lookups_fail_closed_on_wrong_source_or_missing_rows() -> None:
+    lookups = run_module.RunStaticLookups(
+        source_identity="a" * 64,
+        semantic_types={"C1": ("Neoplastic Process",)},
+        role_labels={"R101": "Disease_Has_Primary_Anatomic_Site"},
+    )
+
+    with pytest.raises(SourceIdentityChangedError, match="static NCIt lookups"):
+        lookups.require_source("b" * 64)
+
+    with pytest.raises(RunStateError, match="semantic types for 'C2'"):
+        lookups.semantic_types_for("C2")
+
+    with pytest.raises(RunStateError, match="role labels for R88"):
+        lookups.role_labels_for({"R88"})
 
 
 @pytest.mark.unit
@@ -4278,13 +4334,12 @@ async def test_a_concept_the_policy_does_not_name_is_decomposed_once() -> None:
         _group_policy_bound_to("C424242"),
     )
 
-    # In this run C6135's single-concept semantic-type read comes only from
-    # _decompose_one: the source preflight reads definitions only, the collapse policy
-    # is empty, and C6135 is nobody's residual filler. One read is one decomposition.
+    # The run-scoped batch replaces the old per-concept read. Policy qualification and
+    # work-item processing reuse the same source-bound value.
     semantic_type_reads = [
         query
         for query in client.queries
-        if "P106" in query and "VALUES" not in query and "C6135>" in query
+        if "SELECT ?code ?st" in query and "C6135>" in query
     ]
     assert len(semantic_type_reads) == 1
 

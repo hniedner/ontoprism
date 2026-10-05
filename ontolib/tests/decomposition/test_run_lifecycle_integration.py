@@ -356,6 +356,10 @@ class _LifecycleClient:
         del required_variables
         if "SELECT DISTINCT ?expression" in query and "owl:equivalentClass" in query:
             return []
+        if "?restriction owl:onProperty ?role" in query:
+            return []
+        if "SELECT ?code ?st" in query:
+            return []
         raise AssertionError(f"unexpected query: {query}")
 
     async def select_once(
