@@ -29,6 +29,7 @@ from ontolib.decomposition.stated_queries import (
     build_semantic_type_of_query,
     build_semantic_type_query,
     r82_fact_identity,
+    read_all_definition_role_labels,
     read_complete_genus_chain,
     resolve_morphology_filler,
     resolve_morphology_fillers,
@@ -37,6 +38,25 @@ from ontolib.decomposition.stated_queries import (
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "role_iri",
+    ["https://example.org/R101", f"{NCIT_NS}Role101"],
+)
+async def test_all_definition_role_labels_reject_malformed_role_iris(
+    role_iri: str,
+) -> None:
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str]]:
+        del query
+        assert required_variables == {"role"}
+        return [{"role": role_iri, "roleLabel": "Primary site"}]
+
+    with pytest.raises(ValueError, match="not an NCIt role IRI"):
+        await read_all_definition_role_labels(select)
 
 
 def _iri(code: str) -> str:

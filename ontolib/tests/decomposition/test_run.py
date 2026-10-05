@@ -2720,6 +2720,14 @@ async def test_static_lookups_require_a_source_identity_at_detection() -> None:
 
 
 @pytest.mark.unit
+async def test_empty_filler_set_needs_no_semantic_type_query() -> None:
+    client = MagicMock()
+
+    assert await run_module._filler_semantic_types(client, set()) == {}
+    client.select.assert_not_called()
+
+
+@pytest.mark.unit
 async def test_missing_requested_label_fails_the_named_work_item() -> None:
     setup = _checkpoint_setup()
     setup.pending = ["C1"]
