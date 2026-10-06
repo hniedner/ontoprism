@@ -13,7 +13,10 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 from ontolib.decomposition import axes
-from ontolib.decomposition.axis_contracts import normalized_axis_for_role
+from ontolib.decomposition.axis_contracts import (
+    AXIS_CONTRACTS,
+    normalized_axis_for_role,
+)
 from ontolib.decomposition.axis_diagnostics import (
     AxisRangeEvidence,
     InvalidAxisEvidence,
@@ -640,6 +643,7 @@ def _review_fields(
 ) -> tuple[bool, bool]:
     return (
         _needs_review(
+            axis_name,
             known_retained_count,
             unknown=unknown,
             routed_exempt=routed_exempt,
@@ -657,6 +661,7 @@ def _review_fields(
 
 
 def _needs_review(
+    axis_name: str,
     known_retained_count: int,
     *,
     unknown: bool,
@@ -667,7 +672,11 @@ def _needs_review(
         return True
     if known_retained_count <= 1:
         return False
-    return not routed_exempt or policy_protected_axis
+    if routed_exempt and axis_name != axes.STAGE_SYSTEM_AXIS:
+        return policy_protected_axis
+    # Raw/unrecognized roles returned above as unknown routes; known routes have
+    # a declared contract, not an implicit single-valued fallback.
+    return AXIS_CONTRACTS[axis_name].cardinality != "0..*"
 
 
 def _axis_is_ambiguous(
@@ -681,11 +690,18 @@ def _axis_is_ambiguous(
 ) -> bool:
     if retained_count <= 1:
         return False
+    if _known_multivalued_axis(axis_name, unknown):
+        return False
     if policy_protected_axis:
         return True
     if routed_exempt and axis_name != axes.ASSOCIATED_LINEAGE_AXIS:
         return True
     return _requires_ambiguity_group(unknown, routed_exempt, known_retained_count)
+
+
+def _known_multivalued_axis(axis_name: str, unknown: bool) -> bool:
+    contract = AXIS_CONTRACTS.get(axis_name)
+    return contract is not None and contract.cardinality == "0..*" and not unknown
 
 
 def _requires_ambiguity_group(

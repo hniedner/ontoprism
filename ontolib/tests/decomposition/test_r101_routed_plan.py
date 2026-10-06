@@ -333,7 +333,7 @@ def test_mixed_chain_collapses_to_terminal_with_truthful_path() -> None:
 
 
 @pytest.mark.unit
-def test_known_nonexempt_ambiguity_is_review_bearing() -> None:
+def test_sourced_cell_type_multiplicity_is_not_ambiguity() -> None:
     plan = build_routed_plan(
         (
             _restriction("C1", role="R105", fact="1" * 64, occurrence="1" * 64),
@@ -347,7 +347,7 @@ def test_known_nonexempt_ambiguity_is_review_bearing() -> None:
     result = _reduce_routed_plan(plan, lambda _broader, _narrower: False)
 
     assert {(row.needs_review, row.axis_ambiguous) for row in result.constituents} == {
-        (True, True)
+        (False, False)
     }
 
 
