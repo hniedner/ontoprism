@@ -1334,7 +1334,7 @@ async def read_complete_genus_chain(
         if resolve_role_labels is None
         else resolve_role_labels(role_codes)
     )
-    return complete, detector_roles_from_definition(complete, max_depth, labels)
+    return complete, _detector_role_projection(complete, restrictions, labels)
 
 
 def detector_roles_from_definition(

@@ -180,11 +180,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
         "scoreable-release-bound"
     )
     assert report.range_diagnostics[0].in_expected_oracle is True
-    assert report.range_diagnostics[0].projection_decision.model_dump() == {
-        "outcome": "accepted",
-        "axis_range_status": "valid",
-        "reasons": ("valid-axis-range",),
-    }
+    assert report.range_diagnostics[0].verdict.status == "valid"
     assert report.residual_diagnostics["C35501"].model_dump(mode="json") == {
         "status": residual_verdict.status,
         "reason": residual_verdict.reason,
@@ -458,8 +454,7 @@ async def test_generator_writes_identity_bound_packet_without_changing_inputs(
     assert invalid_candidate.source_evidence.reason == (
         "no-matching-stated-definition-fact"
     )
-    assert invalid[0].projection_decision.outcome == "rejected"
-    assert invalid[0].projection_decision.reasons == ("invalid-axis-range",)
+    assert invalid[0].verdict.status == "invalid"
     assert not [
         row
         for row in report.range_diagnostics

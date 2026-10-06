@@ -1990,7 +1990,12 @@ async def _residual_classification_stage(
     try:
         metrics, decompositions = await _base_run_data(setup, provenance)
         metrics.invalid_axis_range_by_axis = await _range_rejection_counts(
-            setup, config, client, decompositions
+            setup,
+            config,
+            client,
+            await provenance.decompositions_for_run(
+                setup.run_id, include_residual=True
+            ),
         )
         precoordinated, unknown, unknown_reasons = await _residual_sets(
             setup,
@@ -2046,7 +2051,9 @@ async def _range_rejection_counts(
         definition = item.complete_definition
         if definition is None:
             raise RunStateError("range recount requires a complete definition")
-        labels = await _recount_role_labels(setup, client, definition)
+        labels = await _recount_role_labels(
+            setup, client, definition, config.walker_max_depth
+        )
         roles = stated_queries.detector_roles_from_definition(
             definition, config.walker_max_depth, labels
         )
@@ -2084,16 +2091,18 @@ async def _recount_role_labels(
     setup: _RunSetup,
     client: DecompositionSparqlClient,
     definition: CompleteDefinition,
+    max_depth: int,
 ) -> Mapping[str, str | None]:
+    roles = {
+        fact.role_code
+        for fact in definition.facts
+        if isinstance(fact, RestrictionDefinitionFact) and fact.depth < max_depth
+    }
     if setup.static_lookups is not None:
-        return setup.static_lookups.role_labels
+        return setup.static_lookups.role_labels_for(roles)
     return await stated_queries.read_definition_role_labels(
         client.select,
-        {
-            fact.role_code
-            for fact in definition.facts
-            if isinstance(fact, RestrictionDefinitionFact)
-        },
+        roles,
     )
 
 

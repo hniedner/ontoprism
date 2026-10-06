@@ -822,7 +822,7 @@ def _constituent_review_flags(
         (
             row["concept_code"],
             "needs-review",
-            "no part-of or routing relation in stated NCIt"
+            "multiple primary sites retained for review"
             if row["axis"] == "op:PrimarySite"
             and len(primary_sites[row["concept_code"]]) > 1
             else f"constituent {row['axis']} / {row['filler_code']} needs review",
@@ -1387,6 +1387,7 @@ async def _mark_work_item_complete(
 async def _load_decomposition_rows(
     session: AsyncSession,
     run_id: str,
+    include_residual: bool = False,
 ) -> tuple[
     Sequence[RowMapping],
     Sequence[RowMapping],
@@ -1402,9 +1403,10 @@ async def _load_decomposition_rows(
             "SELECT concept_code, semantic_type, has_complete_definition "
             "FROM decomp_work_item "
             "WHERE run_id = :run_id AND state = 'complete' "
-            "AND is_decomposed ORDER BY ordinal"
+            "AND (is_decomposed OR (:include_residual AND is_residual)) "
+            "ORDER BY ordinal"
         ),
-        {"run_id": run_id},
+        {"run_id": run_id, "include_residual": include_residual},
     )
     constituent_result = await session.execute(
         text(
@@ -2625,7 +2627,9 @@ class ProvenanceStore:
             )
             return bool(cast("int", result.rowcount))  # type: ignore[attr-defined]
 
-    async def decompositions_for_run(self, run_id: str) -> list[Decomposition]:
+    async def decompositions_for_run(
+        self, run_id: str, *, include_residual: bool = False
+    ) -> list[Decomposition]:
         """Reconstruct the normalized artifact in persisted worklist order."""
         async with self._sf() as session:
             await _require_persisted_completion_counts(session, run_id)
@@ -2638,7 +2642,7 @@ class ProvenanceStore:
                 occurrence_rows,
                 occurrence_link_rows,
                 disposition_rows,
-            ) = await _load_decomposition_rows(session, run_id)
+            ) = await _load_decomposition_rows(session, run_id, include_residual)
 
         constituents_by_code = _constituents_by_code(
             constituent_rows, occurrence_link_rows

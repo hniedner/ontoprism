@@ -103,7 +103,7 @@ def main() -> int:
     print(f"Changed coverage base: {base}", flush=True)
     if args.coverage_xml is not None:
         return gate(args.coverage_xml, base)
-    # The four partitions must be combined BEFORE XML generation: partially covered
+    # CI combines its four partitions before XML generation: partially covered
     # branches from separate reports cannot be unioned correctly by diff-cover.
     from coverage import Coverage  # noqa: PLC0415
 

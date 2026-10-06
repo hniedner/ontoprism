@@ -117,8 +117,8 @@ def test_multiple_primary_sites_publish_the_unresolved_relation_reason() -> None
     flags = _publication_flags(cast("Any", rows), (), (), ())
 
     assert [flag.reason for flag in flags["C1"][:2]] == [
-        "no part-of or routing relation in stated NCIt",
-        "no part-of or routing relation in stated NCIt",
+        "multiple primary sites retained for review",
+        "multiple primary sites retained for review",
     ]
     assert all(flag.kind == "needs-review" for flag in flags["C1"])
     assert flags["C1"][2].reason == "constituent op:Morphology / C4 needs review"

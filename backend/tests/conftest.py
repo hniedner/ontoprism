@@ -72,7 +72,7 @@ def isolated_metadata_warmup(
     _isolate_background_repository_probes: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Exercise real startup scheduling with all repository readers replaced."""
+    """Restore real startup scheduling; callers must replace repository readers."""
     monkeypatch.setattr(RepositoryMetadataService, "start", _START_REPOSITORY_METADATA)
 
 

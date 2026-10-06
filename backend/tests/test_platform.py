@@ -80,7 +80,7 @@ async def test_lifespan_warms_repositories_without_blocking_and_cancels(
 
 
 @pytest.mark.unit
-async def test_non_full_store_app_does_not_probe_configured_repositories(
+async def test_non_full_store_isolation_fixture_prevents_startup_repository_probes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     probes: list[str] = []

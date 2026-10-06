@@ -508,20 +508,6 @@ class PairRangeDiagnostic(_StrictModel):
     in_expected_oracle: bool
     verdict: AxisRangeEvidenceDocument
     atomicity: ResidualPrecoordinationDocument
-    projection_decision: ProjectionDecisionDocument
-
-
-class ProjectionDecisionDocument(_StrictModel):
-    outcome: Literal["accepted", "rejected"]
-    axis_range_status: Literal["valid", "invalid", "unknown"]
-    reasons: tuple[
-        Literal[
-            "valid-axis-range",
-            "axis-range-unknown",
-            "invalid-axis-range",
-        ],
-        ...,
-    ]
 
 
 class DiagnosticMetrics(_StrictModel):
@@ -857,15 +843,6 @@ def _pair_range_diagnostic(
         in_expected_oracle=in_expected_oracle,
         verdict=axis_evidence_to_document(range_verdict),
         atomicity=residual_document,
-        projection_decision=ProjectionDecisionDocument(
-            outcome="rejected" if range_verdict.status == "invalid" else "accepted",
-            axis_range_status=range_verdict.status,
-            reasons=("valid-axis-range",)
-            if range_verdict.status == "valid"
-            else ("invalid-axis-range",)
-            if range_verdict.status == "invalid"
-            else ("axis-range-unknown",),
-        ),
     )
 
 

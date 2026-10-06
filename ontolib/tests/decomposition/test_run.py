@@ -685,7 +685,7 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
     store.claim_work_item = AsyncMock(return_value=UUID(int=1))
     store.complete_work_item = AsyncMock(side_effect=complete_work_item)
     store.decompositions_for_run = AsyncMock(
-        side_effect=lambda _run_id: state["decompositions"]
+        side_effect=lambda _run_id, include_residual=False: state["decompositions"]
     )
     store.concept_publications_for_run = AsyncMock(
         side_effect=lambda _run_id: _mock_concept_publications(state)
@@ -4356,6 +4356,16 @@ async def test_range_recount_includes_completed_residuals_on_resume(cached):
         setup, RunConfig(branch="neoplasm"), client, [residual]
     )
     assert counts == {"op:StageValue": 1}
+    if cached:
+        setup.static_lookups = run_module.RunStaticLookups(
+            source_identity="a" * 64,
+            semantic_types={"C12400": (), "C27970": ()},
+            role_labels={},
+        )
+        with pytest.raises(RunStateError, match="role"):
+            await run_module._range_rejection_counts(
+                setup, RunConfig(branch="neoplasm"), client, [residual]
+            )
 
 
 @pytest.mark.unit
@@ -4399,7 +4409,7 @@ async def test_pipeline_returns_axis_rejection_counts_without_persisting_them(
 
 def _group_policy_bound_to(code: str) -> ActiveNormalizedGroupPolicy:
     """A one-row policy: the first packaged row re-pointed at ``code``. Built with
-    ``model_copy``, so neither the field constraints (15 rows) nor the policy's
+    ``model_copy``, so neither field validation nor the policy's
     validators run; the row's pairs are not the ones ``_staged_site_client`` yields for
     C6135."""
     packaged = load_packaged_normalized_group_policy()
