@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 import pytest
@@ -30,21 +31,59 @@ def test_wheel_constructs_engine_identity_outside_checkout(tmp_path: Path) -> No
     (wheel,) = (project / "dist").glob("*.whl")
     environment = tmp_path / "venv"
     subprocess.run(
-        [sys.executable, "-m", "venv", "--system-site-packages", str(environment)],
+        [sys.executable, "-I", "-m", "venv", str(environment)],
         check=True,
         capture_output=True,
     )
     python = environment / "bin/python"
+    # Reproduce the CI import environment, even on a base Python with global deps.
+    subprocess.run(
+        [
+            str(python),
+            "-I",
+            "-c",
+            "import importlib.util; "
+            "assert importlib.util.find_spec('pydantic') is None",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
     subprocess.run(
         [str(python), "-m", "pip", "install", "--no-index", "--no-deps", str(wheel)],
         check=True,
         capture_output=True,
     )
+    site_result = subprocess.run(
+        [
+            str(python),
+            "-I",
+            "-c",
+            "import sysconfig; print(sysconfig.get_path('purelib'))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    wheel_site = Path(site_result.stdout.strip())
+    dependency_site = Path(sysconfig.get_path("purelib")).resolve()
+    assert dependency_site.is_relative_to(Path(sys.prefix).resolve())
+    # Append resolved project dependencies without processing its editable .pth files.
+    # The wheel's own site-packages stays first; no base/user site-packages are enabled.
+    (wheel_site / "project-dependencies.pth").write_text(
+        str(dependency_site) + "\n", encoding="utf-8"
+    )
     shutil.rmtree(project)
     probe = (
         "import sys; from pathlib import Path; "
         "from ontolib.decomposition import semantic_identity as identity; "
-        "assert Path(identity.__file__).is_relative_to(sys.prefix); "
+        "import pydantic; "
+        "assert Path(pydantic.__file__).resolve().is_relative_to("
+        f"Path({str(dependency_site)!r})); "
+        "assert all(Path(module.__file__).resolve().is_relative_to("
+        "Path(sys.prefix).resolve()) "
+        "for name, module in sys.modules.items() "
+        "if name == 'ontolib' or name.startswith('ontolib.')); "
         "print(identity.routing_implementation_identity())"
     )
     result = subprocess.run(
