@@ -1022,6 +1022,7 @@ _CORE_NEOPLASM_ROLES: frozenset[str] = frozenset(
         "R105",  # Disease_Has_Abnormal_Cell
         "R106",  # Disease_Has_Molecular_Abnormality
         "R108",  # Disease_Has_Finding
+        "R110",  # Disease_Has_Grade
         "R135",  # Disease_Excludes_Primary_Anatomic_Site (see scope note above)
     }
 )
@@ -1334,6 +1335,17 @@ async def read_complete_genus_chain(
         else resolve_role_labels(role_codes)
     )
     return complete, _detector_role_projection(complete, restrictions, labels)
+
+
+def detector_roles_from_definition(
+    complete: CompleteDefinition,
+    max_depth: int,
+    labels: Mapping[str, str | None],
+) -> list[RoleRestriction]:
+    """Project detector roles from the complete record, including on run resume."""
+    return _detector_role_projection(
+        complete, _projected_restriction_facts(complete, max_depth), labels
+    )
 
 
 async def walk_genus_chain(

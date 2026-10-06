@@ -107,6 +107,25 @@ def test_publication_reasons_cover_every_concept_outcome(
 
 
 @pytest.mark.unit
+def test_multiple_primary_sites_publish_the_retained_sites_reason() -> None:
+    rows = [
+        {"concept_code": "C1", "axis": "op:PrimarySite", "filler_code": "C2"},
+        {"concept_code": "C1", "axis": "op:PrimarySite", "filler_code": "C3"},
+        {"concept_code": "C1", "axis": "op:Morphology", "filler_code": "C4"},
+        {"concept_code": "C5", "axis": "op:PrimarySite", "filler_code": "C6"},
+    ]
+    flags = _publication_flags(cast("Any", rows), (), (), ())
+
+    assert [flag.reason for flag in flags["C1"][:2]] == [
+        "multiple primary sites retained for review",
+        "multiple primary sites retained for review",
+    ]
+    assert all(flag.kind == "needs-review" for flag in flags["C1"])
+    assert flags["C1"][2].reason == "constituent op:Morphology / C4 needs review"
+    assert flags["C5"][0].reason == "constituent op:PrimarySite / C6 needs review"
+
+
+@pytest.mark.unit
 def test_publication_flags_include_a_missing_group_policy_pair() -> None:
     flags = _publication_flags(
         cast(

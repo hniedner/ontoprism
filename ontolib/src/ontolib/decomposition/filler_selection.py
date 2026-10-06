@@ -6,14 +6,18 @@ relations. The module also records source-backed reduction dispositions.
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 from ontolib.decomposition import axes
 from ontolib.decomposition.axis_contracts import normalized_axis_for_role
+from ontolib.decomposition.axis_diagnostics import (
+    AxisRangeEvidence,
+    InvalidAxisEvidence,
+)
 from ontolib.decomposition.models import (
     Constituent,
     OccurrenceDisposition,
@@ -22,11 +26,6 @@ from ontolib.decomposition.models import (
     SemanticRoute,
     SpecificityPathEdge,
     SpecificityRelationKind,
-)
-from ontolib.decomposition.projection_validity import (
-    ProjectionAssessment,
-    ProjectionDecision,
-    decide_projection,
 )
 from ontolib.decomposition.site_resolution import (
     organ_for_morphology,
@@ -83,23 +82,9 @@ class RoutedPlan:
 class RoutedSelection:
     constituents: tuple[Constituent, ...]
     dispositions: tuple[OccurrenceDisposition, ...]
-    synthetic_occurrence_count: int = 0
-    projection_decisions: tuple[ProjectionDecisionRecord, ...] = ()
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectionDecisionRecord:
-    """Transient decision ledger; source definitions remain in the complete record."""
-
-    axis: str
-    filler_code: str
-    outcome: str
-    review_bearing: bool
-    axis_range_status: str
-    atomicity_status: str
-    reasons: tuple[str, ...]
-    source_definition_ids: tuple[str, ...]
-    source_occurrence_ids: tuple[str, ...]
+    invalid_axis_range_by_axis: Mapping[str, int] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -836,39 +821,6 @@ def _reduce_routed_plan(
         dispositions=tuple(
             sorted(dispositions, key=lambda row: row.source_occurrence_id)
         ),
-        synthetic_occurrence_count=sum(
-            occurrence.restriction.source_kind == "synthetic"
-            for occurrence in plan.occurrences
-        ),
-    )
-
-
-def _projection_decision_record(
-    decision: ProjectionDecision,
-    rows: tuple[RoutedOccurrence, ...],
-) -> ProjectionDecisionRecord:
-    source_definition_ids = tuple(
-        sorted({row.source_fact_id for row in rows if row.source_fact_id is not None})
-    )
-    source_occurrence_ids = tuple(
-        sorted(
-            {
-                row.source_occurrence_id
-                for row in rows
-                if row.source_occurrence_id is not None
-            }
-        )
-    )
-    return ProjectionDecisionRecord(
-        axis=decision.axis,
-        filler_code=decision.filler_code,
-        outcome=decision.outcome,
-        review_bearing=decision.review_bearing,
-        axis_range_status=decision.axis_range_status,
-        atomicity_status=decision.atomicity_status,
-        reasons=decision.reasons,
-        source_definition_ids=source_definition_ids,
-        source_occurrence_ids=source_occurrence_ids,
     )
 
 
@@ -913,19 +865,6 @@ def _retained_policy_decisions(
     )
 
 
-def _projection_decisions(
-    by_key: Mapping[tuple[str, str], list[RoutedOccurrence]],
-    assessments: Mapping[tuple[str, str], ProjectionAssessment],
-) -> tuple[ProjectionDecisionRecord, ...]:
-    return tuple(
-        _projection_decision_record(
-            decide_projection(assessments[key]),
-            tuple(by_key[key]),
-        )
-        for key in sorted(by_key)
-    )
-
-
 def _retained_parent_morphologies(
     plan: RoutedPlan, accepted: set[tuple[str, str]]
 ) -> tuple[str, ...]:
@@ -936,18 +875,28 @@ def _retained_parent_morphologies(
     )
 
 
-def _assessed_plan(
+def _rejected_projection_keys(
     plan: RoutedPlan,
-    assessments: Mapping[tuple[str, str], ProjectionAssessment],
-) -> tuple[RoutedPlan, tuple[ProjectionDecisionRecord, ...]]:
+    assessments: Mapping[tuple[str, str], AxisRangeEvidence],
+) -> set[tuple[str, str]]:
     by_key = _occurrences_by_projection_key(plan)
     _require_complete_assessments(set(by_key), set(assessments))
-    decisions = _projection_decisions(by_key, assessments)
-    accepted = {
-        (decision.axis, decision.filler_code)
-        for decision in decisions
-        if decision.outcome == "accepted"
+    for key, evidence in assessments.items():
+        if key != (evidence.axis, evidence.filler_code):
+            raise ValueError("projection assessment key differs from range evidence")
+    return {
+        key
+        for key, evidence in assessments.items()
+        if isinstance(evidence, InvalidAxisEvidence)
     }
+
+
+def _assessed_plan(
+    plan: RoutedPlan,
+    assessments: Mapping[tuple[str, str], AxisRangeEvidence],
+) -> tuple[RoutedPlan, Mapping[str, int]]:
+    rejected = _rejected_projection_keys(plan, assessments)
+    accepted = set(assessments) - rejected
     occurrences = tuple(
         occurrence
         for occurrence in plan.occurrences
@@ -964,18 +913,22 @@ def _assessed_plan(
         policy_decisions=_retained_policy_decisions(plan, occurrences),
         source_identity=plan.source_identity,
     )
-    return assessed, decisions
+    return assessed, MappingProxyType(dict(Counter(axis for axis, _ in rejected)))
 
 
 def select_assessed_routed_plan(
     plan: RoutedPlan,
     is_ancestor: IsAncestor,
     *,
-    assessments: Mapping[tuple[str, str], ProjectionAssessment],
+    assessments: Mapping[tuple[str, str], AxisRangeEvidence],
     is_part_of: IsPartOf | None = None,
 ) -> RoutedSelection:
-    """Apply complete validity decisions after routing and before reduction."""
-    assessed, decisions = _assessed_plan(plan, assessments)
+    """Reject invalid ranges before reduction, counting unique axis/filler pairs.
+
+    Unknown ranges survive. Counts include parent morphologies and are per concept,
+    not per source occurrence; duplicate restrictions do not inflate a rejection.
+    """
+    assessed, rejected = _assessed_plan(plan, assessments)
     selected = _reduce_routed_plan(
         assessed,
         is_ancestor,
@@ -984,8 +937,7 @@ def select_assessed_routed_plan(
     return RoutedSelection(
         constituents=selected.constituents,
         dispositions=selected.dispositions,
-        synthetic_occurrence_count=selected.synthetic_occurrence_count,
-        projection_decisions=decisions,
+        invalid_axis_range_by_axis=rejected,
     )
 
 

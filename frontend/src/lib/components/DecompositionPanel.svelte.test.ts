@@ -188,6 +188,9 @@ describe('DecompositionPanel', () => {
 		expect(screen.getByText('decomposed')).toBeInTheDocument();
 		expect(screen.getByText('engine emitted 2 constituents', { exact: true })).toBeInTheDocument();
 		expect(screen.getByText('Needs review')).toBeInTheDocument();
+		expect(within(link.closest('li')!).getByText('Needs review')).toBeVisible();
+		const resolvedRow = screen.getByRole('link', { name: 'Stage III' }).closest('li')!;
+		expect(within(resolvedRow).queryByText('Needs review')).not.toBeInTheDocument();
 	});
 
 	it.each([

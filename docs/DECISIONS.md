@@ -1938,9 +1938,13 @@ equivalence emission, keeping review separate from publication. Ordinary `--tota
 smoke runs also reject `--load`: a truncated worklist may produce a diagnostic artifact,
 but it must never replace the complete public graph. Sample runs' schema-v3 run fingerprint
 and resume identity bind the manifest digest; ordinary and historical runs remain schema
-v2 with their existing canonical digests. The configuration version is
+v2 with their existing canonical digests. At this decision the configuration version was
 `nested-definition-v2`, preventing pre-D50/D55 work from resuming under the complete
 nested-definition reader.
+
+Update (#356, M16): current runs record `RULES_VERSION` as the configuration version
+(`decomposition-rules-v1`) and bind an explicit engine stamp plus packaged policy
+inputs. The historical `nested-definition-v2` value above is not written by current runs.
 
 **Why:** reproducibility requires the selected cases and the source they were selected
 from, not merely a random seed or release label. Binding the exact reviewed definition to

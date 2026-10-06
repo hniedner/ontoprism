@@ -167,7 +167,6 @@ async def _m1_walker_evidence(
             source_identity="0" * 64,
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
             diagnostic_source=unknown_axis_diagnostic_source("0" * 64),
-            detector_identity="0" * 64,
             walker_max_depth=5,
         )
         outcome_evidence[code] = (candidate.semantic_types, candidate.outcome)

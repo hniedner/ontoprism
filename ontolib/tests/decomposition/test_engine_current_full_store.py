@@ -139,7 +139,6 @@ async def test_twenty_code_replay_matches_active_groups_and_tracked_semantics() 
                     source_identity=manifest.source_identity,
                     collapse_policy=load_packaged_collapse_veto_policy(),
                     diagnostic_source=diagnostic_source,
-                    detector_identity=expected.detector_identity,
                     walker_max_depth=RunConfig(branch="neoplasm").walker_max_depth,
                 )
                 decomposition = result.decomposition
@@ -247,7 +246,6 @@ async def test_packaged_group_policy_applies_at_the_run_default_depth() -> None:
                     collapse_policy=load_packaged_collapse_veto_policy(),
                     normalized_group_policy=policy,
                     diagnostic_source=diagnostic_source,
-                    detector_identity=routing_implementation_identity(),
                     walker_max_depth=RunConfig(branch="neoplasm").walker_max_depth,
                 )
                 assert result.outcome == "decomposed"
@@ -291,7 +289,6 @@ async def test_r101_route_before_r82_collapse_cohort_uses_engine_dispositions() 
                 collapse_policy=NO_COLLAPSE_VETO_POLICY,
                 normalized_group_policy=no_group_policy,
                 diagnostic_source=diagnostic_source,
-                detector_identity="0" * 64,
                 walker_max_depth=7,
             )
             decomposition = result.decomposition

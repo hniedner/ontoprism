@@ -843,6 +843,32 @@ async def test_walk_genus_chain_populates_anchoring_genus() -> None:
 
 
 @pytest.mark.unit
+async def test_walk_genus_chain_projects_inherited_grade_with_source_attribution() -> (
+    None
+):
+    select = _walker_select_double(
+        {
+            "C1": _definition_rows("_:root", (_iri("C2"), None, None, True)),
+            "C2": _definition_rows(
+                "_:parent", ("_:grade", _iri("R110"), _iri("C28076"), False)
+            ),
+        },
+        role_labels={"R110": "Disease_Has_Grade"},
+    )
+
+    complete, roles = await read_complete_genus_chain(select, "C1")
+
+    assert [
+        (role.role_code, role.filler_code, role.anchoring_genus) for role in roles
+    ] == [("R110", "C28076", "C2")]
+    assert roles[0].source_definition_ids
+    assert set(roles[0].source_definition_ids) <= {
+        fact.fact_id for fact in complete.facts
+    }
+    assert roles[0].source_occurrence_ids
+
+
+@pytest.mark.unit
 async def test_walk_genus_chain_projects_adjudicated_inherited_roles_only() -> None:
     rows_by_code = {
         "C1": _definition_rows("_:root", (_iri("C2"), None, None, True)),

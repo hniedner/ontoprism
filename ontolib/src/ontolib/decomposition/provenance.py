@@ -811,6 +811,26 @@ def _concept_outcome_reason(item: WorkItemOutcome) -> str:
     raise RunStateError("complete concept has no typed publication outcome")
 
 
+def _constituent_review_flags(
+    needs_review: Sequence[RowMapping],
+) -> list[tuple[str, str, str]]:
+    primary_sites: dict[str, set[str]] = {}
+    for row in needs_review:
+        if row["axis"] == "op:PrimarySite":
+            primary_sites.setdefault(row["concept_code"], set()).add(row["filler_code"])
+    return [
+        (
+            row["concept_code"],
+            "needs-review",
+            "multiple primary sites retained for review"
+            if row["axis"] == "op:PrimarySite"
+            and len(primary_sites[row["concept_code"]]) > 1
+            else f"constituent {row['axis']} / {row['filler_code']} needs review",
+        )
+        for row in needs_review
+    ]
+
+
 def _publication_flags(
     needs_review: Sequence[RowMapping],
     unresolved: Sequence[RowMapping],
@@ -818,16 +838,8 @@ def _publication_flags(
     mints: Sequence[RowMapping],
 ) -> dict[str, list[ConceptReviewFlag]]:
     flags: dict[str, list[ConceptReviewFlag]] = {}
-    rendered = (
-        (
-            row["concept_code"],
-            "needs-review",
-            f"constituent {row['axis']} / {row['filler_code']} needs review",
-        )
-        for row in needs_review
-    )
     rendered = chain(
-        rendered,
+        _constituent_review_flags(needs_review),
         (
             (
                 row["concept_code"],
@@ -1132,7 +1144,7 @@ async def _persisted_definition_counts(
 ) -> tuple[int, int, int]:
     """Recompute the definition metrics the way the pipeline computes them.
 
-    Two scoping rules must match :func:`decompositions_for_run` exactly, or
+    Two scoping rules must match :func:`decompositions_for_run`'s default scope, or
     :func:`_require_matching_completion_metrics` rejects every well-formed run:
 
     * only ``is_decomposed`` work items contribute. A ``residual`` concept still
@@ -1375,6 +1387,7 @@ async def _mark_work_item_complete(
 async def _load_decomposition_rows(
     session: AsyncSession,
     run_id: str,
+    include_residual: bool = False,
 ) -> tuple[
     Sequence[RowMapping],
     Sequence[RowMapping],
@@ -1390,9 +1403,10 @@ async def _load_decomposition_rows(
             "SELECT concept_code, semantic_type, has_complete_definition "
             "FROM decomp_work_item "
             "WHERE run_id = :run_id AND state = 'complete' "
-            "AND is_decomposed ORDER BY ordinal"
+            "AND (is_decomposed OR (:include_residual AND is_residual)) "
+            "ORDER BY ordinal"
         ),
-        {"run_id": run_id},
+        {"run_id": run_id, "include_residual": include_residual},
     )
     constituent_result = await session.execute(
         text(
@@ -2613,7 +2627,9 @@ class ProvenanceStore:
             )
             return bool(cast("int", result.rowcount))  # type: ignore[attr-defined]
 
-    async def decompositions_for_run(self, run_id: str) -> list[Decomposition]:
+    async def decompositions_for_run(
+        self, run_id: str, *, include_residual: bool = False
+    ) -> list[Decomposition]:
         """Reconstruct the normalized artifact in persisted worklist order."""
         async with self._sf() as session:
             await _require_persisted_completion_counts(session, run_id)
@@ -2626,7 +2642,7 @@ class ProvenanceStore:
                 occurrence_rows,
                 occurrence_link_rows,
                 disposition_rows,
-            ) = await _load_decomposition_rows(session, run_id)
+            ) = await _load_decomposition_rows(session, run_id, include_residual)
 
         constituents_by_code = _constituents_by_code(
             constituent_rows, occurrence_link_rows

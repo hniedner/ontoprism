@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -18,6 +19,13 @@ from test_support.projection import unknown_axis_diagnostic_source
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import run as run_module
+from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
+from ontolib.decomposition.axis_diagnostics import (
+    AxisDiagnosticSource,
+    AxisHierarchyEvidence,
+    DisjointPair,
+    HierarchyEdge,
+)
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.label_validation import ConceptLabelError
 from ontolib.decomposition.minting import MintedConcept
@@ -402,6 +410,8 @@ class _LifecycleClient:
             return []
         if "SELECT ?code ?st" in query:
             return []
+        if "SELECT ?member ?type ?role ?target ?roleLabel" in query:
+            return []
         raise AssertionError(f"unexpected query: {query}")
 
     async def select_once(
@@ -484,6 +494,7 @@ class _InterruptedDecomposer:
             decomposition=Decomposition(
                 code=code,
                 semantic_type="Neoplastic Process",
+                complete_definition=CompleteDefinition(root_code=code, facts=()),
                 constituents=[
                     Constituent(
                         axis="R88",
@@ -680,6 +691,74 @@ async def test_empty_complete_definition_survives_postgres_round_trip() -> None:
         )
 
         assert await store.decompositions_for_run(run_id) == [decomposition]
+        # A second run has an all-rejected candidate, not an atomic non-candidate.
+        residual_run = _new_run_id("neoplasm")
+        try:
+            await store.create_run(residual_run, "26.07d", _fingerprint())
+            residual_claim = await store.claim_work_item(residual_run, "C0")
+            assert residual_claim is not None
+            group = canonical_definition_group_id("C0", ("restriction:R88:C27970",))
+            fact_id = canonical_definition_fact_id(
+                "C0", group, "restriction", "R88", "C27970"
+            )
+            residual = Decomposition(
+                code="C0",
+                semantic_type="Neoplastic Process",
+                complete_definition=CompleteDefinition(
+                    root_code="C0",
+                    facts=(
+                        RestrictionDefinitionFact(
+                            fact_id=fact_id,
+                            anchor_code="C0",
+                            group_id=group,
+                            depth=0,
+                            role_code="R88",
+                            filler_code="C27970",
+                        ),
+                    ),
+                ),
+            )
+            await store.complete_work_item(
+                residual_run,
+                "C0",
+                residual_claim,
+                decomposition=residual,
+                minted=(),
+                semantic_types=("Neoplastic Process",),
+            )
+            assert await store.decompositions_for_run(residual_run) == []
+            assert await store.decompositions_for_run(
+                residual_run, include_residual=True
+            ) == [residual]
+            setup = SimpleNamespace(
+                fingerprint=_fingerprint(),
+                collapse_policy=NO_COLLAPSE_VETO_POLICY,
+                static_lookups=run_module.RunStaticLookups(
+                    source_identity="a" * 64,
+                    role_labels={"R88": "Has_Stage"},
+                    semantic_types={"C27970": ()},
+                ),
+                diagnostic_source=AxisDiagnosticSource(
+                    AxisHierarchyEvidence(
+                        source_identity="a" * 64,
+                        edges=(HierarchyEdge(child="C27970", parent="C43431"),),
+                        disjoint_pairs=(
+                            DisjointPair(
+                                left=AXIS_CONTRACTS["op:StageValue"].range_code,
+                                right="C43431",
+                            ),
+                        ),
+                    )
+                ),
+            )
+            assert await run_module._range_rejection_counts(
+                setup,
+                RunConfig(branch="neoplasm"),
+                _LifecycleClient(),
+                await store.decompositions_for_run(residual_run, include_residual=True),
+            ) == {"op:StageValue": 1}
+        finally:
+            await _cleanup([residual_run])
     finally:
         await _cleanup([run_id])
         await dispose_engine(engine)
