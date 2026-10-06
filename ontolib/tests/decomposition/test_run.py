@@ -660,6 +660,7 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
                 state["decompositions"].append(decomposition)
             else:
                 state["residual"] += 1
+                state.setdefault("residual_decompositions", []).append(decomposition)
         elif outcome == "semantic-excluded":
             state["semantic_excluded"] += 1
         elif outcome == "atomic-no-op":
@@ -685,7 +686,11 @@ def _install_work_doubles(store: Any, state: dict[str, Any]) -> None:
     store.claim_work_item = AsyncMock(return_value=UUID(int=1))
     store.complete_work_item = AsyncMock(side_effect=complete_work_item)
     store.decompositions_for_run = AsyncMock(
-        side_effect=lambda _run_id, include_residual=False: state["decompositions"]
+        side_effect=lambda _run_id, include_residual=False: (
+            state["decompositions"] + state.get("residual_decompositions", [])
+            if include_residual
+            else state["decompositions"]
+        )
     )
     store.concept_publications_for_run = AsyncMock(
         side_effect=lambda _run_id: _mock_concept_publications(state)
@@ -4405,6 +4410,47 @@ async def test_pipeline_returns_axis_rejection_counts_without_persisting_them(
     )
     assert metrics.invalid_axis_range_by_axis == {"op:StageValue": 1}
     assert "invalid_axis_range_by_axis" not in run_module._persisted_metrics(metrics)
+
+
+@pytest.mark.unit
+async def test_pipeline_counts_residual_rejections_without_artifact_metrics(
+    monkeypatch,
+):
+    client = _FakeClient(
+        pages=[["C6135"]],
+        semantic_types={"C6135": ["Neoplastic Process"]},
+        roles={
+            "C6135": [
+                _role("R88", "Has_Stage", "C27970"),
+                _role("R105", "Has_Cell_Type", "C10"),
+            ]
+        },
+    )
+    source = AxisDiagnosticSource(
+        AxisHierarchyEvidence(
+            source_identity="a" * 64,
+            edges=(
+                HierarchyEdge(child="C27970", parent="C43431"),
+                HierarchyEdge(child="C10", parent="C43431"),
+            ),
+            disjoint_pairs=tuple(
+                DisjointPair(left=AXIS_CONTRACTS[axis].range_code, right="C43431")
+                for axis in ("op:StageValue", "op:CellType")
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        run_module.axis_diagnostics,
+        "read_axis_diagnostic_source",
+        AsyncMock(return_value=source),
+    )
+    metrics = await run_pipeline(
+        RunConfig(branch="neoplasm"), client, _mock_provenance()
+    )
+    assert metrics.residual == 1
+    assert metrics.decomposed == 0
+    assert metrics.invalid_axis_range_by_axis == {"op:StageValue": 1, "op:CellType": 1}
+    assert metrics.complete_definition_count == metrics.complete_fact_count == 0
 
 
 def _group_policy_bound_to(code: str) -> ActiveNormalizedGroupPolicy:
