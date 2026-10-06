@@ -36,7 +36,7 @@ def test_wheel_constructs_engine_identity_outside_checkout(tmp_path: Path) -> No
         capture_output=True,
     )
     python = environment / "bin/python"
-    # Reproduce the CI import environment, even on a base Python with global deps.
+    # Guard against inherited dependencies, even on a base Python with global deps.
     subprocess.run(
         [
             str(python),
@@ -67,7 +67,9 @@ def test_wheel_constructs_engine_identity_outside_checkout(tmp_path: Path) -> No
     )
     wheel_site = Path(site_result.stdout.strip())
     dependency_site = Path(sysconfig.get_path("purelib")).resolve()
-    assert dependency_site.is_relative_to(Path(sys.prefix).resolve())
+    assert dependency_site.is_relative_to(Path(sys.prefix).resolve()), (
+        f"Dependencies must belong to the project interpreter: {dependency_site}"
+    )
     # Append resolved project dependencies without processing its editable .pth files.
     # The wheel's own site-packages stays first; no base/user site-packages are enabled.
     (wheel_site / "project-dependencies.pth").write_text(
@@ -79,11 +81,12 @@ def test_wheel_constructs_engine_identity_outside_checkout(tmp_path: Path) -> No
         "from ontolib.decomposition import semantic_identity as identity; "
         "import pydantic; "
         "assert Path(pydantic.__file__).resolve().is_relative_to("
-        f"Path({str(dependency_site)!r})); "
+        f"Path({str(dependency_site)!r})), 'pydantic not from project dependencies'; "
         "assert all(Path(module.__file__).resolve().is_relative_to("
         "Path(sys.prefix).resolve()) "
         "for name, module in sys.modules.items() "
-        "if name == 'ontolib' or name.startswith('ontolib.')); "
+        "if name == 'ontolib' or name.startswith('ontolib.')), "
+        "'ontolib not from wheel'; "
         "print(identity.routing_implementation_identity())"
     )
     result = subprocess.run(
@@ -95,3 +98,4 @@ def test_wheel_constructs_engine_identity_outside_checkout(tmp_path: Path) -> No
     )
     assert result.returncode == 0, result.stderr
     assert len(result.stdout.strip()) == 64
+    assert set(result.stdout.strip()) <= set("0123456789abcdef")
