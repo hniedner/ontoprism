@@ -7,6 +7,7 @@ import json
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -23,6 +24,7 @@ from ontolib.terminologies.ncit.sibling_store import (
     DockerQleverRuntime,
     LoaderIdentity,
 )
+from ontolib.terminologies.uberon import store as uberon_store
 from ontolib.terminologies.uberon.store import (
     UBERON_ARTIFACT_MANIFEST_FILENAME,
     UBERON_INDEX_MANIFEST_FILENAME,
@@ -528,3 +530,221 @@ async def test_real_runtime_serves_uberon_index_with_bounded_resources(
     assert start[start.index("-m") + 1] == "2G"
     assert start[start.index("-c") + 1] == "256M"
     assert start[start.index("-e") + 1] == "256M"
+
+
+@pytest.mark.parametrize(
+    "damage", ["missing-marker", "wrong-location", "missing-source", "broken-manifest"]
+)
+async def test_index_revalidation_refuses_damaged_installation(tmp_path, damage):
+    _artifact(tmp_path)
+    target = tmp_path / "qlever-uberon"
+    await build_uberon_index(
+        tmp_path / UBERON_ARTIFACT_MANIFEST_FILENAME,
+        target,
+        runtime=_Runtime(_observation()),
+        owner="b" * 32,
+    )
+    manifest = target / UBERON_INDEX_MANIFEST_FILENAME
+    if damage == "missing-marker":
+        (target / UBERON_OWNER_MARKER_FILENAME).unlink()
+    elif damage == "wrong-location":
+        moved = tmp_path / "wrong.json"
+        moved.write_bytes(manifest.read_bytes())
+        manifest = moved
+    elif damage == "missing-source":
+        (tmp_path / "uberon.owl").unlink()
+    else:
+        manifest.write_text("not json")
+    with pytest.raises(UberonArtifactError):
+        validate_uberon_index_manifest(manifest)
+
+
+@pytest.mark.parametrize(
+    "case", ["missing-serving", "invalid-owner", "existing-candidate"]
+)
+async def test_build_never_publishes_unowned_or_unobserved_candidate(tmp_path, case):
+    _artifact(tmp_path)
+    target = tmp_path / "qlever-uberon"
+    owner = "b" * 32
+    observation = _observation()
+    if case == "missing-serving":
+        observation = _observation(serving=None)
+    elif case == "invalid-owner":
+        owner = "not-an-owner"
+    else:
+        candidate = tmp_path / f".{target.name}.candidate-{owner}"
+        candidate.mkdir()
+        (candidate / "keep").write_text("someone else's candidate")
+    with pytest.raises(UberonArtifactError):
+        await build_uberon_index(
+            tmp_path / UBERON_ARTIFACT_MANIFEST_FILENAME,
+            target,
+            runtime=_Runtime(observation),
+            owner=owner,
+        )
+    assert not target.exists()
+    if case == "existing-candidate":
+        assert (candidate / "keep").read_text() == "someone else's candidate"
+
+
+async def test_download_wrong_destination_is_not_certified(tmp_path):
+    async def wrong_path(url, destination, **kwargs):
+        other = destination.with_name("other.owl")
+        other.write_bytes(_RDF)
+        return DownloadOutcome(
+            path=str(other),
+            status="downloaded",
+            manifest=CacheManifest(
+                url=url, downloaded_at="2026-10-06T00:00:00+00:00", size_bytes=len(_RDF)
+            ),
+        )
+
+    with pytest.raises(UberonArtifactError, match="unexpected path"):
+        await download_uberon_artifact(
+            tmp_path,
+            source_url=_SOURCE_URL,
+            expected_version_iri=UBERON_VERSION_IRI,
+            downloader=wrong_path,
+        )
+    assert not (tmp_path / UBERON_ARTIFACT_MANIFEST_FILENAME).exists()
+
+
+async def test_serving_counts_distinct_searchable_classes_and_detects_changes():
+    prefix = "http://purl.obolibrary.org/obo/"
+    rows = (
+        [
+            {"kind": "class", "subject": prefix + code, "predicate": "", "object": ""}
+            for code in ("UBERON_0002048", "CL_0000000", "CL_0000001")
+        ]
+        + [
+            {
+                "kind": "label",
+                "subject": prefix + code,
+                "predicate": "",
+                "object": label,
+            }
+            for code, label in (
+                ("UBERON_0002048", "lung"),
+                ("CL_0000000", "cell"),
+                ("CL_0000000", "another cell label"),
+            )
+        ]
+        + [
+            {
+                "kind": "synonym",
+                "subject": prefix + "UBERON_0002048",
+                "predicate": "",
+                "object": "pulmonary organ",
+            }
+        ]
+    )
+    client = AsyncMock()
+    client.select.return_value = rows
+    before = await uberon_store.observe_uberon_serving_fingerprint(client)
+    assert (
+        before.rows,
+        before.uberon_classes,
+        before.cl_classes,
+        before.uberon_searchable_classes,
+        before.cl_searchable_classes,
+    ) == (7, 1, 2, 1, 1)
+    client.select.return_value = [*rows[:-1], {**rows[-1], "object": "changed synonym"}]
+    after = await uberon_store.observe_uberon_serving_fingerprint(client)
+    assert before.sha256 != after.sha256
+    client.select.return_value = []
+    with pytest.raises(ValueError, match="greater than 0"):
+        await uberon_store.observe_uberon_serving_fingerprint(client)
+
+
+@pytest.mark.parametrize(
+    "versions",
+    [[], [{"version": UBERON_VERSION_IRI}], [{"version": "one"}, {"version": "two"}]],
+)
+async def test_index_observation_preserves_unknown_release_and_missing_sentinels(
+    monkeypatch, versions
+):
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.select_once.side_effect = [versions, [{"count": "1250000"}]]
+    client.ask_once.side_effect = [True, False, True]
+    client.select.return_value = [
+        {
+            "kind": kind,
+            "subject": "http://purl.obolibrary.org/obo/" + code,
+            "predicate": "",
+            "object": code if kind == "label" else "",
+        }
+        for kind in ("class", "label")
+        for code in ("UBERON_0002048", "CL_0000000")
+    ]
+    monkeypatch.setattr(
+        uberon_store.SparqlHttpClient, "for_qlever", lambda _url: client
+    )
+    observed = await uberon_store.observe_uberon_index("http://unused.test")
+    assert observed.version_iri == (UBERON_VERSION_IRI if len(versions) == 1 else None)
+    assert observed.triples == 1250000
+    assert observed.has_uberon_lung
+    assert observed.has_ncit_xref
+    assert observed.has_cell_class is False
+    assert observed.serving.rows == 4
+
+
+@pytest.mark.parametrize("rows", [[], [{"count": "1"}, {"count": "2"}], [{}]])
+async def test_index_observation_refuses_missing_or_nonunique_count(monkeypatch, rows):
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.select_once.side_effect = [[{"version": UBERON_VERSION_IRI}], rows]
+    monkeypatch.setattr(
+        uberon_store.SparqlHttpClient, "for_qlever", lambda _url: client
+    )
+    with pytest.raises(UberonArtifactError, match="unique triple count"):
+        await uberon_store.observe_uberon_index("http://unused.test")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", 99),
+        ("source_url", "http://example.test/uberon.owl"),
+        ("size_bytes", 0),
+        ("sha256", "not-a-digest"),
+        ("artifact_identity", "bad"),
+        ("size_bytes", len(_RDF) + 1),
+    ],
+)
+def test_stored_artifact_metadata_damage_is_rejected(tmp_path, field, value):
+    _artifact(tmp_path)
+    manifest = tmp_path / UBERON_ARTIFACT_MANIFEST_FILENAME
+    payload = json.loads(manifest.read_text())
+    payload[field] = value
+    manifest.write_text(json.dumps(payload))
+    with pytest.raises(UberonArtifactError):
+        validate_uberon_artifact(manifest)
+    assert (tmp_path / "uberon.owl").read_bytes() == _RDF
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", 99),
+        ("owner", "bad-owner"),
+        ("artifact_identity", "invalid"),
+        ("source_identity", "invalid"),
+        ("artifact_identity", "f" * 64),
+    ],
+)
+async def test_stored_index_metadata_damage_is_rejected(tmp_path, field, value):
+    _artifact(tmp_path)
+    target = tmp_path / "index"
+    await build_uberon_index(
+        tmp_path / UBERON_ARTIFACT_MANIFEST_FILENAME,
+        target,
+        runtime=_Runtime(_observation()),
+    )
+    manifest = target / UBERON_INDEX_MANIFEST_FILENAME
+    payload = json.loads(manifest.read_text())
+    payload[field] = value
+    manifest.write_text(json.dumps(payload))
+    with pytest.raises(UberonArtifactError):
+        validate_uberon_index_manifest(manifest)
+    assert (target / "uberon.index.spo").read_text() == "index"

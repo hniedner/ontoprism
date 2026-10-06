@@ -861,7 +861,8 @@ async def test_finish_run_sets_complete() -> None:
 
 
 @pytest.mark.unit
-async def test_completed_run_for_evidence_returns_validated_publication() -> None:
+@pytest.mark.parametrize("damage", [None, "source", "representation", "artifact"])
+async def test_completed_run_for_evidence_returns_validated_publication(damage) -> None:
     sf = _make_mock_sf()
     fingerprint = RunFingerprint(
         schema_version=7,
@@ -896,6 +897,21 @@ async def test_completed_run_for_evidence_returns_validated_publication() -> Non
     }
     worklist_result.scalars.return_value.all.return_value = ["C1"]
     sf().execute.side_effect = [run_result, worklist_result]
+
+    row = run_result.mappings.return_value.first.return_value
+    if damage is not None:
+        field = {
+            "source": "source_identity",
+            "representation": "representation_identity",
+            "artifact": "publication_artifact_path",
+        }[damage]
+        row[field] = "f" * 64 if damage == "source" else None
+        with pytest.raises(
+            (RunStateError, RunIdentityMismatchError),
+            match=r"source identity|publication evidence",
+        ):
+            await ProvenanceStore(sf).completed_run_for_evidence("run-1")
+        return
 
     completed = await ProvenanceStore(sf).completed_run_for_evidence("run-1")
 
@@ -943,7 +959,10 @@ async def test_published_evidence_reader_rejects_a_rehearsal() -> None:
 
 
 @pytest.mark.unit
-async def test_oracle_metrics_reader_returns_only_a_completed_rehearsal() -> None:
+@pytest.mark.parametrize(
+    "damage", [None, "missing", "running", "published", "nonce", "source"]
+)
+async def test_oracle_metrics_reader_returns_only_a_completed_rehearsal(damage) -> None:
     sf = _make_mock_sf()
     fingerprint = RunFingerprint(
         schema_version=7,
@@ -977,6 +996,27 @@ async def test_oracle_metrics_reader_returns_only_a_completed_rehearsal() -> Non
     }
     worklist_result.scalars.return_value.all.return_value = ["C1"]
     sf().execute.side_effect = [run_result, worklist_result]
+
+    row = run_result.mappings.return_value.first.return_value
+    if damage is not None:
+        if damage == "missing":
+            run_result.mappings.return_value.first.return_value = None
+        elif damage == "running":
+            row["status"] = "running"
+        elif damage == "published":
+            row["publication_state"] = "published"
+        elif damage == "source":
+            row["source_identity"] = "f" * 64
+        else:
+            changed = fingerprint.model_copy(update={"rehearsal_nonce": None})
+            row["fingerprint"] = changed.model_dump(mode="json")
+            row["fingerprint_sha256"] = changed.identity
+        with pytest.raises(
+            (RunStateError, RunIdentityMismatchError),
+            match=r"does not exist|unpublished|not a rehearsal|source identity",
+        ):
+            await ProvenanceStore(sf).completed_rehearsal_for_oracle_metrics("run-1")
+        return
 
     completed = await ProvenanceStore(sf).completed_rehearsal_for_oracle_metrics(
         "run-1"
