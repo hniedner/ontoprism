@@ -1022,6 +1022,7 @@ _CORE_NEOPLASM_ROLES: frozenset[str] = frozenset(
         "R105",  # Disease_Has_Abnormal_Cell
         "R106",  # Disease_Has_Molecular_Abnormality
         "R108",  # Disease_Has_Finding
+        "R110",  # Disease_Has_Grade
         "R135",  # Disease_Excludes_Primary_Anatomic_Site (see scope note above)
     }
 )
