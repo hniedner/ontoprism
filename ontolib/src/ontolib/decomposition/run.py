@@ -994,7 +994,7 @@ def _apply_group_policy(
         raise SourceIdentityChangedError(
             "normalized group policy source identity differs from run source identity"
         )
-    return apply_normalized_group_policy(decomposition, active_policy).decomposition
+    return apply_normalized_group_policy(decomposition, active_policy)
 
 
 def _residual_count(

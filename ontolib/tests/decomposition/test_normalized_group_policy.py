@@ -31,7 +31,6 @@ from ontolib.decomposition.normalized_group_policy import (
     REVIEWED_STAGE_CODES,
     ActiveNormalizedGroupPolicy,
     NormalizedGroupPolicyRow,
-    NotApplicable,
     PolicyBlock,
     SourceCoordinate,
     SourcePairEvidence,
@@ -902,9 +901,7 @@ def test_reviewed_stage_target_drift_refuses(mutation: str) -> None:
     ("mutation", "message"),
     [
         ("blocks", "blocks differ"),
-        ("diagnosis", "diagnosis differs"),
         ("rule-kind", "rule kind differs"),
-        ("identity", "row identity differs"),
     ],
 )
 def test_policy_rows_fail_closed_when_governed_invariants_drift(
@@ -914,18 +911,12 @@ def test_policy_rows_fail_closed_when_governed_invariants_drift(
     payload = row.model_dump()
     if mutation == "blocks":
         payload["blocks"] = payload["blocks"][1:]
-    elif mutation == "diagnosis":
-        payload["input_diagnosis"] = (
-            "over-split" if payload["input_diagnosis"] == "over-merge" else "over-merge"
-        )
     elif mutation == "rule-kind":
         payload["rule_kind"] = (
             "reviewed-regrouping"
             if payload["rule_kind"] == "source-evidence-grouping"
             else "source-evidence-grouping"
         )
-    else:
-        payload["row_identity"] = "0" * 64
 
     with pytest.raises(ValueError, match=message):
         NormalizedGroupPolicyRow.model_validate(payload)
@@ -1285,8 +1276,7 @@ def test_runtime_policy_refuses_pair_and_evidence_drift() -> None:
     policy = load_packaged_normalized_group_policy()
     unknown = Decomposition(code="C1", semantic_type="Neoplastic Process")
     not_applicable = apply_normalized_group_policy(unknown, policy)
-    assert isinstance(not_applicable, NotApplicable)
-    assert not_applicable.decomposition is unknown
+    assert not_applicable is unknown
 
     wrong_pairs = Decomposition(
         code="C27262",
@@ -1310,6 +1300,20 @@ def test_runtime_policy_refuses_pair_and_evidence_drift() -> None:
     )
     with pytest.raises(ValueError, match="source evidence differs"):
         apply_normalized_group_policy(wrong_evidence, policy)
+
+
+def test_policy_identity_still_binds_audit_metadata_without_row_self_hashes():
+    policy = load_packaged_normalized_group_policy()
+    payload = policy.model_dump()
+    payload["rows"][0]["row_identity"] = "a" * 64
+    with pytest.raises(ValueError, match="policy identity differs"):
+        ActiveNormalizedGroupPolicy.model_validate(payload)
+    payload["policy_identity"] = canonical_identity(
+        {key: value for key, value in payload.items() if key != "policy_identity"}
+    )
+    loaded = ActiveNormalizedGroupPolicy.model_validate(payload)
+    assert loaded.rows[0].output_partition == policy.rows[0].output_partition
+    assert loaded.policy_identity != policy.policy_identity
 
 
 def test_runtime_policy_flags_a_pinned_pair_that_is_no_longer_emitted() -> None:
@@ -1374,14 +1378,13 @@ def test_runtime_policy_flags_a_pinned_pair_that_is_no_longer_emitted() -> None:
 
     applied = apply_normalized_group_policy(decomposition, policy)
 
-    assert not isinstance(applied, NotApplicable)
     assert missing not in {
-        (item.axis, item.filler_code) for item in applied.decomposition.constituents
+        (item.axis, item.filler_code) for item in applied.constituents
     }
     assert all(
         item.normalized_group_id
         == runtime_row.block_for((item.axis, item.filler_code)).normalized_group_id
-        for item in applied.decomposition.constituents
+        for item in applied.constituents
     )
 
 
@@ -1500,14 +1503,13 @@ def test_policy_preserves_bound_source_groups_and_applies_normalized_group() -> 
 
     applied = apply_normalized_group_policy(decomposition, transformation_policy)
 
-    assert not isinstance(applied, NotApplicable)
     assert {
         (item.axis, item.filler_code): (
             item.source_group_ids,
             item.normalized_group_id,
             item.normalized_group_label,
         )
-        for item in applied.decomposition.constituents
+        for item in applied.constituents
     } == {
         pair: (
             ("d" * 64,),

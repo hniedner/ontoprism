@@ -82,7 +82,6 @@ class RoutedPlan:
 class RoutedSelection:
     constituents: tuple[Constituent, ...]
     dispositions: tuple[OccurrenceDisposition, ...]
-    synthetic_occurrence_count: int = 0
     invalid_axis_range_by_axis: Mapping[str, int] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -822,10 +821,6 @@ def _reduce_routed_plan(
         dispositions=tuple(
             sorted(dispositions, key=lambda row: row.source_occurrence_id)
         ),
-        synthetic_occurrence_count=sum(
-            occurrence.restriction.source_kind == "synthetic"
-            for occurrence in plan.occurrences
-        ),
     )
 
 
@@ -942,7 +937,6 @@ def select_assessed_routed_plan(
     return RoutedSelection(
         constituents=selected.constituents,
         dispositions=selected.dispositions,
-        synthetic_occurrence_count=selected.synthetic_occurrence_count,
         invalid_axis_range_by_axis=rejected,
     )
 
