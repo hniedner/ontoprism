@@ -1,52 +1,35 @@
-"""Content-derived identity for decomposition routing and detector semantics."""
+"""Explicit engine/rules versions plus the packaged policy inputs used by runs."""
 
-from __future__ import annotations
+from importlib.resources import files
 
-import hashlib
-from pathlib import Path
-
-_INVENTORY_VERSION = b"ontoprism-routing-implementation-files-v2\0"
-ROUTING_IMPLEMENTATION_FILES = (
-    Path("ontolib/src/ontolib/decomposition/axes.py"),
-    Path("ontolib/src/ontolib/decomposition/axis_contracts.py"),
-    Path("ontolib/src/ontolib/decomposition/branches.py"),
-    Path("ontolib/src/ontolib/decomposition/collapse_policy.py"),
-    Path("ontolib/src/ontolib/decomposition/complete_definition.py"),
-    Path("ontolib/src/ontolib/decomposition/detector.py"),
-    Path("ontolib/src/ontolib/decomposition/filler_selection.py"),
-    Path("ontolib/src/ontolib/decomposition/models.py"),
-    Path("ontolib/src/ontolib/decomposition/morphology_qualifier_policy.py"),
-    Path("ontolib/src/ontolib/decomposition/normalized_group_policy.py"),
-    Path(
-        "ontolib/src/ontolib/decomposition/data/morphology-qualifier-genera-26.07d.json"
-    ),
-    Path("ontolib/src/ontolib/decomposition/data/normalized-group-policy.json"),
-    Path("ontolib/src/ontolib/decomposition/site_resolution.py"),
-    Path("ontolib/src/ontolib/decomposition/stated_queries.py"),
+from ontolib.common.boundary_models import canonical_json_sha256, sha256_hex
+from ontolib.decomposition.normalized_group_policy import (
+    load_packaged_normalized_group_policy,
 )
 
+# Bump for output-changing engine logic; formatting/source layout is not identity.
+ENGINE_VERSION = "decomposition-engine-v1"
+# Bump when generic fillers, inherited core roles, or qualifier-genus rules change.
+RULES_VERSION = "decomposition-rules-v1"
 
-def _repository_root() -> Path:
-    return Path(__file__).resolve().parents[4]
 
+def routing_implementation_identity() -> str:
+    """Bind deliberate versions and real policy inputs, never Python source bytes.
 
-def routing_implementation_identity(
-    root: Path | None = None,
-    *,
-    inventory: tuple[Path, ...] = ROUTING_IMPLEMENTATION_FILES,
-) -> str:
-    """Hash the versioned relative inventory and exact bytes, without metadata."""
-    base = root or _repository_root()
-    if not inventory or len(inventory) != len(set(inventory)):
-        raise ValueError("routing implementation inventory must be unique and nonempty")
-    digest = hashlib.sha256(_INVENTORY_VERSION)
-    for relative in inventory:
-        if relative.is_absolute() or ".." in relative.parts:
-            raise ValueError("routing implementation inventory paths must be relative")
-        encoded = relative.as_posix().encode("utf-8")
-        content = (base / relative).read_bytes()
-        digest.update(len(encoded).to_bytes(4, "big"))
-        digest.update(encoded)
-        digest.update(len(content).to_bytes(8, "big"))
-        digest.update(content)
-    return digest.hexdigest()
+    The active collapse-veto policy is separately bound in RunFingerprint. The
+    normalized grouping policy retains its validated policy_identity; the qualifier
+    resource has no such field, so its exact packaged bytes are hashed here.
+    """
+    qualifier = files("ontolib.decomposition").joinpath(
+        "data/morphology-qualifier-genera-26.07d.json"
+    )
+    return canonical_json_sha256(
+        {
+            "engine_version": ENGINE_VERSION,
+            "rules_version": RULES_VERSION,
+            "normalized_group_policy": (
+                load_packaged_normalized_group_policy().policy_identity
+            ),
+            "morphology_qualifier_policy": sha256_hex(qualifier.read_bytes()),
+        }
+    )
