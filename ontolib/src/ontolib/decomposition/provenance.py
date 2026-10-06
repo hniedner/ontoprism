@@ -811,21 +811,35 @@ def _concept_outcome_reason(item: WorkItemOutcome) -> str:
     raise RunStateError("complete concept has no typed publication outcome")
 
 
+def _constituent_review_reason(
+    row: RowMapping, primary_sites: dict[str, set[str]]
+) -> str:
+    if (
+        row["axis"] == "op:PrimarySite"
+        and len(primary_sites.get(row["concept_code"], set())) > 1
+        and not row["unknown_route"]
+    ):
+        return (
+            "sourced-limit violation: PrimarySite 0..1 (D58); multiple organs retained"
+        )
+    return (
+        f"nesting undecidable: {row['axis']} / {row['filler_code']}; "
+        "routing or class-level grouping remains unresolved"
+    )
+
+
 def _constituent_review_flags(
     needs_review: Sequence[RowMapping],
 ) -> list[tuple[str, str, str]]:
     primary_sites: dict[str, set[str]] = {}
     for row in needs_review:
-        if row["axis"] == "op:PrimarySite":
+        if row["axis"] == "op:PrimarySite" and not row["unknown_route"]:
             primary_sites.setdefault(row["concept_code"], set()).add(row["filler_code"])
     return [
         (
             row["concept_code"],
             "needs-review",
-            "multiple primary sites retained for review"
-            if row["axis"] == "op:PrimarySite"
-            and len(primary_sites[row["concept_code"]]) > 1
-            else f"constituent {row['axis']} / {row['filler_code']} needs review",
+            _constituent_review_reason(row, primary_sites),
         )
         for row in needs_review
     ]
@@ -2847,9 +2861,14 @@ class ProvenanceStore:
         async with self._sf() as session:
             needs_review = await session.execute(
                 text(
-                    "SELECT concept_code, axis, filler_code FROM decomp_constituent "
-                    "WHERE run_id=:run_id AND needs_review "
-                    "ORDER BY concept_code, axis, filler_code"
+                    "SELECT c.concept_code, c.axis, c.filler_code, EXISTS ("
+                    "SELECT 1 FROM decomp_occurrence_disposition d "
+                    "WHERE d.run_id=c.run_id AND d.concept_code=c.concept_code "
+                    "AND d.normalized_axis=c.axis AND d.retained_filler=c.filler_code "
+                    "AND d.semantic_route IN ('missing-p106', 'unknown-role')) "
+                    "AS unknown_route FROM decomp_constituent c "
+                    "WHERE c.run_id=:run_id AND c.needs_review "
+                    "ORDER BY c.concept_code, c.axis, c.filler_code"
                 ),
                 {"run_id": run_id},
             )

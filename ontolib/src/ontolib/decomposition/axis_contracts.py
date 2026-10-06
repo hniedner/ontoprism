@@ -48,6 +48,8 @@ class AxisContract(_StrictModel):
     ro_parent: str | None = Field(default=None, pattern=r"^RO:[0-9]{7}$")
     governance: AxisGovernance = Field(default_factory=StableGovernance)
     modality: AxisModality = "asserted"
+    cardinality: Literal["0..1", "0..*", "unresolved"] = "unresolved"
+    cardinality_source: str = "No approved class-level cardinality source"
 
 
 _DISEASE = ("C7057", "Disease, Disorder or Finding")
@@ -62,6 +64,32 @@ _PROVENANCE = (
     "NCIt concepts used as relation endpoint classes",
 )
 
+# Owner #466: tier-0 own-definition non-nested values establish multiplicity;
+# D58 overrides PrimarySite, and Stage/Grade remain assessment-scope unresolved.
+_MULTI_VALUED_AXES = frozenset(
+    {
+        "op:ClinicalFinding",
+        "op:MetastaticSite",
+        "op:AssociatedSite",
+        "op:NormalTissueOrigin",
+        "op:CellOrigin",
+        "op:CellType",
+        "op:MolecularAbnormality",
+        "op:CytogeneticAbnormality",
+    }
+)
+
+
+def _cardinality(axis: str) -> tuple[Literal["0..1", "0..*", "unresolved"], str]:
+    if axis == "op:PrimarySite":
+        return "0..1", "D58: one organ of origin; owner reaffirmed #466"
+    if axis in _MULTI_VALUED_AXES:
+        return "0..*", "NCIt 26.07d own-definition non-nested multiplicity; owner #466"
+    return (
+        "unresolved",
+        "No approved class-level limit; Stage/Grade sources are per assessment",
+    )
+
 
 def _contract(
     axis: str,
@@ -73,6 +101,7 @@ def _contract(
     governance: AxisGovernance | None = None,
     modality: AxisModality = "asserted",
 ) -> AxisContract:
+    cardinality, cardinality_source = _cardinality(axis)
     return AxisContract(
         axis=axis,
         label=label,
@@ -86,6 +115,8 @@ def _contract(
         ro_parent=ro_parent,
         governance=governance or StableGovernance(),
         modality=modality,
+        cardinality=cardinality,
+        cardinality_source=cardinality_source,
     )
 
 
