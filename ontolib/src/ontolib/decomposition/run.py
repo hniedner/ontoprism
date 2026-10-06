@@ -885,6 +885,7 @@ async def _decompose_one(
         source_identity=source_identity,
     )
     if isinstance(detected, _CandidateResult):
+        _require_unbound_noncandidate(code, normalized_group_policy)
         return detected
     result, roles, morphology_fillers, definition, semantic_types = detected
 
@@ -905,6 +906,7 @@ async def _decompose_one(
     )
 
     if not result.is_precoordinated:
+        _require_unbound_noncandidate(code, normalized_group_policy)
         return _CandidateResult(
             decomposition=None,
             outcome=_non_candidate_outcome(semantic_types),
@@ -982,6 +984,15 @@ def _bind_source_groups(
         )
         for constituent in constituents
     ]
+
+
+def _require_unbound_noncandidate(
+    code: str, policy: ActiveNormalizedGroupPolicy | None
+) -> None:
+    """A pinned policy cannot be satisfied by an unknown or non-candidate outcome."""
+    active_policy = policy or load_packaged_normalized_group_policy()
+    if code in active_policy.by_code:
+        raise ValueError(f"policy-bound concept {code} produced no decomposition")
 
 
 def _apply_group_policy(

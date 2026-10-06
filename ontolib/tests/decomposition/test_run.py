@@ -4538,6 +4538,37 @@ async def test_a_group_policy_mismatch_is_found_before_the_run_is_admitted() -> 
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("unsupported", [False, True])
+async def test_policy_bound_noncandidate_is_refused_before_admission(
+    monkeypatch, unsupported
+):
+    client = _FakeClient(
+        pages=[["C6135"]], semantic_types={"C6135": ["Neoplastic Process"]}
+    )
+    if unsupported:
+        monkeypatch.setattr(
+            run_module.stated_queries,
+            "read_complete_genus_chain",
+            AsyncMock(
+                side_effect=UnsupportedDefinitionConstructorError(
+                    "unsupported owl:unionOf"
+                )
+            ),
+        )
+    provenance = _mock_provenance()
+    with pytest.raises(
+        ValueError, match=r"policy-bound concept C6135.*no decomposition"
+    ):
+        await _run_with_group_policy(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            _group_policy_bound_to("C6135"),
+        )
+    provenance.admit_run.assert_not_awaited()
+
+
+@pytest.mark.unit
 async def test_a_resumed_run_checks_its_pending_policy_concepts_before_admission() -> (
     None
 ):
