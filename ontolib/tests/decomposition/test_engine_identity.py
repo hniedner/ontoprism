@@ -12,13 +12,19 @@ pytestmark = pytest.mark.unit
 
 def test_engine_stamp_changes_resume_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     before = semantic_identity.routing_implementation_identity()
-    monkeypatch.setattr(semantic_identity, "ENGINE_VERSION", "decomposition-engine-v2")
+    monkeypatch.setattr(
+        semantic_identity,
+        "ENGINE_VERSION",
+        semantic_identity.ENGINE_VERSION + "-changed",
+    )
     assert semantic_identity.routing_implementation_identity() != before
 
 
 def test_rules_stamp_changes_resume_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     before = semantic_identity.routing_implementation_identity()
-    monkeypatch.setattr(semantic_identity, "RULES_VERSION", "decomposition-rules-v2")
+    monkeypatch.setattr(
+        semantic_identity, "RULES_VERSION", semantic_identity.RULES_VERSION + "-changed"
+    )
     assert semantic_identity.routing_implementation_identity() != before
 
 

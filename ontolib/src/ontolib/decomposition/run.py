@@ -78,6 +78,7 @@ from ontolib.decomposition.models import (
     CompleteDefinition,
     ConceptOutcome,
     Decomposition,
+    RestrictionDefinitionFact,
 )
 from ontolib.decomposition.normalized_group_policy import (
     ActiveNormalizedGroupPolicy,
@@ -85,8 +86,6 @@ from ontolib.decomposition.normalized_group_policy import (
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.projection_validity import (
-    ProjectionAssessment,
-    UnknownProjectionEvidence,
     freeze_projection_assessments,
 )
 from ontolib.decomposition.provenance import RunStateError
@@ -353,9 +352,8 @@ class RunMetrics:
     **Two distinct residual counters — do not conflate them:**
 
     * ``residual`` — a concept detected as pre-coordinated that produced *zero*
-      constituents. A degenerate safety net (currently unreachable: every defining role
-      or NLP aspect yields >=1 constituent). NOT design
-      §10's residual metric.
+      constituents, for example when axis-range rejection removes every candidate
+      and NLP supplies none. NOT design §10's residual metric.
     * ``residual_precoordinated_count`` / :attr:`residual_precoordination` — **D37's
       metric**: decomposed concepts at least one of whose *emitted constituents is
       itself* classified as pre-coordinated by the same detector. The rate is
@@ -414,6 +412,7 @@ class RunMetrics:
         projection_loss_rate: float = 0.0,
         pct_decomposed: float = 0.0,
         roundtrip_fidelity: None = None,
+        invalid_axis_range_by_axis: Mapping[str, int] | None = None,
     ) -> None:
         self.total_in_scope = total_in_scope
         self.decomposed = decomposed
@@ -433,11 +432,15 @@ class RunMetrics:
         self.projection_loss_rate = projection_loss_rate
         self.pct_decomposed = pct_decomposed
         self.roundtrip_fidelity = roundtrip_fidelity
+        # Recomputed on completion, including resumed concepts; not persisted.
+        self.invalid_axis_range_by_axis = dict(invalid_axis_range_by_axis or {})
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, RunMetrics) and _persisted_metrics(
-            self
-        ) == _persisted_metrics(other)
+        return (
+            isinstance(other, RunMetrics)
+            and _persisted_metrics(self) == _persisted_metrics(other)
+            and self.invalid_axis_range_by_axis == other.invalid_axis_range_by_axis
+        )
 
     @property
     def coverage(self) -> float:
@@ -732,23 +735,10 @@ def _projection_keys(plan: fs.RoutedPlan) -> set[tuple[str, str]]:
 def _projection_assessments(
     plan: fs.RoutedPlan,
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
-    detector_identity: str,
-) -> Mapping[tuple[str, str], ProjectionAssessment]:
+) -> Mapping[tuple[str, str], axis_diagnostics.AxisRangeEvidence]:
     keys = _projection_keys(plan)
-    atomicity_by_filler = {
-        filler: UnknownProjectionEvidence(
-            status="unknown",
-            reason="not-classified-for-issue-replay",
-            filler_code=filler,
-            detector_identity=detector_identity,
-        )
-        for _axis, filler in keys
-    }
     return freeze_projection_assessments(
-        ProjectionAssessment(
-            axis_range=diagnostic_source.classify(axis=axis, filler_code=filler),
-            atomicity=atomicity_by_filler[filler],
-        )
+        diagnostic_source.classify(axis=axis, filler_code=filler)
         for axis, filler in keys
     )
 
@@ -762,7 +752,6 @@ async def _routed_selection(
     source_identity: str,
     collapse_policy: CollapseVetoPolicy,
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
-    detector_identity: str,
 ) -> fs.RoutedSelection:
     routed_plan = fs.build_routed_plan(
         roles,
@@ -781,7 +770,6 @@ async def _routed_selection(
         part_of=part_of,
         source_identity=source_identity,
         diagnostic_source=diagnostic_source,
-        detector_identity=detector_identity,
     )
 
 
@@ -827,11 +815,8 @@ async def _select_with_r82_evidence(
     part_of: set[tuple[str, str]],
     source_identity: str,
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
-    detector_identity: str,
 ) -> fs.RoutedSelection:
-    assessments = _projection_assessments(
-        routed_plan, diagnostic_source, detector_identity
-    )
+    assessments = _projection_assessments(routed_plan, diagnostic_source)
     selected = fs.select_assessed_routed_plan(
         routed_plan,
         extract.make_is_ancestor(ancestor_pairs),
@@ -879,7 +864,6 @@ async def _decompose_one(
     source_identity: str,
     collapse_policy: CollapseVetoPolicy,
     diagnostic_source: axis_diagnostics.AxisDiagnosticSource,
-    detector_identity: str,
     walker_max_depth: int = 7,
     normalized_group_policy: ActiveNormalizedGroupPolicy | None = None,
     anchor_rows_cache: complete_definition.AnchorDefinitionRowsCache | None = None,
@@ -943,7 +927,6 @@ async def _decompose_one(
         source_identity,
         collapse_policy,
         diagnostic_source,
-        detector_identity,
     )
     role_constituents = list(routed_selection.constituents)
 
@@ -1367,7 +1350,6 @@ async def _process_work_item(
             source_identity=setup.source_snapshot.source_identity,
             collapse_policy=setup.collapse_policy,
             diagnostic_source=setup.diagnostic_source,
-            detector_identity=setup.fingerprint.routing_implementation_identity,
             walker_max_depth=walker_max_depth,
             normalized_group_policy=setup.normalized_group_policy,
             anchor_rows_cache=setup.anchor_rows_cache,
@@ -2007,6 +1989,9 @@ async def _residual_classification_stage(
     )
     try:
         metrics, decompositions = await _base_run_data(setup, provenance)
+        metrics.invalid_axis_range_by_axis = await _range_rejection_counts(
+            setup, config, client, decompositions
+        )
         precoordinated, unknown, unknown_reasons = await _residual_sets(
             setup,
             config,
@@ -2042,6 +2027,74 @@ async def _residual_classification_stage(
             )
         raise
     return metrics, decompositions, residual_identity, unknown
+
+
+async def _range_rejection_counts(
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    decompositions: Sequence[Decomposition],
+) -> dict[str, int]:
+    """Recompute rejected axis/filler pairs across all completed candidates.
+
+    Reuse stored complete definitions, including zero-constituent residuals, so
+    resumed runs count earlier concepts too. This observational metric adds no
+    persisted field. Parent-morphology projections count alongside role projections.
+    """
+    counts: dict[str, int] = {}
+    for item in decompositions:
+        definition = item.complete_definition
+        if definition is None:
+            raise RunStateError("range recount requires a complete definition")
+        labels = await _recount_role_labels(setup, client, definition)
+        roles = stated_queries.detector_roles_from_definition(
+            definition, config.walker_max_depth, labels
+        )
+        morphologies = await stated_queries.resolve_morphology_fillers(
+            client.select, definition, max_depth=config.walker_max_depth
+        )
+        fillers = _candidate_filler_codes(roles, morphologies)
+        types = (
+            await _filler_semantic_types(client, fillers)
+            if setup.static_lookups is None
+            else {
+                filler: list(setup.static_lookups.semantic_types_for(filler))
+                for filler in fillers
+            }
+        )
+        plan = fs.build_routed_plan(
+            roles,
+            semantic_type_of=_semantic_type_resolver(types),
+            parent_morphologies=morphologies,
+            concept_code=item.code,
+            source_identity=setup.fingerprint.source_identity,
+            collapse_policy=setup.collapse_policy,
+        )
+        selected = fs.select_assessed_routed_plan(
+            plan,
+            lambda _a, _b: False,
+            assessments=_projection_assessments(plan, setup.diagnostic_source),
+        )
+        for axis, count in selected.invalid_axis_range_by_axis.items():
+            counts[axis] = counts.get(axis, 0) + count
+    return counts
+
+
+async def _recount_role_labels(
+    setup: _RunSetup,
+    client: DecompositionSparqlClient,
+    definition: CompleteDefinition,
+) -> Mapping[str, str | None]:
+    if setup.static_lookups is not None:
+        return setup.static_lookups.role_labels
+    return await stated_queries.read_definition_role_labels(
+        client.select,
+        {
+            fact.role_code
+            for fact in definition.facts
+            if isinstance(fact, RestrictionDefinitionFact)
+        },
+    )
 
 
 async def _residual_sets(
@@ -2411,7 +2464,6 @@ async def _qualify_group_policy(
                 source_identity=source_identity,
                 collapse_policy=collapse_policy,
                 diagnostic_source=diagnostic_source,
-                detector_identity=routing_implementation_identity(),
                 walker_max_depth=config.walker_max_depth,
                 normalized_group_policy=policy,
                 anchor_rows_cache=anchor_rows_cache,

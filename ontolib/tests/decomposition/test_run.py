@@ -17,9 +17,12 @@ import pytest
 
 from ontolib.decomposition import axes, publication, vocab
 from ontolib.decomposition import run as run_module
+from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.axis_diagnostics import (
     AxisDiagnosticSource,
     AxisHierarchyEvidence,
+    DisjointPair,
+    HierarchyEdge,
     UnknownAxisEvidence,
 )
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
@@ -42,7 +45,6 @@ from ontolib.decomposition.normalized_group_policy import (
     _constituent_evidence_identity,
     load_packaged_normalized_group_policy,
 )
-from ontolib.decomposition.projection_validity import decide_projection
 from ontolib.decomposition.provenance import (
     ProvenanceStore,
     RunIdentityMismatchError,
@@ -130,7 +132,7 @@ def _diagnostic_source() -> AxisDiagnosticSource:
 
 
 @pytest.mark.unit
-def test_raw_role_axis_is_assessed_as_unknown_and_review_bearing() -> None:
+def test_raw_role_axis_is_retained_with_unknown_range() -> None:
     plan = run_module.fs.build_routed_plan(
         (RoleRestriction("R176", "C10"),),
         concept_code="C1",
@@ -138,13 +140,10 @@ def test_raw_role_axis_is_assessed_as_unknown_and_review_bearing() -> None:
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
     )
 
-    assessments = run_module._projection_assessments(
-        plan, _diagnostic_source(), "b" * 64
-    )
+    assessments = run_module._projection_assessments(plan, _diagnostic_source())
     assessment = assessments[("R176", "C10")]
-    decision = decide_projection(assessment)
 
-    assert assessment.axis_range == UnknownAxisEvidence(
+    assert assessment == UnknownAxisEvidence(
         status="unknown",
         axis="R176",
         filler_code="C10",
@@ -152,9 +151,11 @@ def test_raw_role_axis_is_assessed_as_unknown_and_review_bearing() -> None:
         source_identity="a" * 64,
         reason="unknown-axis",
     )
-    assert decision.outcome == "accepted"
-    assert decision.review_bearing is True
-    assert decision.reasons == ("axis-range-unknown", "atomicity-unknown")
+    selected = run_module.fs.select_assessed_routed_plan(
+        plan, lambda _a, _b: False, assessments=assessments
+    )
+    assert [(c.axis, c.filler_code) for c in selected.constituents] == [("R176", "C10")]
+    assert selected.invalid_axis_range_by_axis == {}
 
 
 @pytest.mark.unit
@@ -226,7 +227,6 @@ async def test_r82_path_resolution_is_attached_to_the_selected_disposition(
         part_of={("C2", "C9")},
         source_identity=source_identity,
         diagnostic_source=_diagnostic_source(),
-        detector_identity="e" * 64,
     )
 
     assert result.dispositions[0].r82_path == (edge,)
@@ -2541,6 +2541,13 @@ def test_run_metrics_coverage_zero_when_empty() -> None:
 
 
 @pytest.mark.unit
+def test_run_metrics_equality_includes_nonpersisted_rejection_counts():
+    left = RunMetrics(invalid_axis_range_by_axis={"op:CellType": 1})
+    assert left == RunMetrics(invalid_axis_range_by_axis={"op:CellType": 1})
+    assert left != RunMetrics()
+
+
+@pytest.mark.unit
 def test_run_metrics_coverage_computed_correctly() -> None:
     m = RunMetrics(total_in_scope=100, decomposed=85)
     assert m.coverage == pytest.approx(0.85)
@@ -2652,7 +2659,6 @@ async def test_unsupported_definition_constructor_reaches_unknown_outcome(
         source_identity="0" * 64,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
         diagnostic_source=_diagnostic_source(),
-        detector_identity="1" * 64,
     )
 
     assert result.outcome == "unknown"
@@ -3112,6 +3118,7 @@ async def test_source_swap_at_completion_leaves_no_publishable_artifact(
             Decomposition(
                 code="C1",
                 semantic_type="Neoplastic Process",
+                complete_definition=CompleteDefinition(root_code="C1", facts=()),
                 constituents=[
                     Constituent(
                         axis="op:PrimarySite",
@@ -4312,6 +4319,84 @@ def _staged_site_client(*worklist: str) -> _FakeClient:
     )
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("cached", [False, True])
+async def test_range_recount_includes_completed_residuals_on_resume(cached):
+    client = _staged_site_client("C6135")
+    definition, _ = await run_module.stated_queries.read_complete_genus_chain(
+        client.select, "C6135"
+    )
+    setup = _checkpoint_setup()
+    setup.pending = []
+    # StageValue's stated range is used rather than a fabricated rejection verdict.
+    setup.diagnostic_source = AxisDiagnosticSource(
+        AxisHierarchyEvidence(
+            source_identity="a" * 64,
+            edges=(HierarchyEdge(child="C27970", parent="C43431"),),
+            disjoint_pairs=(
+                DisjointPair(
+                    left=AXIS_CONTRACTS["op:StageValue"].range_code, right="C43431"
+                ),
+            ),
+        )
+    )
+    if cached:
+        setup.static_lookups = run_module.RunStaticLookups(
+            source_identity="a" * 64,
+            semantic_types={"C12400": (), "C27970": ()},
+            role_labels={"R88": "Has_Stage", "R101": "Has_Primary_Site"},
+        )
+    residual = Decomposition(
+        code="C6135",
+        semantic_type="Neoplastic Process",
+        complete_definition=definition,
+        constituents=(),
+    )
+    counts = await run_module._range_rejection_counts(
+        setup, RunConfig(branch="neoplasm"), client, [residual]
+    )
+    assert counts == {"op:StageValue": 1}
+
+
+@pytest.mark.unit
+async def test_range_recount_refuses_missing_definition():
+    with pytest.raises(RunStateError, match="complete definition"):
+        await run_module._range_rejection_counts(
+            _checkpoint_setup(),
+            RunConfig(branch="neoplasm"),
+            _FakeClient(pages=[]),
+            [_decomp("C1", "C2")],
+        )
+
+
+@pytest.mark.unit
+async def test_pipeline_returns_axis_rejection_counts_without_persisting_them(
+    monkeypatch,
+):
+    source = AxisDiagnosticSource(
+        AxisHierarchyEvidence(
+            source_identity="a" * 64,
+            edges=(HierarchyEdge(child="C27970", parent="C43431"),),
+            disjoint_pairs=(
+                DisjointPair(
+                    left=AXIS_CONTRACTS["op:StageValue"].range_code, right="C43431"
+                ),
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        run_module.axis_diagnostics,
+        "read_axis_diagnostic_source",
+        AsyncMock(return_value=source),
+    )
+    provenance = _mock_provenance()
+    metrics = await run_pipeline(
+        RunConfig(branch="neoplasm"), _staged_site_client("C6135"), provenance
+    )
+    assert metrics.invalid_axis_range_by_axis == {"op:StageValue": 1}
+    assert "invalid_axis_range_by_axis" not in run_module._persisted_metrics(metrics)
+
+
 def _group_policy_bound_to(code: str) -> ActiveNormalizedGroupPolicy:
     """A one-row policy: the first packaged row re-pointed at ``code``. Built with
     ``model_copy``, so neither the field constraints (15 rows) nor the policy's
@@ -4485,7 +4570,6 @@ async def test_the_dry_run_judges_the_decomposition_the_work_item_will_produce()
         source_identity="a" * 64,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
         diagnostic_source=_diagnostic_source(),
-        detector_identity="1" * 64,
         normalized_group_policy=no_rows,
     )
     assert labelled.decomposition is not None

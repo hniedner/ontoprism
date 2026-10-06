@@ -1334,7 +1334,18 @@ async def read_complete_genus_chain(
         if resolve_role_labels is None
         else resolve_role_labels(role_codes)
     )
-    return complete, _detector_role_projection(complete, restrictions, labels)
+    return complete, detector_roles_from_definition(complete, max_depth, labels)
+
+
+def detector_roles_from_definition(
+    complete: CompleteDefinition,
+    max_depth: int,
+    labels: Mapping[str, str | None],
+) -> list[RoleRestriction]:
+    """Project detector roles from the complete record, including on run resume."""
+    return _detector_role_projection(
+        complete, _projected_restriction_facts(complete, max_depth), labels
+    )
 
 
 async def walk_genus_chain(

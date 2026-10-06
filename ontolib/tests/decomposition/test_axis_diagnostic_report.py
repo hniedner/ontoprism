@@ -182,10 +182,8 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
     assert report.range_diagnostics[0].in_expected_oracle is True
     assert report.range_diagnostics[0].projection_decision.model_dump() == {
         "outcome": "accepted",
-        "review_bearing": True,
         "axis_range_status": "valid",
-        "atomicity_status": "residual",
-        "reasons": ("residual-precoordination",),
+        "reasons": ("valid-axis-range",),
     }
     assert report.residual_diagnostics["C35501"].model_dump(mode="json") == {
         "status": residual_verdict.status,

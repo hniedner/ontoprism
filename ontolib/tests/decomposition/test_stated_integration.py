@@ -2153,6 +2153,5 @@ async def _decompose_one(*args: Any, **kwargs: Any):
         source_identity="0" * 64,
         collapse_policy=NO_COLLAPSE_VETO_POLICY,
         diagnostic_source=unknown_axis_diagnostic_source("0" * 64),
-        detector_identity="0" * 64,
         normalized_group_policy=no_group_policy,
     )

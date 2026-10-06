@@ -402,6 +402,8 @@ class _LifecycleClient:
             return []
         if "SELECT ?code ?st" in query:
             return []
+        if "SELECT ?member ?type ?role ?target ?roleLabel" in query:
+            return []
         raise AssertionError(f"unexpected query: {query}")
 
     async def select_once(
@@ -484,6 +486,7 @@ class _InterruptedDecomposer:
             decomposition=Decomposition(
                 code=code,
                 semantic_type="Neoplastic Process",
+                complete_definition=CompleteDefinition(root_code=code, facts=()),
                 constituents=[
                     Constituent(
                         axis="R88",

@@ -75,14 +75,6 @@ from ontolib.decomposition.models import (
     GenusDefinitionFact,
     RestrictionDefinitionFact,
 )
-from ontolib.decomposition.projection_validity import (
-    AtomicProjectionEvidence,
-    ProjectionAssessment,
-    ProjectionAtomicityEvidence,
-    ResidualProjectionEvidence,
-    UnknownProjectionEvidence,
-    decide_projection,
-)
 from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.proposal_registry_migration import (
     load_proposal_registry_migration_envelope,
@@ -521,15 +513,11 @@ class PairRangeDiagnostic(_StrictModel):
 
 class ProjectionDecisionDocument(_StrictModel):
     outcome: Literal["accepted", "rejected"]
-    review_bearing: bool
     axis_range_status: Literal["valid", "invalid", "unknown"]
-    atomicity_status: Literal["atomic", "residual", "unknown"]
     reasons: tuple[
         Literal[
-            "valid-atomic",
-            "residual-precoordination",
+            "valid-axis-range",
             "axis-range-unknown",
-            "atomicity-unknown",
             "invalid-axis-range",
         ],
         ...,
@@ -839,40 +827,6 @@ def _current_projection_status(
     return "scoreable-release-bound"
 
 
-def _projection_atomicity(
-    filler: str,
-    verdict: ResidualPrecoordinationVerdict | None,
-    detector_identity: str,
-) -> ProjectionAtomicityEvidence:
-    if verdict is None:
-        return UnknownProjectionEvidence(
-            status="unknown",
-            reason="not-classified-for-issue-replay",
-            filler_code=filler,
-            detector_identity=detector_identity,
-        )
-    if verdict.status == "detected":
-        return ResidualProjectionEvidence(
-            status="residual",
-            reason="production-detector",
-            filler_code=filler,
-            detector_identity=verdict.detector_identity,
-        )
-    if verdict.status == "not-detected":
-        return AtomicProjectionEvidence(
-            status="atomic",
-            reason="production-detector",
-            filler_code=filler,
-            detector_identity=verdict.detector_identity,
-        )
-    return UnknownProjectionEvidence(
-        status="unknown",
-        reason=verdict.reason,
-        filler_code=filler,
-        detector_identity=verdict.detector_identity,
-    )
-
-
 def _pair_range_diagnostic(
     *,
     code: str,
@@ -886,20 +840,14 @@ def _pair_range_diagnostic(
 ) -> PairRangeDiagnostic:
     if (range_verdict.axis, range_verdict.filler_code) != (axis, filler):
         raise ValueError("range verdict key does not match its source evidence")
-    atomicity = _projection_atomicity(filler, residual_verdict, detector_identity)
-    decision = decide_projection(
-        ProjectionAssessment(axis_range=range_verdict, atomicity=atomicity)
-    )
-    residual_document = ResidualPrecoordinationDocument(
-        status=(
-            "detected"
-            if atomicity.status == "residual"
-            else "not-detected"
-            if atomicity.status == "atomic"
-            else "unknown"
-        ),
-        reason=atomicity.reason,
-        detector_identity=atomicity.detector_identity,
+    residual_document = (
+        residual_evidence_to_document(residual_verdict)
+        if residual_verdict is not None
+        else ResidualPrecoordinationDocument(
+            status="unknown",
+            reason="not-classified-for-issue-replay",
+            detector_identity=detector_identity,
+        )
     )
     return PairRangeDiagnostic(
         code=code,
@@ -910,11 +858,13 @@ def _pair_range_diagnostic(
         verdict=axis_evidence_to_document(range_verdict),
         atomicity=residual_document,
         projection_decision=ProjectionDecisionDocument(
-            outcome=decision.outcome,
-            review_bearing=decision.review_bearing,
-            axis_range_status=decision.axis_range_status,
-            atomicity_status=decision.atomicity_status,
-            reasons=decision.reasons,
+            outcome="rejected" if range_verdict.status == "invalid" else "accepted",
+            axis_range_status=range_verdict.status,
+            reasons=("valid-axis-range",)
+            if range_verdict.status == "valid"
+            else ("invalid-axis-range",)
+            if range_verdict.status == "invalid"
+            else ("axis-range-unknown",),
         ),
     )
 

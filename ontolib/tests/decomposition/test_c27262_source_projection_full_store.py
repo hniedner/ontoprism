@@ -76,7 +76,6 @@ async def test_c27262_runtime_applies_packaged_normalized_groups() -> None:
             source_identity=evidence.source_identity,
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
             diagnostic_source=diagnostic_source,
-            detector_identity=evidence.detector_identity,
             walker_max_depth=5,
         )
 
@@ -162,7 +161,6 @@ async def test_c27262_source_projection_is_conserved_through_current_layers() ->
             source_identity=evidence.source_identity,
             collapse_policy=NO_COLLAPSE_VETO_POLICY,
             diagnostic_source=diagnostic_source,
-            detector_identity=evidence.detector_identity,
             walker_max_depth=5,
         )
 
