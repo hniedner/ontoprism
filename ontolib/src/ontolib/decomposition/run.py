@@ -111,7 +111,10 @@ from ontolib.decomposition.r101_run_conservation import (
     R101ConservationRecord,
     classify_r101_conservation,
 )
-from ontolib.decomposition.semantic_identity import routing_implementation_identity
+from ontolib.decomposition.semantic_identity import (
+    RULES_VERSION,
+    routing_implementation_identity,
+)
 from ontolib.decomposition.source_preflight import (
     ClosureBudgetExceededError,
     SourcePreflightResult,
@@ -143,7 +146,7 @@ GetLabels = Callable[[list[str]], Awaitable[dict[str, str]]]
 GetSourceSnapshot = Callable[[], Awaitable[NcitSourceSnapshot]]
 SourcePreflightProgress = Callable[[int, int, str], None]
 
-_CONFIG_VERSION = "nested-definition-v2"
+_CONFIG_VERSION = RULES_VERSION
 
 
 class SourceIdentityChangedError(RuntimeError):

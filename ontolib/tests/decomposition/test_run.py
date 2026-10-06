@@ -2939,7 +2939,7 @@ async def test_fresh_run_materializes_zero_output_and_rechecks_source() -> None:
     assert isinstance(fingerprint, RunFingerprint)
     assert fingerprint.worklist == ("C0",)
     assert fingerprint.source_identity == "a" * 64
-    assert fingerprint.config_version == "nested-definition-v2"
+    assert fingerprint.config_version == run_module.RULES_VERSION
     assert fingerprint.output_mode == "none"
     assert fingerprint.load_mode == "none"
     provenance.complete_work_item.assert_awaited_once()
@@ -3047,7 +3047,7 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
     assert metrics.total_in_scope == 2
     assert expected.schema_version == 1
     assert expected.sample_manifest_identity == sample.identity
-    assert expected.config_version == "nested-definition-v2"
+    assert expected.config_version == run_module.RULES_VERSION
     assert any("SELECT DISTINCT ?child ?parent" in query for query in client.queries)
     provenance.create_run.assert_not_awaited()
     assert provenance.complete_work_item.await_args.args[1] == "C1"

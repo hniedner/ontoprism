@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from ontolib.decomposition import provenance
+from ontolib.decomposition import provenance, semantic_identity
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -266,7 +266,7 @@ async def test_database_index_is_live_against_direct_duplicate_insert() -> None:
         await dispose_engine(engine)
 
 
-async def test_refusal_reasons_and_exact_resume_paths_are_live() -> None:
+async def test_refusal_reasons_and_exact_resume_paths_are_live() -> None:  # noqa: PLR0915 — distinct admission refusals on owned fixtures
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
     connection = await asyncpg.connect(
@@ -319,6 +319,22 @@ async def test_refusal_reasons_and_exact_resume_paths_are_live() -> None:
             resume_run_id=run_ids[0],
         )
         assert mismatch == Refused(reason=RefusalReason.IDENTITY_MISMATCH)
+
+        stamped = execution.model_copy(
+            update={
+                "routing_implementation_identity": (
+                    semantic_identity.routing_implementation_identity()
+                )
+            }
+        )
+        old_identity_resume = await store.admit_run(
+            "unused-old-source-hash-resume",
+            "26.07d",
+            _fingerprint(stamped),
+            stamped,
+            resume_run_id=run_ids[0],
+        )
+        assert old_identity_resume == Refused(reason=RefusalReason.IDENTITY_MISMATCH)
 
         assert await store.fail_run(run_ids[0], RuntimeError("semantic work stopped"))
         failed_resume = await store.admit_run(

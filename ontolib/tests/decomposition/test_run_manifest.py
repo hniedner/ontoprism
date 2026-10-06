@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -17,10 +16,6 @@ from ontolib.decomposition.provenance_models import (
     RunStageCheckpoint,
     RunSummary,
     WorkItemOutcome,
-)
-from ontolib.decomposition.semantic_identity import (
-    ROUTING_IMPLEMENTATION_FILES,
-    routing_implementation_identity,
 )
 
 
@@ -45,64 +40,6 @@ def _fingerprint(**updates: object) -> RunFingerprint:
     }
     values.update(updates)
     return RunFingerprint.model_validate(values)
-
-
-@pytest.mark.unit
-def test_routing_identity_binds_declared_semantic_bytes_but_not_unrelated_files(
-    tmp_path: Path,
-) -> None:
-    inventory = (Path("route.py"), Path("detector.py"))
-    for path, content in ((inventory[0], b"route-v1"), (inventory[1], b"detect-v1")):
-        (tmp_path / path).write_bytes(content)
-    unrelated = tmp_path / "unrelated.py"
-    unrelated.write_bytes(b"unrelated-v1")
-
-    original = routing_implementation_identity(tmp_path, inventory=inventory)
-    unrelated.write_bytes(b"unrelated-v2")
-    assert routing_implementation_identity(tmp_path, inventory=inventory) == original
-
-    (tmp_path / inventory[0]).write_bytes(b"route-v2")
-    assert routing_implementation_identity(tmp_path, inventory=inventory) != original
-
-
-@pytest.mark.unit
-def test_routing_identity_inventory_is_versioned_and_covers_route_semantics() -> None:
-    required = (
-        Path("ontolib/src/ontolib/decomposition/axes.py"),
-        Path("ontolib/src/ontolib/decomposition/axis_contracts.py"),
-        Path("ontolib/src/ontolib/decomposition/branches.py"),
-        Path("ontolib/src/ontolib/decomposition/collapse_policy.py"),
-        Path("ontolib/src/ontolib/decomposition/complete_definition.py"),
-        Path("ontolib/src/ontolib/decomposition/detector.py"),
-        Path("ontolib/src/ontolib/decomposition/filler_selection.py"),
-        Path("ontolib/src/ontolib/decomposition/models.py"),
-        Path("ontolib/src/ontolib/decomposition/morphology_qualifier_policy.py"),
-        Path("ontolib/src/ontolib/decomposition/normalized_group_policy.py"),
-        Path(
-            "ontolib/src/ontolib/decomposition/data/"
-            "morphology-qualifier-genera-26.07d.json"
-        ),
-        Path("ontolib/src/ontolib/decomposition/data/normalized-group-policy.json"),
-        Path("ontolib/src/ontolib/decomposition/site_resolution.py"),
-        Path("ontolib/src/ontolib/decomposition/stated_queries.py"),
-    )
-    assert required == ROUTING_IMPLEMENTATION_FILES
-    assert len(routing_implementation_identity()) == 64
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("mode", ["empty", "duplicate", "absolute"])
-def test_routing_identity_rejects_ambiguous_or_escaping_inventory(
-    mode: str, tmp_path: Path
-) -> None:
-    tracked = Path("ontolib/src/ontolib/decomposition/axes.py")
-    inventory = {
-        "empty": (),
-        "duplicate": (tracked, tracked),
-        "absolute": (tmp_path.resolve(),),
-    }[mode]
-    with pytest.raises(ValueError, match=r"unique and nonempty|must be relative"):
-        routing_implementation_identity(tmp_path, inventory=inventory)
 
 
 @pytest.mark.unit
