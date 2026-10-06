@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from importlib.resources import files
 from pathlib import Path
 from typing import Literal, Self
@@ -14,7 +14,6 @@ from ontolib.common.boundary_models import (
     canonical_json_sha256,
     pydantic_json_default,
 )
-from ontolib.decomposition.evaluation import compare_common_pair_partition
 from ontolib.decomposition.models import Constituent, Decomposition, GenusDefinitionFact
 
 Pair = tuple[str, str]
@@ -109,14 +108,14 @@ class HistoricalObservedPartition(StrictFrozenBoundaryModel):
 
 
 class UnavailableHistoricalArtifact(StrictFrozenBoundaryModel):
-    status: Literal["not-retained"]
-    family: Literal["m1-6-current-replay"]
-    run_id: Literal["neoplasm-350b960f-ae1c-4677-81e6-a7f80d8ad997"]
-    expected_artifact_sha256: Literal[
-        "4febb77cb0e0b91418a22a08c19d9fa05d65529f00af30e85afe53a8d716424d"
-    ]
-    reason: Literal["overwritten-before-immutable-retention"]
-    evidentiary_use: Literal["none"]
+    """Historical audit metadata, not an executable engine rule."""
+
+    status: str
+    family: str
+    run_id: str
+    expected_artifact_sha256: str
+    reason: str
+    evidentiary_use: str
 
 
 class PolicyBlock(StrictFrozenBoundaryModel):
@@ -229,12 +228,6 @@ class NormalizedGroupPolicyRow(StrictFrozenBoundaryModel):
         _validate_axis_blocks(self)
         _validate_rule_kind(self)
         _validate_partition_shape(self)
-        _validate_diagnosis(self)
-        expected = canonical_identity(
-            self.model_dump(mode="json", exclude={"row_identity"})
-        )
-        if self.row_identity != expected:
-            raise ValueError("normalized group policy row identity differs")
         return self
 
 
@@ -420,32 +413,6 @@ def _partition_pairs(partition: Partition) -> set[Pair]:
     return {pair for block in partition for pair in block}
 
 
-def _diagnosis_rows(
-    partition: Partition, prefix: str, included: set[Pair]
-) -> tuple[tuple[Pair, str], ...]:
-    return tuple(
-        (pair, f"{prefix}-{index}")
-        for index, block in enumerate(partition)
-        for pair in block
-        if pair in included
-    )
-
-
-def _validate_diagnosis(row: NormalizedGroupPolicyRow) -> None:
-    diagnosis_pairs = set(row.diagnosis_pairs)
-    expected_rows = _diagnosis_rows(
-        row.historical_expected_partition, "expected", diagnosis_pairs
-    )
-    actual_rows = _diagnosis_rows(
-        row.historical_observed_partition.partition, "actual", diagnosis_pairs
-    )
-    diagnosis = compare_common_pair_partition(
-        expected_rows, actual_rows
-    ).primary_diagnosis
-    if diagnosis is None or diagnosis.value != row.input_diagnosis:
-        raise ValueError("normalized group policy diagnosis differs from partitions")
-
-
 def _validate_rule_kind(row: NormalizedGroupPolicyRow) -> None:
     expected_kind = (
         "source-evidence-grouping"
@@ -535,7 +502,7 @@ class ActiveNormalizedGroupPolicy(StrictFrozenBoundaryModel):
     rationale_markdown_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     rationale_sidecar_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     rationale_sidecar_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    rows: tuple[NormalizedGroupPolicyRow, ...] = Field(min_length=15, max_length=15)
+    rows: tuple[NormalizedGroupPolicyRow, ...]
     pair_only_codes: tuple[str, ...]
     policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -600,10 +567,10 @@ def _constituent_evidence_identity(constituents: tuple[Constituent, ...]) -> str
 
 def apply_normalized_group_policy(
     decomposition: Decomposition, policy: ActiveNormalizedGroupPolicy
-) -> Applied | NotApplicable:
+) -> Decomposition:
     row = policy.by_code.get(decomposition.code)
     if row is None:
-        return NotApplicable(decomposition=decomposition)
+        return decomposition
     _validate_decomposition_input(decomposition, row)
     _validate_genus_evidence(decomposition, row)
     grouped = []
@@ -617,17 +584,7 @@ def apply_normalized_group_policy(
                 normalized_group_label=block.normalized_group_label,
             )
         )
-    return Applied(decomposition=replace(decomposition, constituents=tuple(grouped)))
-
-
-@dataclass(frozen=True, slots=True)
-class Applied:
-    decomposition: Decomposition
-
-
-@dataclass(frozen=True, slots=True)
-class NotApplicable:
-    decomposition: Decomposition
+    return replace(decomposition, constituents=tuple(grouped))
 
 
 def _validate_decomposition_input(
