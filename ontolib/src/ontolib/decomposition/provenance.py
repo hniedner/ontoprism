@@ -811,6 +811,26 @@ def _concept_outcome_reason(item: WorkItemOutcome) -> str:
     raise RunStateError("complete concept has no typed publication outcome")
 
 
+def _constituent_review_flags(
+    needs_review: Sequence[RowMapping],
+) -> list[tuple[str, str, str]]:
+    primary_sites: dict[str, set[str]] = {}
+    for row in needs_review:
+        if row["axis"] == "op:PrimarySite":
+            primary_sites.setdefault(row["concept_code"], set()).add(row["filler_code"])
+    return [
+        (
+            row["concept_code"],
+            "needs-review",
+            "no part-of or routing relation in stated NCIt"
+            if row["axis"] == "op:PrimarySite"
+            and len(primary_sites[row["concept_code"]]) > 1
+            else f"constituent {row['axis']} / {row['filler_code']} needs review",
+        )
+        for row in needs_review
+    ]
+
+
 def _publication_flags(
     needs_review: Sequence[RowMapping],
     unresolved: Sequence[RowMapping],
@@ -818,16 +838,8 @@ def _publication_flags(
     mints: Sequence[RowMapping],
 ) -> dict[str, list[ConceptReviewFlag]]:
     flags: dict[str, list[ConceptReviewFlag]] = {}
-    rendered = (
-        (
-            row["concept_code"],
-            "needs-review",
-            f"constituent {row['axis']} / {row['filler_code']} needs review",
-        )
-        for row in needs_review
-    )
     rendered = chain(
-        rendered,
+        _constituent_review_flags(needs_review),
         (
             (
                 row["concept_code"],
