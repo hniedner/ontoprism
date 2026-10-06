@@ -466,7 +466,8 @@ def _summary_line(metrics: RunMetrics) -> str:
         f"minted={metrics.minted_count} "
         f"coverage={metrics.coverage:.2%} "
         # detector-relative (D37): reducibility as the detector sees it (not truth)
-        f"residual_precoordination={residual_summary}"
+        f"residual_precoordination={residual_summary} "
+        f"invalid_axis_range_by_axis={metrics.invalid_axis_range_by_axis}"
     )
 
 

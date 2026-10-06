@@ -871,7 +871,7 @@ def test_main_prints_metrics_and_forwards_resume_options(
     assert capsys.readouterr().out == (
         "in_scope=4 decomposed=2 residual=0 semantic_excluded=1 atomic_noop=1 "
         "unknown=0 minted=1 coverage=50.00% "
-        "residual_precoordination=50.00% (1/2)\n"
+        "residual_precoordination=50.00% (1/2) invalid_axis_range_by_axis={}\n"
     )
 
 
