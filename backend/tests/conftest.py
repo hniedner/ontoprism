@@ -5,6 +5,7 @@ import sqlite3
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -30,6 +31,7 @@ from backend.repository_metadata import (
     CadsrRepositoryReady,
     CadsrSourceMetadata,
     NcitRepositoryReady,
+    RepositoryMetadataService,
     RepositoryUnhealthy,
 )
 from ontolib.repositories.cadsr.repository import CdeRepository
@@ -47,10 +49,31 @@ _PERSISTENT_PROVIDERS = (
     get_xref_store,
     get_icdo_repository,
 )
+_START_REPOSITORY_METADATA = RepositoryMetadataService.start
 
 
 def _deny_unoverridden_provider() -> None:
     raise RuntimeError("test app provider requires isolated settings")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_background_repository_probes(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Request dependency overrides do not isolate lifespan background tasks."""
+    if request.node.get_closest_marker("full_store"):
+        return
+    monkeypatch.setattr(RepositoryMetadataService, "start", lambda self: None)
+    monkeypatch.setattr("backend.main.check_ncit_version", AsyncMock())
+
+
+@pytest.fixture
+def isolated_metadata_warmup(
+    _isolate_background_repository_probes: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exercise real startup scheduling with all repository readers replaced."""
+    monkeypatch.setattr(RepositoryMetadataService, "start", _START_REPOSITORY_METADATA)
 
 
 @pytest.fixture(autouse=True)

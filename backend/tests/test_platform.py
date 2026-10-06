@@ -13,6 +13,8 @@ from backend.main import check_ncit_version, create_app
 from backend.middleware import RateLimitMiddleware, RequestContextMiddleware
 from backend.repository_metadata import RepositoryMetadataService
 from ontolib.core.exceptions import StorageError
+from ontolib.repositories.cadsr.repository import CdeRepository
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 
 @pytest.fixture(autouse=True)
@@ -43,11 +45,12 @@ class _FakeClient:
 
 
 @pytest.mark.unit
-async def test_lifespan_warms_both_repositories_without_blocking_and_cancels(
+async def test_lifespan_warms_repositories_without_blocking_and_cancels(
     monkeypatch,
+    isolated_metadata_warmup,
 ):
-    started = [asyncio.Event(), asyncio.Event()]
-    cancelled = [asyncio.Event(), asyncio.Event()]
+    started = [asyncio.Event() for _ in range(3)]
+    cancelled = [asyncio.Event() for _ in range(3)]
 
     def validation(index):
         async def live(self):
@@ -61,6 +64,8 @@ async def test_lifespan_warms_both_repositories_without_blocking_and_cancels(
 
     monkeypatch.setattr(RepositoryMetadataService, "_ncit_live", validation(0))
     monkeypatch.setattr(RepositoryMetadataService, "_uberon_live", validation(1))
+    monkeypatch.setattr(RepositoryMetadataService, "_cadsr_live", validation(2))
+    monkeypatch.setattr(CdeRepository, "certification_inputs", lambda self: b"proof")
     monkeypatch.setattr(
         "backend.repository_metadata._certification_inputs", lambda *args: b"proof"
     )
@@ -72,6 +77,35 @@ async def test_lifespan_warms_both_repositories_without_blocking_and_cancels(
 
 
 # --------------------------------------------------------------------- rate limit
+
+
+@pytest.mark.unit
+async def test_non_full_store_app_does_not_probe_configured_repositories(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes: list[str] = []
+
+    def certification_inputs(_settings, repository):
+        probes.append(repository)
+        raise RuntimeError("configured repository access intercepted")
+
+    def cadsr_inputs(self):
+        probes.append("cadsr")
+        raise RuntimeError("configured caDSR access intercepted")
+
+    async def version(self):
+        probes.append("version")
+
+    monkeypatch.setattr(
+        "backend.repository_metadata._certification_inputs", certification_inputs
+    )
+    monkeypatch.setattr(CdeRepository, "certification_inputs", cadsr_inputs)
+    monkeypatch.setattr(SparqlHttpClient, "version", version)
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        # Allow the startup tasks to run; probes intercept before any file/store read.
+        await asyncio.sleep(0.1)
+    assert probes == []
 
 
 @pytest.mark.security
