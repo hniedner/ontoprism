@@ -107,7 +107,7 @@ def test_publication_reasons_cover_every_concept_outcome(
 
 
 @pytest.mark.unit
-def test_multiple_primary_sites_publish_the_unresolved_relation_reason() -> None:
+def test_multiple_primary_sites_publish_the_retained_sites_reason() -> None:
     rows = [
         {"concept_code": "C1", "axis": "op:PrimarySite", "filler_code": "C2"},
         {"concept_code": "C1", "axis": "op:PrimarySite", "filler_code": "C3"},

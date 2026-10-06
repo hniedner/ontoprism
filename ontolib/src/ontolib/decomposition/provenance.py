@@ -1144,7 +1144,7 @@ async def _persisted_definition_counts(
 ) -> tuple[int, int, int]:
     """Recompute the definition metrics the way the pipeline computes them.
 
-    Two scoping rules must match :func:`decompositions_for_run` exactly, or
+    Two scoping rules must match :func:`decompositions_for_run`'s default scope, or
     :func:`_require_matching_completion_metrics` rejects every well-formed run:
 
     * only ``is_decomposed`` work items contribute. A ``residual`` concept still

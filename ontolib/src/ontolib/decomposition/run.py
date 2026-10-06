@@ -1481,8 +1481,11 @@ def _unsupported_definition_identity(
 
 async def _base_run_data(
     setup: _RunSetup, provenance: ProvenanceStore
-) -> tuple[RunMetrics, list[Decomposition]]:
-    decompositions = await provenance.decompositions_for_run(setup.run_id)
+) -> tuple[RunMetrics, list[Decomposition], list[Decomposition]]:
+    candidates = await provenance.decompositions_for_run(
+        setup.run_id, include_residual=True
+    )
+    decompositions = [item for item in candidates if item.constituents]
     counts = await provenance.outcome_counts(setup.run_id)
     metrics = RunMetrics(
         total_in_scope=counts.total_in_scope,
@@ -1511,7 +1514,7 @@ async def _base_run_data(
         else 0.0
     )
     metrics.pct_decomposed = metrics.coverage
-    return metrics, decompositions
+    return metrics, decompositions, candidates
 
 
 async def _classify_residual_filler(
@@ -1988,14 +1991,12 @@ async def _residual_classification_stage(
         setup.run_id, "residual-classification", concept_identity
     )
     try:
-        metrics, decompositions = await _base_run_data(setup, provenance)
+        metrics, decompositions, candidates = await _base_run_data(setup, provenance)
         metrics.invalid_axis_range_by_axis = await _range_rejection_counts(
             setup,
             config,
             client,
-            await provenance.decompositions_for_run(
-                setup.run_id, include_residual=True
-            ),
+            candidates,
         )
         precoordinated, unknown, unknown_reasons = await _residual_sets(
             setup,
