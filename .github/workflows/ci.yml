@@ -193,6 +193,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0 # diff-cover needs the main comparison history
 
       - name: Set up Python 3.14.7
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -208,6 +209,9 @@ jobs:
 
       - name: Verify coverage report dependency versions
         run: python -m scripts.validation.verify_coverage_runtime --lock pdm.lock
+
+      - name: Install pinned changed-line coverage tool
+        run: pip install 'diff-cover==10.6.0'
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
@@ -275,6 +279,11 @@ jobs:
           python scripts/validation/strict_coverage_gate.py python
           --coverage-data .coverage
           --root .
+
+      - name: Gate branch-aware changed Python lines at 95 percent
+        run: >-
+          python scripts/validation/changed_coverage_gate.py
+          --coverage-data .coverage --compare-branch origin/main
 
       - name: Report native Python coverage hierarchy (non-blocking deficits)
         run: >-

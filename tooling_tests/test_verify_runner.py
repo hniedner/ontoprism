@@ -37,6 +37,7 @@ def _expected_verify_commands(
     gates = [
         [sys.executable, "-m", "pre_commit", "run", "--all-files"],
         [pdm_executable, "run", "test-ci"],
+        [pdm_executable, "run", "changed-coverage"],
         ["npm", "--prefix", "frontend", "run", "test:coverage"],
         [
             pdm_executable,
@@ -126,7 +127,7 @@ def test_verify_runner_reports_ignored_docker_selector_overrides(
     )
 
     assert run_verify(runner=runner, pdm_executable="/test/bin/pdm") == 0
-    assert len(runner.calls) == 5
+    assert len(runner.calls) == 6
     assert capsys.readouterr().err == (
         "default-context verification ignores Docker selectors: DOCKER_HOST\n"
     )
@@ -166,7 +167,7 @@ def test_verify_runner_keeps_ci_docker_behavior_unchanged(
     assert ["/test/bin/pdm", "run", "agent-replay", "ensure-podman-stack"] not in [
         command for command, _options in runner.calls
     ]
-    assert len(runner.calls) == 4
+    assert len(runner.calls) == 5
 
 
 @pytest.mark.unit

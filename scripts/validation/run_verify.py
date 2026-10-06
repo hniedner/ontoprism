@@ -19,6 +19,7 @@ def _gates(pdm_executable: str) -> tuple[tuple[str, ...], ...]:
     return (
         (sys.executable, "-m", "pre_commit", "run", "--all-files"),
         (pdm_executable, "run", "test-ci"),
+        (pdm_executable, "run", "changed-coverage"),
         ("npm", "--prefix", "frontend", "run", "test:coverage"),
         (
             pdm_executable,
