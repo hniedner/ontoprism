@@ -1,13 +1,15 @@
 """Read-time stated filler support, distinct from validation of engine decisions."""
 
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import Field, computed_field, model_validator
 
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 from ontolib.decomposition.models import AxisSource
 
-SupportKind = Literal["restriction-backed", "genus-backed", "not-source-backed"]
+SupportKind = Literal[
+    "restriction-backed", "genus-backed", "p334-backed", "not-source-backed"
+]
 PolicyChoice = Literal["axis-assignment", "collapse", "grouping"]
 
 
@@ -25,6 +27,16 @@ class StatedFillerSource(StrictFrozenBoundaryModel):
     structural_path: list[int]
 
 
+class P334Evidence(StrictFrozenBoundaryModel):
+    """Recomputed annotation values and named hierarchy path, never persisted."""
+
+    eligible_values: tuple[Annotated[str, Field(pattern=r"^[0-9]{4}/[0-3]$")], ...] = (
+        Field(min_length=1)
+    )
+    other_values: tuple[str, ...]
+    path: tuple[Annotated[str, Field(pattern=r"^C[0-9]+$")], ...] = Field(min_length=1)
+
+
 class ConstituentEvidence(StrictFrozenBoundaryModel):
     run_id: str
     concept_code: str
@@ -33,16 +45,30 @@ class ConstituentEvidence(StrictFrozenBoundaryModel):
     axis_source: AxisSource
     sources: list[StatedFillerSource]
     policy_choices: list[PolicyChoice]
+    p334: P334Evidence | None = None
 
     @model_validator(mode="after")
     def _homogeneous_sources(self) -> Self:
+        self._validate_p334()
         if len({source.kind for source in self.sources}) > 1:
             raise ValueError("constituent sources mix restriction and genus evidence")
         return self
 
+    def _validate_p334(self) -> None:
+        if self.p334 is not None and (
+            self.axis_source != "p334"
+            or self.axis != "op:HistologyAnchor"
+            or self.sources
+            or self.p334.path[0] != self.concept_code
+            or self.p334.path[-1] != self.filler_code
+        ):
+            raise ValueError("P334 evidence does not match the anchor")
+
     @computed_field
     @property
     def support(self) -> SupportKind:
+        if self.p334 is not None:
+            return "p334-backed"
         if not self.sources:
             return "not-source-backed"
         if self.sources[0].kind == "restriction":
@@ -52,6 +78,11 @@ class ConstituentEvidence(StrictFrozenBoundaryModel):
     @computed_field
     @property
     def inferred_assertions(self) -> list[str]:
+        if self.axis_source == "p334":
+            return [
+                "P334 anchor is an NCIt cross-reference-derived relation, "
+                "not equivalence"
+            ]
         if self.sources:
             return []
         if self.axis_source == "nlp":

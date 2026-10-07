@@ -273,6 +273,7 @@ class _FakeClient:
         label_rows: list[dict[str, str | None]] | None = None,
         hierarchy_edges: list[tuple[str, str]] | None = None,
         disjoint_rows: list[dict[str, str | None]] | None = None,
+        p334_rows: list[dict[str, str | None]] | None = None,
     ) -> None:
         self._version = version
         self._pages = pages if pages is not None else [[]]
@@ -318,6 +319,7 @@ class _FakeClient:
         self._part_of_expansions = part_of_expansions or {}
         self._hierarchy_edges = hierarchy_edges or []
         self._disjoint_rows = disjoint_rows or []
+        self._p334_rows = p334_rows or []
         self.queries: list[str] = []
         self.required_variables: list[frozenset[str]] = []
         self.query_requirements: list[tuple[str, frozenset[str]]] = []
@@ -464,6 +466,8 @@ class _FakeClient:
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
         self.single_attempt_queries.append(query)
+        if "P334>" in query:
+            return self._p334_rows
         return await self.select(query, required_variables=required_variables)
 
 
@@ -1257,6 +1261,55 @@ async def test_run_pipeline_morphology_counts_as_decomposable_axis() -> None:
     metrics = await run_pipeline(config, client, provenance)
     assert metrics.total_in_scope == 1
     assert metrics.decomposed == 1
+
+
+@pytest.mark.unit
+async def test_told_genus_preserves_parent_values_and_provenance() -> None:
+    client = _FakeClient(
+        pages=[["C1"]],
+        semantic_types={"C1": ["Neoplastic Process"]},
+        roles={"C1": [_role("R101", "Has_Primary_Site", "C2")]},
+    )
+    role_row = client._complete_rows["C1"][0]
+    client._complete_rows["C1"] = [
+        {**role_row, "member": _iri("C99"), "role": None, "target": None},
+        {**role_row, "position": "1"},
+    ]
+    provenance = _mock_provenance()
+    await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+    written = provenance.complete_work_item.await_args.kwargs["decomposition"]
+    (genus,) = [c for c in written.constituents if c.axis_source == "parent"]
+    assert genus.axis == "op:ToldGenus"
+    assert genus.filler_code == "C99"
+    assert genus.source_definition_ids
+    assert all(c.axis != "op:Morphology" for c in written.constituents)
+
+
+@pytest.mark.unit
+async def test_run_pipeline_emits_p334_minimum_without_definition_fact_links() -> None:
+    client = _FakeClient(
+        pages=[["C1"]],
+        semantic_types={"C1": ["Neoplastic Process"]},
+        roles={
+            "C1": [
+                _role("R101", "Has_Primary_Site", "C2"),
+                _role("R110", "Has_Grade", "C3"),
+            ]
+        },
+        hierarchy_edges=[("C1", "C99"), ("C99", "C100")],
+        p334_rows=[
+            {"concept": _iri("C99"), "value": "8000/3"},
+            {"concept": _iri("C100"), "value": "8010/3"},
+        ],
+    )
+    provenance = _mock_provenance()
+    await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+    written = provenance.complete_work_item.await_args.kwargs["decomposition"]
+    (anchor,) = [c for c in written.constituents if c.axis == "op:HistologyAnchor"]
+    assert anchor.filler_code == "C99"
+    assert anchor.axis_source == "p334"
+    assert anchor.source_definition_ids == anchor.source_roles == ()
+    assert not anchor.needs_review
 
 
 @pytest.mark.unit

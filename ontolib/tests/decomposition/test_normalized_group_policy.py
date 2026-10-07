@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -66,6 +67,31 @@ def _generate(tmp_path: Path):
         rationale_sidecar_path=(_ROOT / "evidence/group-review-rationale-26.07d.json"),
         output=tmp_path / "normalized-group-policy.json",
     )
+
+
+def test_told_genus_uses_approved_group_members_without_rewriting_policy():
+    policy = load_packaged_normalized_group_policy()
+    row = policy.by_code["C27262"]
+    constituents = tuple(
+        Constituent(
+            axis=axis,
+            filler_code=filler,
+            axis_source="nlp",
+        )
+        for block in row.output_partition
+        for axis, filler in block
+    )
+    # An ungrouped missing-source projection must still be rejected after rename.
+    current = Decomposition(
+        code="C27262",
+        semantic_type="Neoplastic Process",
+        constituents=tuple(
+            replace(c, axis="op:ToldGenus") if c.axis == "op:Morphology" else c
+            for c in constituents
+        ),
+    )
+    with pytest.raises(ValueError, match="source evidence differs"):
+        apply_normalized_group_policy(current, policy)
 
 
 def _evidence_with_policy_groups(
@@ -1501,6 +1527,9 @@ def test_policy_preserves_bound_source_groups_and_applies_normalized_group() -> 
         ),
     )
 
+    decomposition = replace(
+        decomposition, constituents=(replace(constituent, axis="op:ToldGenus"),)
+    )
     applied = apply_normalized_group_policy(decomposition, transformation_policy)
 
     assert {
@@ -1511,7 +1540,7 @@ def test_policy_preserves_bound_source_groups_and_applies_normalized_group() -> 
         )
         for item in applied.constituents
     } == {
-        pair: (
+        ("op:ToldGenus", pair[1]): (
             ("d" * 64,),
             transformation_block.normalized_group_id,
             transformation_block.normalized_group_label,

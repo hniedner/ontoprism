@@ -57,6 +57,23 @@ const decomposed: ConceptDecomposition = {
 };
 
 describe('DecompositionPanel', () => {
+    it('labels a P334 anchor as source-derived rather than NLP or parent provenance', async () => {
+        mock.mockResolvedValue({ ...decomposed, run_id: 'p334-run', constituents: [{ ...decomposed.constituents[0],
+            axis: 'op:HistologyAnchor', axis_source: 'p334', source_roles: [],
+            filler: 'C3773', filler_label: 'Neuroendocrine Carcinoma' }] });
+        vi.mocked(getConstituentEvidence).mockResolvedValue([{
+            run_id: 'p334-run', concept_code: 'C6135', axis: 'op:HistologyAnchor',
+            filler_code: 'C3773', axis_source: 'p334', support: 'p334-backed',
+            sources: [], policy_choices: ['axis-assignment'], inferred_assertions: [],
+            p334: { eligible_values: ['8246/3'], other_values: ['bad'], path: ['C6135', 'C3773'] }
+        }]);
+        render(DecompositionPanel, { code: 'C6135' });
+        expect(await screen.findByText('NCIt P334 histology anchor')).toBeVisible();
+        expect(screen.getByRole('link', { name: 'Neuroendocrine Carcinoma' })).toHaveAttribute('href', '/repositories/ncit/C3773');
+        expect(await screen.findByText('Eligible NCIt P334: 8246/3')).toBeInTheDocument();
+        expect(screen.getByText('Told path: C6135 → C3773')).toBeInTheDocument();
+        expect(screen.getByText('Nonqualifying P334: bad')).toBeInTheDocument();
+    });
     it('shows additive provisional enhancement and an explicit delta beside published status', async () => {
         mock.mockResolvedValue({ ...decomposed, run_id: 'published-run' });
         vi.mocked(getConstituentEvidence).mockResolvedValue([]);

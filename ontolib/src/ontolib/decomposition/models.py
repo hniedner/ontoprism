@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 # How an axis/constituent was recovered — the ``op:axisSource`` provenance value.
-AxisSource = Literal["role", "nlp", "parent"]
+AxisSource = Literal["role", "nlp", "parent", "p334"]
 ConceptOutcome = Literal[
     "decomposed",
     "residual",
@@ -88,6 +88,7 @@ def _canonical_source_roles(
     source_roles: tuple[str, ...],
 ) -> tuple[str, ...]:
     canonical = tuple(sorted(set(source_roles)))
+    require_p334_axis(axis_source, axis)
     if axis_source == "role":
         if not canonical and _ROLE_CODE.fullmatch(axis):
             return (axis,)
@@ -95,8 +96,14 @@ def _canonical_source_roles(
             raise ValueError("role-derived constituent requires source_roles")
         return canonical
     if canonical:
-        raise ValueError("parent/NLP constituents must have empty source_roles")
+        raise ValueError("parent/NLP/P334 constituents must have empty source_roles")
     return ()
+
+
+def require_p334_axis(axis_source: AxisSource, axis: str) -> None:
+    """P334-derived provenance is reserved for the histology-anchor relation."""
+    if axis_source == "p334" and axis != "op:HistologyAnchor":
+        raise ValueError("P334 provenance requires HistologyAnchor axis")
 
 
 def _require_source_roles(values: tuple[str, ...]) -> None:
@@ -778,6 +785,8 @@ def _referenced_source_ids(constituents: Sequence[Constituent]) -> set[str]:
 
 
 def _validate_referenced_fact(constituent: Constituent, fact: DefinitionFact) -> None:
+    if constituent.axis_source == "p334":
+        raise ValueError("P334 constituents cannot reference definition facts")
     if constituent.axis_source == "nlp":
         raise ValueError("NLP constituents cannot reference definition facts")
     if constituent.axis_source == "parent":

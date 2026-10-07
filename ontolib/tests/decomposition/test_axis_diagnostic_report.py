@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import subprocess
@@ -104,7 +105,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
     )
 
     range_verdict = classify_axis_range(
-        "op:Morphology",
+        "op:ToldGenus",
         "C35501",
         "C7057",
         AxisHierarchyEvidence(
@@ -119,6 +120,8 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
         detector_identity=evidence.detector_identity,
     )
     assert isinstance(range_verdict, ValidAxisEvidence)
+    # The report retains the historical decision's axis coordinates.
+    range_verdict = dataclasses.replace(range_verdict, axis="op:Morphology")
     report = build_axis_diagnostic_report(
         oracle=oracle,
         rows=rows,

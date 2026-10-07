@@ -12,6 +12,7 @@ from ontolib.decomposition.axis_diagnostics import (
     disjoint_pairs_from_rows,
     read_axis_diagnostic_source,
 )
+from ontolib.decomposition.histology_anchor import HistologyAnchors, read_p334_values
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.sibling_store import (
@@ -24,6 +25,28 @@ pytestmark = [pytest.mark.integration, pytest.mark.full_store]
 _ROOT = Path(__file__).resolve().parents[3]
 _MANIFEST = _ROOT / "data" / "qlever-ncit" / CANDIDATE_MANIFEST_FILENAME
 _EVIDENCE = Path(__file__).with_name("golden") / "neoplasm-current-engine-evidence.json"
+
+
+async def test_p334_anchors_use_real_named_genus_paths_and_source_values() -> None:
+    manifest = validate_ncit_sibling_manifest(_MANIFEST)
+    url = os.environ.get(
+        "NCIT_STATED_SPARQL_URL",
+        os.environ.get("NCIT_SPARQL_URL", "http://localhost:7888"),
+    )
+    async with ncit_sparql_client(url, query_timeout=180.0) as client:
+        source = await read_axis_diagnostic_source(client, manifest.source_identity)
+        values = await read_p334_values(client)
+    anchors = HistologyAnchors(source.snapshot, values)
+    assert anchors.for_concept("C6135") == ("C3773",)
+    assert anchors.for_concept("C115029") == ("C3720",)
+    assert values["C3773"] == ("8240/3", "8246/3", "8249/3")
+    assert values["C3720"] == ("9714/3",)
+    assert values["C7539"] == ("981-983", "9820/3")
+    assert "850/30" in values["C96808"]
+    # A malformed annotation must not disqualify another eligible assertion.
+    assert "C7539" in anchors.carriers
+    assert "C2916" in source.snapshot.ancestor_paths("C3773")
+    assert {"C3211", "C9308"} <= source.snapshot.ancestor_paths("C3720").keys()
 
 
 async def test_real_axis_diagnostics_are_source_bound_live_and_batched() -> None:
@@ -47,7 +70,7 @@ async def test_real_axis_diagnostics_are_source_bound_live_and_batched() -> None
 
     assert reads == 9
     assert (
-        source.classify(axis="op:Morphology", filler_code="C12218").status == "invalid"
+        source.classify(axis="op:ToldGenus", filler_code="C12218").status == "invalid"
     )
     assert (
         source.classify(axis="op:PrimarySite", filler_code="C12431").status == "valid"

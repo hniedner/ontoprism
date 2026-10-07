@@ -27,7 +27,7 @@ from ontolib.decomposition.provenance_models import ConceptPublication
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
 
     from ontolib.decomposition.models import (
         Constituent,
@@ -317,6 +317,30 @@ def _render_demonstration(
     return lines
 
 
+def _render_p334(
+    materialized: tuple[Decomposition, ...],
+    values: Mapping[str, tuple[str, ...]] | None,
+) -> list[str]:
+    codes = _p334_codes(materialized)
+    values = {} if values is None else values
+    if not codes <= values.keys():
+        raise ValueError("P334 anchor export requires source annotation values")
+    return [
+        f"<{NCIT_NS}{code}> <{NCIT_NS}P334> {json.dumps(value)} ."
+        for code in sorted(codes)
+        for value in values[code]
+    ]
+
+
+def _p334_codes(materialized: tuple[Decomposition, ...]) -> set[str]:
+    return {
+        c.filler_code
+        for d in materialized
+        for c in d.constituents
+        if c.axis_source == "p334"
+    }
+
+
 async def write_ttl(
     decompositions: Iterable[Decomposition],
     dest: Path | None = None,
@@ -325,6 +349,7 @@ async def write_ttl(
     emitted_on: date | None = None,
     emit_equivalence: bool = False,
     publications: Iterable[ConceptPublication] = (),
+    p334_values: Mapping[str, tuple[str, ...]] | None = None,
 ) -> Path | None:
     """Render all *decompositions* as Turtle triples into *dest* (or stdout).
 
@@ -354,6 +379,7 @@ async def write_ttl(
     materialized = tuple(decompositions)
     publication_rows = _publication_rows(materialized, publications, run_id)
     buf = [*_render_axis_contracts(), *_render_demonstration(run_id, publication_rows)]
+    buf.extend(_render_p334(materialized, p334_values))
 
     for dec in materialized:
         buf.extend(

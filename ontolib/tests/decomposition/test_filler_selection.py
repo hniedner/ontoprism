@@ -912,7 +912,7 @@ def test_ratified_lung_primary_routes_bronchus_to_primary_subsite() -> None:
     assert {(item.axis, item.filler_code) for item in constituents} == {
         ("op:PrimarySite", "C12468"),
         ("op:PrimarySubsite", "C12683"),
-        ("op:Morphology", "C4878"),
+        ("op:ToldGenus", "C4878"),
     }
 
 
@@ -940,7 +940,7 @@ def test_ratified_endometrial_primary_routes_cavity_to_subsite() -> None:
         ("op:AssociatedRegion", "C12402"),
         ("op:PrimarySite", "C12316"),
         ("op:PrimarySubsite", "C32514"),
-        ("op:Morphology", "C7558"),
+        ("op:ToldGenus", "C7558"),
     }
     primary = next(item for item in constituents if item.axis == "op:PrimarySite")
     assert primary.source_roles == ("R100",)
@@ -970,7 +970,7 @@ def test_routing_precedes_region_axis_collapse() -> None:
     assert {(item.axis, item.filler_code) for item in constituents} == {
         ("op:PrimarySite", "C12400"),
         ("op:AssociatedRegion", "C13063"),
-        ("op:Morphology", "C3879"),
+        ("op:ToldGenus", "C3879"),
     }
 
 

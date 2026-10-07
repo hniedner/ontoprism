@@ -284,8 +284,8 @@ def test_lineage_and_morphology_remain_outside_specificity_collapse() -> None:
     assert {(row.axis, row.filler_code) for row in result.constituents} == {
         ("op:AssociatedLineageClassification", "C12704"),
         ("op:AssociatedLineageClassification", "C12705"),
-        ("op:Morphology", "C3"),
-        ("op:Morphology", "C4"),
+        ("op:ToldGenus", "C3"),
+        ("op:ToldGenus", "C4"),
     }
 
 

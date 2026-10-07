@@ -58,7 +58,6 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
     )
 
 from ontolib.decomposition.axis_contracts import (
-    AXIS_CONTRACTS,
     normalized_axis_for_role,
 )
 from ontolib.decomposition.axis_diagnostics import (
@@ -82,6 +81,9 @@ from ontolib.decomposition.proposal_registry_migration import (
 from ontolib.decomposition.run import _detect_concept
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
+
+from .decision_axis_contracts import DECISION_AXIS_CONTRACTS as AXIS_CONTRACTS
+from .decision_axis_contracts import classify_decision_axis
 
 if TYPE_CHECKING:
     from ontolib.decomposition.proposal_registry import ProposalRegistry
@@ -990,7 +992,7 @@ async def generate_axis_diagnostic_report(
         comparison,
     )
     range_verdicts = {
-        key: source.classify(axis=key[1], filler_code=key[2])
+        key: classify_decision_axis(source, key[1], key[2])
         for key in _diagnostic_pairs(oracle, evidence)
     }
     report = build_axis_diagnostic_report(

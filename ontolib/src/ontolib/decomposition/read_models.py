@@ -12,7 +12,7 @@ from typing import Self, get_args
 from pydantic import Field, NonNegativeInt, field_validator, model_validator
 
 from ontolib.common.boundary_models import StrictBoundaryModel
-from ontolib.decomposition.models import AxisSource, ConceptOutcome
+from ontolib.decomposition.models import AxisSource, ConceptOutcome, require_p334_axis
 from ontolib.decomposition.provenance_models import ConceptReviewFlag, ReviewFlagKind
 from ontolib.decomposition.vocab import PublicationNotice, PublicationStatus
 from ontolib.repositories.xref.vocab import (
@@ -49,8 +49,8 @@ def _validate_axis_source_roles(
 ) -> None:
     if axis_source == "role" and not source_roles:
         raise ValueError("role-derived constituent requires source_roles")
-    if axis_source in {"parent", "nlp"} and source_roles:
-        raise ValueError("parent/NLP constituents must have empty source_roles")
+    if axis_source in {"parent", "nlp", "p334"} and source_roles:
+        raise ValueError("parent/NLP/P334 constituents must have empty source_roles")
 
 
 def _canonical_source_group_ids(source_group_ids: tuple[str, ...]) -> tuple[str, ...]:
@@ -103,6 +103,7 @@ class DecompositionConstituent(StrictBoundaryModel):
     @model_validator(mode="after")
     def _source_roles_match_axis_source(self) -> Self:
         _validate_axis_source_roles(self.axis_source, self.source_roles)
+        require_p334_axis(self.axis_source, self.axis)
         if (self.normalized_group_id is None) != (self.normalized_group_label is None):
             raise ValueError("normalized group identity and label must be paired")
         return self

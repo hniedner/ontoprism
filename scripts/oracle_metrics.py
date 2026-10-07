@@ -18,7 +18,10 @@ from ontolib.decomposition.evaluation import (
     compare_common_pair_partition,
     compare_full_partition,
 )
-from ontolib.decomposition.normalized_group_policy import UNRESOLVED_ABSTENTION_BLOCKS
+from ontolib.decomposition.normalized_group_policy import (
+    UNRESOLVED_ABSTENTION_BLOCKS,
+    group_policy_axis,
+)
 from ontolib.decomposition.r101_run_conservation import R101ConservationCounts
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -144,6 +147,9 @@ def _partitions(oracle: list[ExpectedConcept], actual: list[StoredPair]) -> list
 
 
 def score_pairs(oracle: list[ExpectedConcept], actual: list[StoredPair]) -> str:
+    # Preserve the human oracle: #467 renames genus without changing its meaning.
+    # HistologyAnchor is additional output, not an alias for an expected genus.
+    actual = [r.model_copy(update={"axis": group_policy_axis(r.axis)}) for r in actual]
     accepted = [c for c in oracle if c.adjudication.status == "accepted"]
     if not accepted or any(c.expected is None for c in accepted):
         raise ValueError("accepted oracle cohort is empty or lacks expectations")

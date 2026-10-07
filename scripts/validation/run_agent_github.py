@@ -201,6 +201,30 @@ def _multiple(options: dict[str, object], name: str) -> list[str]:
     return value
 
 
+def _failure_summary(result: CommandResult) -> str:
+    """Expose fixed categories only, never arbitrary CLI/server text or headers."""
+    status = re.search(r"\(HTTP ([45][0-9]{2})\)", result.stderr)
+    details = [f"CLI exit {result.returncode}"]
+    if status:
+        details.append(f"HTTP {status[1]}")
+    try:
+        response = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        response = None
+    message = response.get("message", "") if isinstance(response, dict) else ""
+    categories = {
+        "Validation Failed": "validation failed",
+        "Bad credentials": "authentication failed",
+        "Resource not accessible by personal access token": "insufficient permissions",
+        "Resource not accessible by integration": "insufficient permissions",
+        "You have exceeded a secondary rate limit.": "secondary rate limit",
+        "Not Found": "not found or inaccessible",
+    }
+    if isinstance(message, str) and message in categories:
+        details.append(categories[message])
+    return "; ".join(details)
+
+
 def _invoke(
     arguments: list[str],
     root: Path,
@@ -236,7 +260,7 @@ def _invoke(
             if mutating
             else "GitHub read operation failed"
         )
-        raise AgentGitHubProcessError(message)
+        raise AgentGitHubProcessError(f"{message} ({_failure_summary(result)})")
     if empty_ok and not result.stdout.strip():
         return None
     if not json_output:

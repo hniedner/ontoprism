@@ -81,7 +81,8 @@ async def _ordinary_counts(conn: AsyncConnection, run_id: str) -> Counter[str]:
         await conn.execute(
             text(
                 "SELECT count(DISTINCT c.concept_code),count(DISTINCT c.concept_code) "
-                "FILTER(WHERE c.axis!='op:Morphology') FROM decomp_constituent c JOIN "
+                "FILTER(WHERE c.axis NOT IN ('op:Morphology','op:ToldGenus')) "
+                "FROM decomp_constituent c JOIN "
                 "decomp_residual_filler f ON f.run_id=c.run_id AND "
                 "f.filler_code=c.filler_code WHERE c.run_id=:run_id AND "
                 "f.state='complete' AND f.classification='precoordinated'"
