@@ -2,7 +2,7 @@
 restrictions are *defining* axes vs. ``Excludes_*`` negative axioms.
 
 The curated projection routes defining NCIt source roles to univocal ``op:`` axes
-(design §4.2). Morphology is carried by the taxonomic parent rather than a role.
+(design §4.2). ToldGenus is derived from taxonomic parents rather than a role.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ IN_SCOPE_SEMANTIC_TYPES = frozenset(
     }
 )
 
-# Morphology is not a role filler; it is derived from the taxonomic parent (design §6).
-MORPHOLOGY_AXIS = "op:Morphology"
+# The genus-selection algorithm is unchanged; #467 names its actual semantics.
+MORPHOLOGY_AXIS = "op:ToldGenus"
 
 # D23 first-class axis for the staging manual/system (AJCC v6/v7/v8/v9, FIGO, etc.)
 STAGE_SYSTEM_AXIS = "op:StageSystem"

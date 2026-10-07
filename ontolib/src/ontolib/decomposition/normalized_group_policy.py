@@ -571,11 +571,20 @@ def apply_normalized_group_policy(
     row = policy.by_code.get(decomposition.code)
     if row is None:
         return decomposition
-    _validate_decomposition_input(decomposition, row)
+    # The owner's recorded decisions use Morphology for the unchanged genus
+    # projection. Validate in those decision coordinates; never rehash/rewrite them.
+    decision_input = replace(
+        decomposition,
+        constituents=tuple(
+            replace(item, axis=group_policy_axis(item.axis))
+            for item in decomposition.constituents
+        ),
+    )
+    _validate_decomposition_input(decision_input, row)
     _validate_genus_evidence(decomposition, row)
     grouped = []
     for item in decomposition.constituents:
-        pair = (item.axis, item.filler_code)
+        pair = (group_policy_axis(item.axis), item.filler_code)
         block = row.block_for(pair)
         grouped.append(
             replace(
@@ -585,6 +594,11 @@ def apply_normalized_group_policy(
             )
         )
     return replace(decomposition, constituents=tuple(grouped))
+
+
+def group_policy_axis(axis: str) -> str:
+    """Coordinate of the unchanged genus relation in the approved decision record."""
+    return "op:Morphology" if axis == "op:ToldGenus" else axis
 
 
 def _validate_decomposition_input(

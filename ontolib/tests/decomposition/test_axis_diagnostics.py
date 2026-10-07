@@ -187,7 +187,7 @@ def test_snapshot_and_evidence_are_canonical_and_deterministic() -> None:
         sorted(snapshot.edges, key=lambda edge: (edge.child, edge.parent))
     )
     assert snapshot.disjoint_pairs == (DisjointPair(left="C50", right="C60"),)
-    result = classify_axis_range("op:Morphology", "C10", "C7057", snapshot)
+    result = classify_axis_range("op:ToldGenus", "C10", "C7057", snapshot)
     assert isinstance(result, ValidAxisEvidence)
     assert result.structural_path == ("C10", "C20", "C7057")
 

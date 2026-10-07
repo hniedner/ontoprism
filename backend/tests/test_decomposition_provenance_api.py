@@ -2,12 +2,18 @@
 
 from collections.abc import Iterator
 from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.dependencies import get_decomposition_reader, get_provenance_store
+from backend.dependencies import (
+    get_decomposition_reader,
+    get_provenance_store,
+    get_repository_metadata,
+)
 from backend.main import create_app
 from ontolib.decomposition.enhancement_delta import DeltaOccurrence
 from ontolib.decomposition.provenance_models import (
@@ -402,6 +408,47 @@ def test_constituent_evidence_exposes_source_support_not_acceptance() -> None:
     assert item["inferred_assertions"] == [
         "NLP-derived filler has no linked stated assertion"
     ]
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("source", ["a" * 64, "b" * 64])
+def test_p334_api_requires_matching_source_before_corroboration(source):
+    class Store(_FakeProvenanceStore):
+        async def constituent_evidence(self, run_id, concept_code):
+            return [
+                ConstituentEvidence(
+                    run_id=run_id,
+                    concept_code=concept_code,
+                    axis="op:HistologyAnchor",
+                    filler_code="C2",
+                    axis_source="p334",
+                    sources=[],
+                    policy_choices=[],
+                )
+            ]
+
+    run = _SAMPLE_RUN.model_copy(update={"source_identity": "a" * 64})
+    app = create_app()
+    metadata = SimpleNamespace(
+        ncit=AsyncMock(return_value=SimpleNamespace(source_identity=source))
+    )
+    reader = SimpleNamespace(
+        histology_evidence=AsyncMock(
+            side_effect=ValueError("anchor no longer supported")
+        )
+    )
+    app.dependency_overrides[get_provenance_store] = lambda: Store(runs=[run])
+    app.dependency_overrides[get_repository_metadata] = lambda: metadata
+    app.dependency_overrides[get_decomposition_reader] = lambda: reader
+    response = TestClient(app).get(
+        "/api/v1/decomposition/runs/run-1/concepts/C1/evidence"
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "anchor no longer supported"
+        if source == "a" * 64
+        else "P334 evidence requires the run's NCIt source"
+    )
 
 
 @pytest.mark.api

@@ -497,7 +497,7 @@ async def test_axis_range_double_matches_disposable_qlever(
             )
         )
 
-    contract = AXIS_CONTRACTS["op:Morphology"]
+    contract = AXIS_CONTRACTS["op:ToldGenus"]
     real_snapshot = AxisHierarchyEvidence(
         source_identity="a" * 64,
         edges=tuple(
@@ -540,7 +540,7 @@ async def test_axis_range_double_matches_disposable_qlever(
     )
     real = tuple(
         classify_axis_range(
-            "op:Morphology",
+            "op:ToldGenus",
             filler,
             contract.range_code,
             real_snapshot,
@@ -549,7 +549,7 @@ async def test_axis_range_double_matches_disposable_qlever(
     )
     doubled = tuple(
         classify_axis_range(
-            "op:Morphology",
+            "op:ToldGenus",
             filler,
             contract.range_code,
             doubled_snapshot,
@@ -731,7 +731,7 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
             ),
         ),
         (
-            "op:Morphology",
+            "op:ToldGenus",
             "C99751",
             (parent_genus.fact_id,),
             (),
@@ -1622,7 +1622,7 @@ async def test_2607d_r101_collapse_is_limited_to_routed_axis(
     }
     assert expected_pair in pairs
     assert broader_pair not in pairs
-    assert {filler for axis, filler in pairs if axis == "op:Morphology"} == {
+    assert {filler for axis, filler in pairs if axis == "op:ToldGenus"} == {
         expected_morphology
     }
 
@@ -1786,7 +1786,7 @@ async def test_resolve_morphology_filler_for_c6135() -> None:
 @pytest.mark.full_store
 async def test_c6135_decomposition_includes_morphology_constituent() -> None:
     """When morphology is resolved, the decomposition should include an
-    op:Morphology constituent with axis_source='parent'."""
+    op:ToldGenus constituent with axis_source='parent'."""
     url = _url()
     if not _reachable(url):
         pytest.skip(f"NCIt QLever not reachable at {url}")
@@ -1822,7 +1822,7 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
         )
 
     # The morphology constituent should be present
-    morphology_constituents = [c for c in constituents if c.axis == "op:Morphology"]
+    morphology_constituents = [c for c in constituents if c.axis == "op:ToldGenus"]
     assert len(morphology_constituents) == 1
     assert morphology_constituents[0].filler_code == "C3879"
     assert morphology_constituents[0].axis_source == "parent"

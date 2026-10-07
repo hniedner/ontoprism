@@ -410,6 +410,8 @@ class _LifecycleClient:
             return []
         if "SELECT ?code ?st" in query:
             return []
+        if "P334>" in query:
+            return []
         if "SELECT ?member ?type ?role ?target ?roleLabel" in query:
             return []
         raise AssertionError(f"unexpected query: {query}")
@@ -662,15 +664,17 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
 
 
 @pytest.mark.parametrize("axis_source", ["nlp", "p334"])
+@pytest.mark.parametrize("semantic_type", ["Neoplastic Process", "Disease or Syndrome"])
 async def test_empty_complete_definition_survives_postgres_round_trip(
     axis_source,
+    semantic_type,
 ) -> None:
     run_id = _new_run_id("neoplasm")
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
     decomposition = Decomposition(
         code="C0",
-        semantic_type="Neoplastic Process",
+        semantic_type=semantic_type,
         constituents=(
             Constituent(
                 axis="op:HistologyAnchor" if axis_source == "p334" else "op:Laterality",
@@ -690,10 +694,26 @@ async def test_empty_complete_definition_survives_postgres_round_trip(
             claim,
             decomposition=decomposition,
             minted=(),
-            semantic_types=("Neoplastic Process",),
+            semantic_types=(semantic_type,),
         )
 
         assert await store.decompositions_for_run(run_id) == [decomposition]
+        other_claim = await store.claim_work_item(run_id, "C1")
+        assert other_claim is not None
+        await store.complete_work_item(
+            run_id,
+            "C1",
+            other_claim,
+            decomposition=None,
+            minted=(),
+            outcome="atomic-no-op",
+            semantic_types=("Neoplastic Process",),
+        )
+        publications = await store.concept_publications_for_run(run_id)
+        flags = {p.concept_code: [f.reason for f in p.flags] for p in publications}
+        assert any("no histology anchor" in reason for reason in flags["C0"]) == (
+            axis_source == "nlp"
+        )
         if axis_source == "p334":
             for statement in (
                 "UPDATE decomp_constituent SET source_roles='[\"R101\"]'::jsonb "

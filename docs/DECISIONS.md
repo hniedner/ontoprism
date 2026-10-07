@@ -9,6 +9,21 @@ projection, source occurrence, partonomy, and relationship group, see the
 
 ## 2026-10-01 — CI runs once per milestone
 
+### D101. Preserve ToldGenus and add a separate P334 HistologyAnchor
+
+Owner approval in #467 (2026-10-06): rename the unchanged genus projection ToldGenus;
+no new genus collapse. HistologyAnchor is self or a most-specific told ancestor
+carrying syntactically valid P334 /0, /1, /2 or /3. Keep every incomparable minimum
+and flag ambiguity; absent anchors receive an explicit reason. Keep coarse carriers.
+NCIt P334 is curated cross-reference evidence, not identity or equivalence (D73).
+WHO ICD-O defines the four histology digits and fifth behavior digit; SNOMED's
+associated morphology pattern does not turn NCIt disease classes into pure morphology.
+Source links and the corrected production-hierarchy census are in #467 comments
+6024610964 and 6025613057. The earlier analyst counts there are withdrawn.
+Approved persistence is only migration0034's narrow source-role CHECK extension;
+P334 paths and annotations are read/recomputed, not stored in a new evidence table.
+The normalized grouping decision record and its policy identity remain unchanged.
+
 ### D100. Issues merge into the milestone branch without CI; CI runs on the milestone PR
 
 **Context.** D92 gated every issue merge with a CI run on the pushed milestone branch.

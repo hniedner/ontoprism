@@ -447,7 +447,8 @@ export interface ConstituentEvidence {
     axis: string;
     filler_code: string;
     axis_source: 'role' | 'parent' | 'nlp' | 'p334';
-    support: 'restriction-backed' | 'genus-backed' | 'not-source-backed';
+    support: 'restriction-backed' | 'genus-backed' | 'p334-backed' | 'not-source-backed';
+    p334?: { eligible_values: string[]; other_values: string[]; path: string[] } | null;
     policy_choices: ('axis-assignment' | 'collapse' | 'grouping')[];
     inferred_assertions: string[];
     sources: {

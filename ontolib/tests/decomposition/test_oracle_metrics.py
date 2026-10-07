@@ -87,6 +87,43 @@ def test_report_conservation_categories_stay_distinct() -> None:
     }
 
 
+def test_told_genus_scores_in_unchanged_oracle_coordinates_but_anchor_is_new():
+    oracle = read_oracle(_GOLDEN / "neoplasm-adjudicated.json")
+    concept = next(
+        c
+        for c in oracle
+        if c.adjudication.status == "accepted"
+        and c.expected
+        and any(r.axis == "op:Morphology" for r in c.expected.constituents)
+    )
+    actual = [
+        StoredPair(
+            concept_code=concept.code,
+            axis="op:ToldGenus" if r.axis == "op:Morphology" else r.axis,
+            filler_code=r.filler,
+            needs_review=r.needs_review,
+            normalized_group_id=r.relationship_group,
+        )
+        for r in concept.expected.constituents
+    ]
+    report = score_pairs([concept], actual)
+    assert _fraction(report, "plain_exact_pair_precision") == (len(actual), len(actual))
+    actual.append(
+        StoredPair(
+            concept_code=concept.code,
+            axis="op:HistologyAnchor",
+            filler_code="C999999",
+            needs_review=False,
+            normalized_group_id=None,
+        )
+    )
+    report = score_pairs([concept], actual)
+    assert _fraction(report, "plain_exact_pair_precision") == (
+        len(actual) - 1,
+        len(actual),
+    )
+
+
 def test_runtime_imports_and_commands_do_not_reach_r103_review_chain():
     result = subprocess.run(
         [

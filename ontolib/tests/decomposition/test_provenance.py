@@ -157,6 +157,28 @@ def test_unknown_primary_routes_do_not_claim_a_sourced_limit_violation():
 
 
 @pytest.mark.unit
+def test_histology_ambiguity_has_its_own_evidence_reason() -> None:
+    flags = _publication_flags(
+        cast(
+            "Any",
+            [
+                {
+                    "concept_code": "C1",
+                    "axis": "op:HistologyAnchor",
+                    "filler_code": "C99",
+                    "unknown_route": False,
+                }
+            ],
+        ),
+        (),
+        (),
+        (),
+    )
+    assert "incomparable" in flags["C1"][0].reason
+    assert "P334" in flags["C1"][0].reason
+
+
+@pytest.mark.unit
 def test_publication_flags_include_a_missing_group_policy_pair() -> None:
     flags = _publication_flags(
         cast(

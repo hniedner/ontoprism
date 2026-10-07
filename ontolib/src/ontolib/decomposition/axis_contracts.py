@@ -247,10 +247,25 @@ _CONTRACT_SEQUENCE = (
         "R110",
     ),
     _contract(
-        "op:Morphology",
-        "morphology",
-        "Relates a disease to the morphology represented by its taxonomic genus.",
+        "op:ToldGenus",
+        "told genus",
+        "Relates a disease to its nearest non-qualifier told genus classes; "
+        "these retain site, behavior and other disease context, not pure morphology.",
         _DISEASE,
+    ),
+    AxisContract(
+        axis="op:HistologyAnchor",
+        label="histology anchor",
+        definition="Self or most-specific told ancestor carrying an NCIt P334 "
+        "value matching four digits and /0, /1, /2 or /3. All incomparable minima "
+        "are retained and flagged; coarse carriers are not excluded. Not equivalence.",
+        domain_code="C3262",
+        domain_label="Neoplasm",
+        range_code="C3262",
+        range_label="Neoplasm",
+        provenance=("NCIt stated P334 and told genus/subclass hierarchy; owner #467",),
+        cardinality="unresolved",
+        cardinality_source="Owner #467: absent or incomparable anchors need review",
     ),
     _contract(
         "op:Laterality",

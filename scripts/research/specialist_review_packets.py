@@ -17,7 +17,8 @@ from defusedxml.ElementTree import iterparse
 from pydantic import BaseModel, Field, model_validator
 
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel
-from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
+
+from .decision_axis_contracts import DECISION_AXIS_CONTRACTS as AXIS_CONTRACTS
 
 try:
     from scripts.research.specialist_cadsr_usage import (

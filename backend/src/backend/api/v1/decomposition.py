@@ -5,7 +5,12 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.dependencies import DecompositionReads, ProvenanceReads
+from backend.dependencies import (
+    DecompositionReads,
+    ProvenanceReads,
+    RepositoryMetadataReads,
+)
+from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS, AxisContract
 from ontolib.decomposition.enhancement_delta import DeltaOccurrence
 from ontolib.decomposition.provenance_models import (
@@ -88,13 +93,23 @@ async def list_run_outcomes(
 )
 async def constituent_evidence(
     store: ProvenanceReads,
+    reader: DecompositionReads,
+    metadata: RepositoryMetadataReads,
     run_id: Annotated[str, Path(pattern=r"^[A-Za-z0-9_.:-]+$")],
     concept_code: Annotated[str, Path(pattern=r"^C[0-9]+$")],
 ) -> list[ConstituentEvidence]:
     """Exact stated filler support and separate engine choices, not acceptance."""
-    await get_run(store, run_id)
+    run = await get_run(store, run_id)
     try:
-        return await store.constituent_evidence(run_id, concept_code)
+        evidence = await store.constituent_evidence(run_id, concept_code)
+        if any(item.axis_source == "p334" for item in evidence):
+            repository = await metadata.ncit(force=True)
+            if isinstance(repository, RepositoryUnhealthy) or (
+                repository.source_identity != run.source_identity
+            ):
+                raise ValueError("P334 evidence requires the run's NCIt source")
+            return await reader.histology_evidence(evidence, repository.source_identity)
+        return evidence
     except (SQLAlchemyError, ValueError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 

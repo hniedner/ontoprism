@@ -1,6 +1,7 @@
 """Compact source rows avoid property-wide OPTIONAL joins on the published graph."""
 
 from time import perf_counter
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -8,8 +9,33 @@ from backend.config import get_settings
 from backend.decomposition_reader import DecompositionReader, _expand_compact_rows
 from ontolib.decomposition import vocab
 from ontolib.decomposition.read import decomposition_from_rows
+from ontolib.decomposition.source_support import ConstituentEvidence
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.client import ncit_sparql_client
+
+
+async def test_p334_read_recomputes_values_and_rejects_stale_anchor():
+    client = AsyncMock()
+    client.select_once.side_effect = [
+        *([[]] * 9),
+        [{"concept": NCIT_NS + "C2", "value": "8000/3"}],
+    ]
+    evidence = ConstituentEvidence(
+        run_id="r",
+        concept_code="C2",
+        axis="op:HistologyAnchor",
+        filler_code="C2",
+        axis_source="p334",
+        sources=[],
+        policy_choices=[],
+    )
+    reader = DecompositionReader(client)
+    result = await reader.histology_evidence([evidence], "a" * 64)
+    assert result[0].p334.eligible_values == ("8000/3",)
+    assert result[0].p334.path == ("C2",)
+    client.select_once.side_effect = [[]] * 10
+    with pytest.raises(ValueError, match="not a current"):
+        await reader.histology_evidence([evidence], "a" * 64)
 
 
 async def test_compact_read_preserves_flags_and_constituent_provenance() -> None:

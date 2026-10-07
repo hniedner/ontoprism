@@ -47,6 +47,7 @@ from ontolib.decomposition.models import (
 )
 from ontolib.decomposition.normalized_group_policy import (
     ActiveNormalizedGroupPolicy,
+    group_policy_axis,
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.provenance_models import (
@@ -795,6 +796,25 @@ def _r101_conservation_rows(
     ]
 
 
+def _missing_histology_flags(
+    outcomes: Sequence[WorkItemOutcome],
+    anchored_codes: set[str],
+    flags: dict[str, list[ConceptReviewFlag]],
+) -> None:
+    for item in outcomes:
+        if (
+            item.outcome in {"decomposed", "residual"}
+            and item.concept_code not in anchored_codes
+        ):
+            flags.setdefault(item.concept_code, []).append(
+                ConceptReviewFlag(
+                    kind="needs-review",
+                    reason="no histology anchor: no emitted "
+                    "self-or-told-ancestor carrier of eligible NCIt P334 /0-/3",
+                )
+            )
+
+
 def _concept_outcome_reason(item: WorkItemOutcome) -> str:
     fixed = {
         "residual": "decomposition candidate yielded no constituents",
@@ -814,6 +834,11 @@ def _concept_outcome_reason(item: WorkItemOutcome) -> str:
 def _constituent_review_reason(
     row: RowMapping, primary_sites: dict[str, set[str]]
 ) -> str:
+    if row["axis"] == "op:HistologyAnchor":
+        return (
+            f"ambiguous histology anchor: {row['filler_code']} is one of multiple "
+            "incomparable minima in the told hierarchy carrying P334 /0-/3"
+        )
     if (
         row["axis"] == "op:PrimarySite"
         and len(primary_sites.get(row["concept_code"], set())) > 1
@@ -906,7 +931,7 @@ def missing_group_policy_pairs(
     emitted: dict[str, set[tuple[str, str]]] = {}
     for row in constituents:
         emitted.setdefault(row["concept_code"], set()).add(
-            (row["axis"], row["filler_code"])
+            (group_policy_axis(row["axis"]), row["filler_code"])
         )
     missing = []
     for policy_row in policy.rows:
@@ -2891,12 +2916,22 @@ class ProvenanceStore:
             group_policy_missing = await _missing_group_policy_pairs_for_run(
                 session, run_id, outcomes
             )
+            anchored = await session.execute(
+                text(
+                    "SELECT DISTINCT concept_code FROM decomp_constituent "
+                    "WHERE run_id=:run_id AND axis='op:HistologyAnchor' "
+                    "AND axis_source='p334'"
+                ),
+                {"run_id": run_id},
+            )
+            anchored_codes = set(anchored.scalars())
         flags = _publication_flags(
             needs_review.mappings().all(),
             unresolved.mappings().all(),
             group_policy_missing,
             mints.mappings().all(),
         )
+        _missing_histology_flags(outcomes, anchored_codes, flags)
         return tuple(
             ConceptPublication.model_validate(
                 {

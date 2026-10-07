@@ -268,7 +268,7 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
                     source_roles=("R101",),
                 ),
                 Constituent(
-                    axis="op:Morphology",
+                    axis="op:ToldGenus",
                     filler_code="C9",
                     axis_source="role",
                     source_roles=("R105",),
@@ -284,7 +284,7 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
                     semantic_type="Neoplastic Process",
                     constituents=(
                         Constituent(
-                            axis="op:Morphology",
+                            axis="op:ToldGenus",
                             filler_code="C9",
                             axis_source="role",
                             source_roles=("R105",),
@@ -352,15 +352,15 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
             )
             == missing_group_flags
         )
-        reason = "constituent op:Morphology / C9 needs review"
+        reason = "constituent op:ToldGenus / C9 needs review"
         assert (
-            counts[f"review-flags.constituent.axis.op:Morphology.reason.{reason}"] == 1
+            counts[f"review-flags.constituent.axis.op:ToldGenus.reason.{reason}"] == 1
         )
         label = (
             "flagged-constituents-by-retained-value-count-on-axis."
             "co-occurrence-not-cause"
         )
-        assert counts[f"{label}.axis.op:Morphology.exactly-one"] == 1
+        assert counts[f"{label}.axis.op:ToldGenus.exactly-one"] == 1
         assert counts[f"{label}.axis.op:PrimarySite.more-than-one"] == 1
         assert (
             sum(value for key, value in counts.items() if key.startswith(label))
