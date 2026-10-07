@@ -404,24 +404,34 @@ def _restriction_definition(
 
 
 @pytest.mark.unit
-def test_nlp_constituents_cannot_claim_a_stated_definition_fact() -> None:
-    """An NLP-derived constituent has no stated provenance to cite.
+@pytest.mark.parametrize(
+    ("axis_source", "axis", "message"),
+    [
+        ("nlp", "op:PrimarySite", "NLP constituents cannot reference definition facts"),
+        (
+            "p334",
+            "op:HistologyAnchor",
+            "P334 constituents cannot reference definition facts",
+        ),
+    ],
+)
+def test_nlp_constituents_cannot_claim_a_stated_definition_fact(
+    axis_source, axis, message
+) -> None:
+    """Neither NLP nor P334 is a stated restriction/genus definition fact.
 
-    Letting it reference a fact would launder a label heuristic into the
-    proof-bearing projection trace that `source_definition_ids` exists to carry.
+    P334 has separate annotation evidence; it must not claim a restriction link.
     """
     definition, fact_id = _restriction_definition()
-    with pytest.raises(
-        ValueError, match="NLP constituents cannot reference definition facts"
-    ):
+    with pytest.raises(ValueError, match=message):
         Decomposition(
             code="C6135",
             semantic_type=None,
             constituents=[
                 Constituent(
-                    axis="op:PrimarySite",
+                    axis=axis,
                     filler_code="C12400",
-                    axis_source="nlp",
+                    axis_source=axis_source,
                     source_definition_ids=(fact_id,),
                 )
             ],

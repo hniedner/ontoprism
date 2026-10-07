@@ -57,6 +57,14 @@ const decomposed: ConceptDecomposition = {
 };
 
 describe('DecompositionPanel', () => {
+    it('labels a P334 anchor as source-derived rather than NLP or parent provenance', async () => {
+        mock.mockResolvedValue({ ...decomposed, constituents: [{ ...decomposed.constituents[0],
+            axis: 'op:HistologyAnchor', axis_source: 'p334', source_roles: [],
+            filler: 'C3773', filler_label: 'Neuroendocrine Carcinoma' }] });
+        render(DecompositionPanel, { code: 'C6135' });
+        expect(await screen.findByText('NCIt P334 histology anchor')).toBeVisible();
+        expect(screen.getByRole('link', { name: 'Neuroendocrine Carcinoma' })).toHaveAttribute('href', '/repositories/ncit/C3773');
+    });
     it('shows additive provisional enhancement and an explicit delta beside published status', async () => {
         mock.mockResolvedValue({ ...decomposed, run_id: 'published-run' });
         vi.mocked(getConstituentEvidence).mockResolvedValue([]);

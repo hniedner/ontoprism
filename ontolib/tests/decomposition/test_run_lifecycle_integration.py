@@ -11,7 +11,7 @@ from uuid import UUID
 
 import asyncpg
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from test_support.projection import unknown_axis_diagnostic_source
@@ -661,7 +661,10 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
         await dispose_engine(engine)
 
 
-async def test_empty_complete_definition_survives_postgres_round_trip() -> None:
+@pytest.mark.parametrize("axis_source", ["nlp", "p334"])
+async def test_empty_complete_definition_survives_postgres_round_trip(
+    axis_source,
+) -> None:
     run_id = _new_run_id("neoplasm")
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
@@ -670,9 +673,9 @@ async def test_empty_complete_definition_survives_postgres_round_trip() -> None:
         semantic_type="Neoplastic Process",
         constituents=(
             Constituent(
-                axis="op:Laterality",
+                axis="op:HistologyAnchor" if axis_source == "p334" else "op:Laterality",
                 filler_code="C25229",
-                axis_source="nlp",
+                axis_source=axis_source,
             ),
         ),
         complete_definition=CompleteDefinition(root_code="C0", facts=()),
@@ -691,6 +694,22 @@ async def test_empty_complete_definition_survives_postgres_round_trip() -> None:
         )
 
         assert await store.decompositions_for_run(run_id) == [decomposition]
+        if axis_source == "p334":
+            for statement in (
+                "UPDATE decomp_constituent SET source_roles='[\"R101\"]'::jsonb "
+                "WHERE run_id=:run",
+                "UPDATE decomp_constituent SET axis='op:PrimarySite' WHERE run_id=:run",
+            ):
+                async with make_sessionmaker(engine)() as session:
+                    with pytest.raises(
+                        IntegrityError, match="ck_decomp_constituent_source_roles"
+                    ):
+                        await session.execute(
+                            text(statement),
+                            {"run": run_id},
+                        )
+                    await session.rollback()
+            assert await store.decompositions_for_run(run_id) == [decomposition]
         # A second run has an all-rejected candidate, not an atomic non-candidate.
         residual_run = _new_run_id("neoplasm")
         try:

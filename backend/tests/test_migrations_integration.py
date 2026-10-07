@@ -699,7 +699,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0033_xref_candidate_contexts"
+    assert revision == "0034_p334_constituent_source"
     assert legacy_rows == 1
     assert publication_tables == 2
 

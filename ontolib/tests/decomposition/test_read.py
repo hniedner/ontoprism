@@ -25,6 +25,40 @@ def test_decomposition_exposes_published_run_for_evidence_lookup() -> None:
     assert result.run_id == "neoplasm-published"
 
 
+@pytest.mark.unit
+def test_p334_anchor_provenance_round_trips_without_invented_role():
+    result = decomposition_from_rows(
+        "C1",
+        [
+            _row(
+                axis=vocab.ONTOPRISM_NS + "HistologyAnchor",
+                filler=_ncit("C3773"),
+                axisSource="p334",
+            )
+        ],
+    )
+    assert result.constituents[0].axis_source == "p334"
+    assert result.constituents[0].source_roles == ()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "updates", [{"source_roles": ("R101",)}, {"axis": "op:PrimarySite"}]
+)
+def test_p334_read_contract_rejects_false_role_or_axis(updates):
+    with pytest.raises(
+        ValueError, match=r"empty source_roles|requires HistologyAnchor"
+    ):
+        DecompositionConstituent.model_validate(
+            {
+                "axis": "op:HistologyAnchor",
+                "filler": "C3773",
+                "axis_source": "p334",
+                **updates,
+            }
+        )
+
+
 def _row(**kw: str) -> dict[str, str | None]:
     # legacy_writer always emits op:axisSource, so a realistic row always carries it.
     row = (
