@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -220,22 +221,36 @@ def render_report(
     return "\n".join(lines)
 
 
-async def _execute(run_id: str, against_id: str | None) -> str:
+async def _execute(
+    run_id: str,
+    against_id: str | None,
+    source_manifest: Path | None = None,
+) -> str:
     selected = await corpus_shape_counts(run_id)
     against = (
         (against_id, await corpus_shape_counts(against_id))
         if against_id is not None
         else None
     )
-    return render_report(run_id, selected, against=against)
+    report = render_report(run_id, selected, against=against)
+    if source_manifest is not None:
+        from scripts.endpoint_assessment import endpoint_report  # noqa: PLC0415
+
+        report += "\n" + await endpoint_report(run_id, source_manifest)
+        if against_id is not None:
+            report += "\n" + await endpoint_report(against_id, source_manifest)
+    return report
 
 
 def main(
     run_id: Annotated[str, typer.Option("--run")],
     against: Annotated[str | None, typer.Option("--against")] = None,
+    source_manifest: Annotated[
+        Path | None, typer.Option("--endpoint-assessment")
+    ] = None,
 ) -> None:
     """Print corpus distributions and optional selected-minus-baseline differences."""
-    typer.echo(asyncio.run(_execute(run_id, against)))
+    typer.echo(asyncio.run(_execute(run_id, against, source_manifest)))
 
 
 if __name__ == "__main__":
