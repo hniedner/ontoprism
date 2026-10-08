@@ -7,6 +7,27 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-10-08 — Endpoint assessment without an atomicity scalar
+
+### D102. Axis-endpoint evidence assessment supplements, not replaces, D37
+
+Owner approval in #469 supersedes the initial terminality/scalar proposal.
+D37 keeps its calculation and stored values, explicitly labeled historical and
+detector-relative. A separate read-only assessment reports retained context,
+source-qualified anchor, range-valid endpoint, detector-positive disease endpoint,
+invalid endpoint, or unknown. None proves terminality or semantic atomicity.
+Genus is retained context. P334 minima use D101; other named endpoints use the
+existing axis range evidence. Disease/finding endpoints additionally expose their
+stored detector result; unavailable results remain unknown. Invalid range evidence
+is distinct from unknown; proposed fillers and unresolved axes remain unknown.
+Anchor source absence/ambiguity, emitted absence/multiplicity, review flags and
+whole-concept outcomes are reported alongside categories, not hidden by them.
+No replacement scalar, new stopping rule, or change to existing engine output.
+Source rationale: WHO ICD-O's independent dimensions, SNOMED MRCM domain/range
+rules and morphology/finding distinction, mCODE stage context; links and limitations
+are recorded in #469 comments6043388636 and6047108036. Range membership does not
+establish irreducibility. Any future scalar requires clear meaning and expert checks.
+
 ## 2026-10-01 — CI runs once per milestone
 
 ### D101. Preserve ToldGenus and add a separate P334 HistologyAnchor
@@ -2595,6 +2616,9 @@ reporting success.
 ## 2026-07-14 — #126: what `residual_precoordination` actually counts
 
 ### D37. Residual pre-coordination = a decomposition whose own constituents are not atomic
+**Interpretation clarified by D102 (#469):** the calculation remains unchanged as a
+historical, detector-relative diagnostic; its name does not establish atomhood.
+Use the separate axis-endpoint assessment and unresolved counts alongside it.
 **Current-status note (D43):** `roundtrip_fidelity` below describes the intended future
 completeness metric. The complete representation does not yet exist; new runs record
 `null`, and #153 owns its implementation.

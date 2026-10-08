@@ -252,6 +252,18 @@ projected but deliberately does not contribute a defining detector axis; optiona
 
 ## 6. Filler selection — routed-axis specificity (`filler_selection.py`)
 
+**Assessment, not atomicity (D102/#469):**
+`pdm run corpus-shape --run <id> --endpoint-assessment <source-manifest>` adds a
+read-only six-category endpoint evidence report. `--against` assesses both runs
+independently against the matching configured source. D37's stored count, unknown
+count and rate are printed unchanged with their detector identity. Current range
+and P334 evidence are recomputed; failure to verify the source aborts the report.
+Range-valid endpoints are not declared terminal. Source-qualified anchors can
+still be ambiguous. Both source-anchor absence/ambiguity and emitted-anchor
+absence/multiplicity are shown, including for historical runs that emitted none.
+The report retains overlapping review flags and whole-concept outcomes; its
+category counts are endpoint counts, not a composite score or expert acceptance.
+
 The core engineering. For each projectable positive source restriction of a candidate,
 route it to an axis and choose the intended
 filler or preserve unresolved co-equal fillers without silently discarding them.

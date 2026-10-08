@@ -21,6 +21,7 @@ import pytest
 from pydantic import ValidationError
 from scripts import oracle_metrics
 from scripts.corpus_shape import corpus_shape_counts
+from scripts.endpoint_assessment import read_assessment_inputs
 from scripts.research.current_evidence import generate_current_evidence
 from sqlalchemy import text
 
@@ -250,7 +251,7 @@ async def test_stored_oracle_scores_database_pairs_read_only(tmp_path, monkeypat
 
 
 @pytest.mark.integration
-async def test_corpus_shape_counts_every_section_from_a_stored_run():
+async def test_corpus_shape_counts_every_section_from_a_stored_run():  # noqa: PLR0915
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
     try:
@@ -332,6 +333,23 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
         counts = await corpus_shape_counts(
             _RUN_ID, database_url=get_settings().database_url
         )
+        async with engine.connect() as conn:
+            metadata, endpoints, decomposed, outcomes = await read_assessment_inputs(
+                conn,
+                _RUN_ID,
+                "a" * 64,
+            )
+            assert metadata["status"] == "complete"
+            assert decomposed == {"C6135", "C2"}
+            assert outcomes == {"decomposed": 2}
+            assert len(endpoints) == 4
+            assert {r.classification for r in endpoints if r.filler_code == "C9"} == {
+                "precoordinated"
+            }
+            with pytest.raises(ValueError, match="source differs"):
+                await read_assessment_inputs(conn, _RUN_ID, "b" * 64)
+            with pytest.raises(ValueError, match="complete stored run"):
+                await read_assessment_inputs(conn, "absent-run", "a" * 64)
         assert counts["outcomes.decomposed"] == 2
         assert counts["constituents.total"] == 4
         assert counts["constituents.axis.op:PrimarySite"] == 2
