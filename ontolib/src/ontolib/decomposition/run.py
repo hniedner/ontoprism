@@ -18,6 +18,9 @@ Scope of this orchestrator (documented boundaries, not oversights):
   its first non-qualifier genus, parent-derived fillers pass through projection-validity
   assessment before accepted ``op:ToldGenus`` constituents are appended, and
   ``detector.detect`` counts the axis once.
+- HistologyAnchor is selected independently from run-scoped P334 annotations and
+  the told hierarchy; every incomparable minimum is retained and flagged. Its
+  annotations accompany the staging artifact, without invented definition-fact links.
 - File and optional named-graph publication are coordinated inside ``run_pipeline``.
   A complete artifact is rendered and validated first, the graph is replaced through
   a run-scoped staging graph and one transactional update, the file is atomically
@@ -37,7 +40,7 @@ import hashlib
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -172,7 +175,7 @@ class RunStaticLookups:
     source_identity: str
     semantic_types: Mapping[str, tuple[str, ...]]
     role_labels: Mapping[str, str | None]
-    p334_values: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    p334_values: Mapping[str, tuple[str, ...]]
 
     def __post_init__(self) -> None:
         if len(self.source_identity) != _SHA256_HEX_LENGTH or any(
@@ -734,7 +737,7 @@ def _projection_keys(plan: fs.RoutedPlan) -> set[tuple[str, str]]:
         for occurrence in plan.occurrences
     }
     morphologies = {
-        (axes.MORPHOLOGY_AXIS, filler) for filler in plan.parent_morphologies
+        (axes.TOLD_GENUS_AXIS, filler) for filler in plan.parent_morphologies
     }
     return routed | morphologies
 

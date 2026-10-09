@@ -13,7 +13,7 @@ from scripts.research.current_evidence import (
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from ontolib.decomposition.axes import ASSOCIATED_PRIOR_DISEASE, MORPHOLOGY_AXIS
+from ontolib.decomposition.axes import ASSOCIATED_PRIOR_DISEASE, TOLD_GENUS_AXIS
 from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
 from ontolib.decomposition.collapse_policy import (
     NO_COLLAPSE_VETO_POLICY,
@@ -49,7 +49,7 @@ def _project_expected_concept_to_active_policies(
         pair = (expected_row.axis, expected_row.filler)
         projected_row = expected_row
         if (
-            expected_row.axis == MORPHOLOGY_AXIS
+            expected_row.axis == TOLD_GENUS_AXIS
             and expected_row.filler in MORPHOLOGY_QUALIFIER_CODES
         ):
             continue

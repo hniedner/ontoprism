@@ -33,8 +33,14 @@ async def test_p334_read_recomputes_values_and_rejects_stale_anchor():
     result = await reader.histology_evidence([evidence], "a" * 64)
     assert result[0].p334.eligible_values == ("8000/3",)
     assert result[0].p334.path == ("C2",)
-    client.select_once.side_effect = [[]] * 10
+    client.select_once.side_effect = [
+        *([[]] * 9),
+        [{"concept": NCIT_NS + "C3", "value": "8000/3"}],
+    ]
     with pytest.raises(ValueError, match="not a current"):
+        await reader.histology_evidence([evidence], "a" * 64)
+    client.select_once.side_effect = [[]] * 10
+    with pytest.raises(ValueError, match="P334 source inventory is empty"):
         await reader.histology_evidence([evidence], "a" * 64)
 
 

@@ -700,8 +700,8 @@ def _axis_is_ambiguous(
 
 
 def _known_multivalued_axis(axis_name: str, unknown: bool) -> bool:
-    contract = AXIS_CONTRACTS.get(axis_name)
-    return contract is not None and contract.cardinality == "0..*" and not unknown
+    # As in _needs_review, unknown routes do not imply a declared contract.
+    return not unknown and AXIS_CONTRACTS[axis_name].cardinality == "0..*"
 
 
 def _requires_ambiguity_group(
@@ -849,7 +849,7 @@ def _occurrences_by_projection_key(
             occurrence
         )
     for filler in plan.parent_morphologies:
-        result[(axes.MORPHOLOGY_AXIS, filler)]
+        result[(axes.TOLD_GENUS_AXIS, filler)]
     return result
 
 
@@ -887,7 +887,7 @@ def _retained_parent_morphologies(
     return tuple(
         filler
         for filler in plan.parent_morphologies
-        if (axes.MORPHOLOGY_AXIS, filler) in accepted
+        if (axes.TOLD_GENUS_AXIS, filler) in accepted
     )
 
 
@@ -994,7 +994,7 @@ def _append_morphology(
     for parent_morphology in parent_morphologies:
         constituents.append(
             Constituent(
-                axis=axes.MORPHOLOGY_AXIS,
+                axis=axes.TOLD_GENUS_AXIS,
                 filler_code=parent_morphology,
                 axis_source="parent",
             )

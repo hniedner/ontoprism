@@ -97,6 +97,12 @@ async def read_p334_values(client: ScopeSelectClient) -> Mapping[str, tuple[str,
         if not value:
             raise ValueError("P334 asserted value is missing")
         values.setdefault(iri.removeprefix(NCIT_NS), set()).add(value)
+    return _require_inventory(values)
+
+
+def _require_inventory(values: dict[str, set[str]]) -> Mapping[str, tuple[str, ...]]:
+    if not values:
+        raise ValueError("P334 source inventory is empty; cannot assess anchor absence")
     return MappingProxyType(
         {code: tuple(sorted(items)) for code, items in values.items()}
     )

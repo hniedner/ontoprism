@@ -60,6 +60,7 @@ from ontolib.decomposition.provenance_models import (
     RunOutcomeCounts,
 )
 from ontolib.decomposition.run import RunConfig, _new_run_id, run_pipeline
+from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -411,7 +412,7 @@ class _LifecycleClient:
         if "SELECT ?code ?st" in query:
             return []
         if "P334>" in query:
-            return []
+            return [{"concept": NCIT_NS + "C999999", "value": "8000/3"}]
         if "SELECT ?member ?type ?role ?target ?roleLabel" in query:
             return []
         raise AssertionError(f"unexpected query: {query}")
@@ -773,6 +774,7 @@ async def test_empty_complete_definition_survives_postgres_round_trip(
                 fingerprint=_fingerprint(),
                 collapse_policy=NO_COLLAPSE_VETO_POLICY,
                 static_lookups=run_module.RunStaticLookups(
+                    p334_values={},
                     source_identity="a" * 64,
                     role_labels={"R88": "Has_Stage"},
                     semantic_types={"C27970": ()},

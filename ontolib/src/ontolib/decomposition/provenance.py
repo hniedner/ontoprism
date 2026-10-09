@@ -853,13 +853,22 @@ def _constituent_review_reason(
     )
 
 
+def primary_site_values(rows: Sequence[RowMapping]) -> dict[str, set[str]]:
+    """All known-route primary fillers, including those without a review flag."""
+    values: dict[str, set[str]] = {}
+    for row in rows:
+        if row["axis"] == "op:PrimarySite" and not row["unknown_route"]:
+            values.setdefault(row["concept_code"], set()).add(row["filler_code"])
+    return values
+
+
 def _constituent_review_flags(
     needs_review: Sequence[RowMapping],
+    primary_sites: dict[str, set[str]] | None = None,
 ) -> list[tuple[str, str, str]]:
-    primary_sites: dict[str, set[str]] = {}
-    for row in needs_review:
-        if row["axis"] == "op:PrimarySite" and not row["unknown_route"]:
-            primary_sites.setdefault(row["concept_code"], set()).add(row["filler_code"])
+    primary_sites = (
+        primary_site_values(needs_review) if primary_sites is None else primary_sites
+    )
     return [
         (
             row["concept_code"],
@@ -875,10 +884,12 @@ def _publication_flags(
     unresolved: Sequence[RowMapping],
     group_policy_missing: Sequence[MissingGroupPolicyPair],
     mints: Sequence[RowMapping],
+    *,
+    primary_sites: dict[str, set[str]] | None = None,
 ) -> dict[str, list[ConceptReviewFlag]]:
     flags: dict[str, list[ConceptReviewFlag]] = {}
     rendered = chain(
-        _constituent_review_flags(needs_review),
+        _constituent_review_flags(needs_review, primary_sites),
         (
             (
                 row["concept_code"],
@@ -2886,13 +2897,15 @@ class ProvenanceStore:
         async with self._sf() as session:
             needs_review = await session.execute(
                 text(
-                    "SELECT c.concept_code, c.axis, c.filler_code, EXISTS ("
+                    "SELECT c.concept_code, c.axis, c.filler_code, c.needs_review, "
+                    "EXISTS ("
                     "SELECT 1 FROM decomp_occurrence_disposition d "
                     "WHERE d.run_id=c.run_id AND d.concept_code=c.concept_code "
                     "AND d.normalized_axis=c.axis AND d.retained_filler=c.filler_code "
                     "AND d.semantic_route IN ('missing-p106', 'unknown-role')) "
                     "AS unknown_route FROM decomp_constituent c "
-                    "WHERE c.run_id=:run_id AND c.needs_review "
+                    "WHERE c.run_id=:run_id "
+                    "AND (c.needs_review OR c.axis='op:PrimarySite') "
                     "ORDER BY c.concept_code, c.axis, c.filler_code"
                 ),
                 {"run_id": run_id},
@@ -2925,11 +2938,13 @@ class ProvenanceStore:
                 {"run_id": run_id},
             )
             anchored_codes = set(anchored.scalars())
+        review_rows = needs_review.mappings().all()
         flags = _publication_flags(
-            needs_review.mappings().all(),
+            [row for row in review_rows if row["needs_review"]],
             unresolved.mappings().all(),
             group_policy_missing,
             mints.mappings().all(),
+            primary_sites=primary_site_values(review_rows),
         )
         _missing_histology_flags(outcomes, anchored_codes, flags)
         return tuple(

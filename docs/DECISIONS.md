@@ -44,6 +44,10 @@ Source links and the corrected production-hierarchy census are in #467 comments
 Approved persistence is only migration0034's narrow source-role CHECK extension;
 P334 paths and annotations are read/recomputed, not stored in a new evidence table.
 The normalized grouping decision record and its policy identity remain unchanged.
+Owner M17 review clarification: an anchor alone still counts as an emitted
+constituent for the decomposed outcome; that outcome does not imply semantic
+reduction. HistologyAnchor modality is non-defining, with P334 provenance unchanged.
+The completed v7 demonstration is retained; this export-contract amendment is v8.
 
 ### D100. Issues merge into the milestone branch without CI; CI runs on the milestone PR
 

@@ -2,13 +2,14 @@
     import type { ConstituentEvidence } from '$lib/types';
     import LoadingState from './LoadingState.svelte';
     let { evidence, failed, runId }: { evidence: ConstituentEvidence[] | null; failed: boolean; runId: string | null } = $props();
-    const kinds = ['restriction-backed', 'genus-backed', 'not-source-backed'] as const;
+    const kinds = Object.keys({ 'restriction-backed': true, 'genus-backed': true,
+        'p334-backed': true, 'not-source-backed': true } satisfies Record<ConstituentEvidence['support'], true>);
 </script>
 
 {#if evidence}
     <div class="mb-3 text-sm">
         <h4 class="font-semibold">Source-backed filler share</h4>
-        <p>A source-backed filler is literally stated in NCIt; this does not mean the decomposition is accepted or correct.</p>
+        <p>Support is an exact stated restriction/genus or corroborated P334 anchor evidence; it does not establish acceptance or correctness.</p>
         {#each kinds as kind (kind)}
             {@const count = evidence.filter(row => row.support === kind).length}
             <p>{`${kind}: ${count}/${evidence.length} (${(100 * count / evidence.length).toFixed(1)}%)`}</p>

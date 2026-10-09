@@ -8,7 +8,7 @@ from ontolib.decomposition.normalized_group_policy import (
 )
 
 # Bump for output-changing engine logic; formatting/source layout is not identity.
-ENGINE_VERSION = "decomposition-engine-v7"
+ENGINE_VERSION = "decomposition-engine-v8"
 # Bump when generic fillers, inherited core roles, or qualifier-genus rules change.
 RULES_VERSION = "decomposition-rules-v1"
 

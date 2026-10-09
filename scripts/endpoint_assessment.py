@@ -3,6 +3,7 @@
 from collections import Counter
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict, Field
 from scripts.decompose import _source_snapshot
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
@@ -14,11 +15,33 @@ from ontolib.decomposition.histology_anchor import HistologyAnchors, read_p334_v
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 
+class StoredD37(BaseModel):
+    """Only the required historical metrics; unrelated metrics remain out of scope."""
+
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    decomposed: int = Field(ge=0)
+    residual_precoordinated_count: int = Field(ge=0)
+    residual_precoordination_unknown_count: int = Field(ge=0)
+    residual_precoordination: float | None = Field(ge=0, le=1)
+
+
+class StoredDetector(BaseModel):
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    routing_implementation_identity: str = Field(min_length=1)
+
+
+class AssessmentMetadata(BaseModel):
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+    ncit_version: str = Field(min_length=1)
+    fingerprint: StoredDetector
+    metrics: StoredD37
+
+
 async def read_assessment_inputs(
     conn: AsyncConnection,
     run_id: str,
     source_identity: str,
-) -> tuple[dict, list[Endpoint], set[str], Counter[str]]:
+) -> tuple[AssessmentMetadata, list[Endpoint], set[str], Counter[str]]:
     row = (
         (
             await conn.execute(
@@ -71,24 +94,34 @@ async def read_assessment_inputs(
         .all()
     )
     return (
-        dict(row),
+        AssessmentMetadata(
+            ncit_version=row["ncit_version"],
+            fingerprint=StoredDetector.model_validate(
+                {key: row["fingerprint"][key] for key in StoredDetector.model_fields}
+            ),
+            metrics=StoredD37.model_validate(
+                {key: row["metrics"][key] for key in StoredD37.model_fields}
+            ),
+        ),
         [Endpoint.model_validate(dict(r)) for r in rows],
         {r["concept_code"] for r in outcomes if r["outcome"] == "decomposed"},
         Counter(r["outcome"] for r in outcomes),
     )
 
 
-def render_assessment(run_id: str, metadata: dict, counts: Counter[str]) -> str:
-    metrics = metadata["metrics"]
-    fingerprint = metadata["fingerprint"]
+def render_assessment(
+    run_id: str, metadata: AssessmentMetadata, counts: Counter[str]
+) -> str:
+    metrics = metadata.metrics.model_dump()
+    fingerprint = metadata.fingerprint
     lines = [
         "axis-endpoint-assessment: evidence categories, not an atomicity score",
         "No category establishes terminality, completeness or expert acceptance.",
         "Anchor source availability is recomputed; "
         "emitted absence is not retroactive failure.",
         f"run_id={run_id}",
-        f"ncit_version={metadata['ncit_version']}",
-        f"stored_detector={fingerprint['routing_implementation_identity']}",
+        f"ncit_version={metadata.ncit_version}",
+        f"stored_detector={fingerprint.routing_implementation_identity}",
         "D37.historical-detector-relative: unchanged stored values",
     ]
     for key in (
@@ -97,7 +130,7 @@ def render_assessment(run_id: str, metadata: dict, counts: Counter[str]) -> str:
         "residual_precoordination_unknown_count",
         "residual_precoordination",
     ):
-        lines.append(f"D37.{key}={metrics.get(key)}")
+        lines.append(f"D37.{key}={metrics[key]}")
     lines.extend(f"assessment.{key}={counts[key]}" for key in sorted(counts))
     return "\n".join(lines)
 
@@ -117,12 +150,12 @@ async def endpoint_report(run_id: str, manifest_path: Path) -> str:
                 snapshot.source_identity,
             )
         async with ncit_sparql_client(settings.ncit_sparql_url) as client:
-            if await client.version() != metadata["ncit_version"]:
+            if await client.version() != metadata.ncit_version:
                 raise ValueError("configured NCIt version differs from the stored run")
             source = await read_axis_diagnostic_source(client, snapshot.source_identity)
             anchors = HistologyAnchors(source.snapshot, await read_p334_values(client))
             counts = assessment_counts(rows, decomposed, source, anchors)
-            if await client.version() != metadata["ncit_version"]:
+            if await client.version() != metadata.ncit_version:
                 raise ValueError("configured NCIt version changed during assessment")
         if await _source_snapshot(manifest_path, settings.ncit_sparql_url) != snapshot:
             raise ValueError("configured NCIt source changed during assessment")

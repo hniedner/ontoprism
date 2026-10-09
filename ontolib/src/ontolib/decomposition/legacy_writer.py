@@ -113,6 +113,7 @@ def _render_axis_contract(contract: AxisContract) -> list[str]:
     axis = _axis_uri(contract.axis)
     owl_object_property = "<http://www.w3.org/2002/07/owl#ObjectProperty>"
     rdfs = "http://www.w3.org/2000/01/rdf-schema#"
+    cardinality = f"Cardinality {contract.cardinality}: {contract.cardinality_source}"
     lines = [
         f"{axis} <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> "
         f"{owl_object_property} .",
@@ -121,6 +122,7 @@ def _render_axis_contract(contract: AxisContract) -> list[str]:
         f"{axis} <{rdfs}domain> <{NCIT_NS}{contract.domain_code}> .",
         f"{axis} <{rdfs}range> <{NCIT_NS}{contract.range_code}> .",
         f"{axis} {_p(vocab.AXIS_MODALITY)} {json.dumps(contract.modality)} .",
+        f"{axis} {_p(vocab.CONTRACT_PROVENANCE)} {json.dumps(cardinality)} .",
         f"{axis} {_p(vocab.GOVERNANCE_STATUS)} "
         f"{json.dumps(contract.governance.status)} .",
     ]
@@ -358,6 +360,9 @@ async def write_ttl(
     triples — before the decomposition triples, including when *decompositions* is
     empty.
 
+    Emitted P334 anchor carriers also carry their source annotation values as
+    evidence, not equivalence. Their annotations must be supplied in ``p334_values``.
+
     Writes additively — no deletes, no other graph targeted.  Returns the written path
     or ``None`` when writing to stdout.
 
@@ -368,6 +373,7 @@ async def write_ttl(
         a separately validated proof-bearing export mode (D43).
         Also when run-bound decompositions lack publication records, or records
         are supplied without a run identifier.
+        Also when an emitted P334 carrier lacks supplied source annotation values.
     """
     if emit_equivalence:
         raise ValueError(

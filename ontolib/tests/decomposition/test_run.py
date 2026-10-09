@@ -319,7 +319,11 @@ class _FakeClient:
         self._part_of_expansions = part_of_expansions or {}
         self._hierarchy_edges = hierarchy_edges or []
         self._disjoint_rows = disjoint_rows or []
-        self._p334_rows = p334_rows or []
+        self._p334_rows = (
+            p334_rows
+            if p334_rows is not None
+            else [{"concept": _iri("C999999"), "value": "8000/3"}]
+        )
         self.queries: list[str] = []
         self.required_variables: list[frozenset[str]] = []
         self.query_requirements: list[tuple[str, frozenset[str]]] = []
@@ -2731,6 +2735,7 @@ def test_run_static_lookups_require_a_sha256_source_identity(
 ) -> None:
     with pytest.raises(ValueError, match="SHA-256"):
         run_module.RunStaticLookups(
+            p334_values={},
             source_identity=source_identity,
             semantic_types={},
             role_labels={},
@@ -2740,6 +2745,7 @@ def test_run_static_lookups_require_a_sha256_source_identity(
 @pytest.mark.unit
 def test_run_static_lookups_fail_closed_on_wrong_source_or_missing_rows() -> None:
     lookups = run_module.RunStaticLookups(
+        p334_values={},
         source_identity="a" * 64,
         semantic_types={"C1": ("Neoplastic Process",)},
         role_labels={"R101": "Disease_Has_Primary_Anatomic_Site"},
@@ -2758,6 +2764,7 @@ def test_run_static_lookups_fail_closed_on_wrong_source_or_missing_rows() -> Non
 @pytest.mark.unit
 async def test_static_lookups_require_a_source_identity_at_detection() -> None:
     lookups = run_module.RunStaticLookups(
+        p334_values={},
         source_identity="a" * 64,
         semantic_types={"C1": ("Neoplastic Process",)},
         role_labels={},
@@ -4400,6 +4407,7 @@ async def test_range_recount_includes_completed_residuals_on_resume(cached):
     )
     if cached:
         setup.static_lookups = run_module.RunStaticLookups(
+            p334_values={},
             source_identity="a" * 64,
             semantic_types={"C12400": (), "C27970": ()},
             role_labels={"R88": "Has_Stage", "R101": "Has_Primary_Site"},
@@ -4416,6 +4424,7 @@ async def test_range_recount_includes_completed_residuals_on_resume(cached):
     assert counts == {"op:StageValue": 1}
     if cached:
         setup.static_lookups = run_module.RunStaticLookups(
+            p334_values={},
             source_identity="a" * 64,
             semantic_types={"C12400": (), "C27970": ()},
             role_labels={},

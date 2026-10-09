@@ -26,7 +26,7 @@ IN_SCOPE_SEMANTIC_TYPES = frozenset(
 )
 
 # The genus-selection algorithm is unchanged; #467 names its actual semantics.
-MORPHOLOGY_AXIS = "op:ToldGenus"
+TOLD_GENUS_AXIS = "op:ToldGenus"
 
 # D23 first-class axis for the staging manual/system (AJCC v6/v7/v8/v9, FIGO, etc.)
 STAGE_SYSTEM_AXIS = "op:StageSystem"

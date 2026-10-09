@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 import rdflib
 
+from ontolib.decomposition import vocab
 from ontolib.decomposition.axis_diagnostics import AxisHierarchyEvidence, HierarchyEdge
 from ontolib.decomposition.histology_anchor import HistologyAnchors, read_p334_values
 from ontolib.decomposition.legacy_writer import write_ttl
@@ -13,6 +14,13 @@ from ontolib.decomposition.source_support import ConstituentEvidence
 from ontolib.terminologies.namespaces import NCIT_NS
 
 pytestmark = pytest.mark.unit
+
+
+async def test_empty_p334_source_is_not_interpreted_as_concept_absence():
+    client = AsyncMock()
+    client.select_once.return_value = []
+    with pytest.raises(ValueError, match="P334 source inventory is empty"):
+        await read_p334_values(client)
 
 
 def test_p334_support_requires_values_and_told_path_not_just_source_label():
@@ -134,6 +142,18 @@ async def test_export_carries_p334_annotations_for_each_emitted_anchor(tmp_path)
         p334_values=anchors.values,
     )
     graph = rdflib.Graph().parse(target)
+    assert (
+        rdflib.URIRef(vocab.ONTOPRISM_NS + "PrimarySite"),
+        rdflib.URIRef(vocab.CONTRACT_PROVENANCE),
+        rdflib.Literal(
+            "Cardinality 0..1: D58: one organ of origin; owner reaffirmed #466"
+        ),
+    ) in graph
+    assert (
+        rdflib.URIRef(vocab.ONTOPRISM_NS + "HistologyAnchor"),
+        rdflib.URIRef(vocab.AXIS_MODALITY),
+        rdflib.Literal("non-defining"),
+    ) in graph
     assert set(
         graph.objects(rdflib.URIRef(NCIT_NS + "C2"), rdflib.URIRef(NCIT_NS + "P334"))
     ) == {rdflib.Literal("8000/3"), rdflib.Literal("bad")}

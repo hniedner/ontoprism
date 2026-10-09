@@ -8,9 +8,9 @@ import pytest
 from ontolib.decomposition.axes import (
     ASSOCIATED_LINEAGE_AXIS,
     ASSOCIATED_REGION_AXIS,
-    MORPHOLOGY_AXIS,
     PRIMARY_SITE_AXIS,
     STAGE_VALUE_AXIS,
+    TOLD_GENUS_AXIS,
 )
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.filler_selection import (
@@ -554,7 +554,7 @@ def test_select_adds_morphology_from_parent() -> None:
     constituents = select_constituents(
         restrictions, _is_ancestor, parent_morphologies=("C40384",)
     )
-    morph = [c for c in constituents if c.axis == MORPHOLOGY_AXIS]
+    morph = [c for c in constituents if c.axis == TOLD_GENUS_AXIS]
     assert len(morph) == 1
     assert morph[0].filler_code == "C40384"
     assert morph[0].axis_source == "parent"

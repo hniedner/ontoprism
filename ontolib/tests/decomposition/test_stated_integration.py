@@ -208,6 +208,7 @@ async def test_run_static_lookups_match_individual_disposable_qlever_reads(
             ] .
         ncit:C99762 ncit:P106 "Anatomic Structure, System, or Substance" .
         ncit:R101 rdfs:label "Disease_Has_Primary_Anatomic_Site" .
+        ncit:C999999 ncit:P334 "8000/3" .
     """
 
     async with ncit_sparql_client(isolated_qlever_url) as client:
@@ -623,6 +624,7 @@ async def test_occurrence_selection_double_matches_disposable_qlever_rows(
         ncit:C99751 rdfs:label "Stage I Test Parent Neoplasm" .
         ncit:C99752 ncit:P106 "Anatomic Structure, System, or Substance" .
         ncit:C99753 ncit:P106 "Cell" .
+        ncit:C999999 ncit:P334 "8000/3" .
     """
 
     async def no_label_match(_surface_form: str) -> str | None:

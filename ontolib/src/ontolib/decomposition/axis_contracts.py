@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 
@@ -50,6 +50,15 @@ class AxisContract(_StrictModel):
     modality: AxisModality = "asserted"
     cardinality: Literal["0..1", "0..*", "unresolved"] = "unresolved"
     cardinality_source: str = "No approved class-level cardinality source"
+
+    @model_validator(mode="after")
+    def _resolved_cardinality_has_source(self) -> Self:
+        if self.cardinality != "unresolved" and self.cardinality_source in {
+            "",
+            "No approved class-level cardinality source",
+        }:
+            raise ValueError("resolved cardinality requires an explicit source")
+        return self
 
 
 _DISEASE = ("C7057", "Disease, Disorder or Finding")
@@ -255,6 +264,7 @@ _CONTRACT_SEQUENCE = (
     ),
     AxisContract(
         axis="op:HistologyAnchor",
+        modality="non-defining",
         label="histology anchor",
         definition="Self or most-specific told ancestor carrying an NCIt P334 "
         "value matching four digits and /0, /1, /2 or /3. All incomparable minima "

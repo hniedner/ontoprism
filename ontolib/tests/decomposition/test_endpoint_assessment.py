@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from scripts import endpoint_assessment as report_module
-from scripts.endpoint_assessment import render_assessment
+from scripts.endpoint_assessment import AssessmentMetadata, StoredD37, render_assessment
 
 from ontolib.decomposition.axis_diagnostics import (
     AxisDiagnosticSource,
@@ -61,11 +61,18 @@ async def test_report_source_failures_do_not_produce_success(
         "read_assessment_inputs",
         AsyncMock(
             return_value=(
-                {
-                    "ncit_version": "26.07d",
-                    "fingerprint": {"routing_implementation_identity": "stored"},
-                    "metrics": {"decomposed": 1, "residual_precoordination": 1.0},
-                },
+                AssessmentMetadata.model_validate(
+                    {
+                        "ncit_version": "26.07d",
+                        "fingerprint": {"routing_implementation_identity": "stored"},
+                        "metrics": {
+                            "decomposed": 1,
+                            "residual_precoordination": 1.0,
+                            "residual_precoordinated_count": 1,
+                            "residual_precoordination_unknown_count": 0,
+                        },
+                    }
+                ),
                 [
                     Endpoint(
                         concept_code="C1",
@@ -183,23 +190,26 @@ def test_flags_do_not_disappear_when_endpoint_has_range_evidence():
         axis_ambiguous=True,
     )
     assert assess_endpoint(item, source, anchors).category == "range-valid-endpoint"
-    assert item.needs_review
-    assert item.axis_ambiguous
+    counts = assessment_counts([item], {"C1"}, source, anchors)
+    assert counts["review.needs-review.axis.op:PrimarySite"] == 1
+    assert counts["review.axis-ambiguous.axis.op:PrimarySite"] == 1
 
 
 def test_d37_values_are_not_replaced_by_new_category_counts():
     report = render_assessment(
         "r",
-        {
-            "ncit_version": "26.07d",
-            "fingerprint": {"routing_implementation_identity": "historical"},
-            "metrics": {
-                "decomposed": 10,
-                "residual_precoordinated_count": 9,
-                "residual_precoordination_unknown_count": 2,
-                "residual_precoordination": None,
-            },
-        },
+        AssessmentMetadata.model_validate(
+            {
+                "ncit_version": "26.07d",
+                "fingerprint": {"routing_implementation_identity": "historical"},
+                "metrics": {
+                    "decomposed": 10,
+                    "residual_precoordinated_count": 9,
+                    "residual_precoordination_unknown_count": 2,
+                    "residual_precoordination": None,
+                },
+            }
+        ),
         Counter(
             {
                 "endpoints.category.detector-positive-disease-endpoint": 1,
@@ -213,6 +223,17 @@ def test_d37_values_are_not_replaced_by_new_category_counts():
     assert (
         "assessment.endpoints.category.detector-positive-disease-endpoint=1" in report
     )
+
+
+def test_missing_d37_metric_is_not_reported_as_a_stored_null():
+    with pytest.raises(ValueError, match="residual_precoordination_unknown_count"):
+        StoredD37.model_validate(
+            {
+                "decomposed": 1,
+                "residual_precoordinated_count": 0,
+                "residual_precoordination": None,
+            }
+        )
 
 
 def test_summary_keeps_overlapping_flags_and_absent_anchors_visible():
@@ -248,6 +269,7 @@ def test_summary_keeps_overlapping_flags_and_absent_anchors_visible():
     assert counts["review.needs-review.axis.op:HistologyAnchor"] == 1
     assert counts["review.axis-ambiguous.axis.op:HistologyAnchor"] == 1
     assert counts["anchors.no-eligible-source-anchor.concepts"] == 1
+    assert counts["anchors.incomparable-source-anchors.concepts"] == 0
     assert counts["anchors.no-emitted-anchor.concepts"] == 1
     assert counts["concepts.context-only"] == 1
     assert sum(v for k, v in counts.items() if k.startswith("endpoints.category.")) == 3

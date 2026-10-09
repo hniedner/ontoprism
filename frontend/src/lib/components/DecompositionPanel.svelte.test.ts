@@ -120,7 +120,7 @@ describe('DecompositionPanel', () => {
         ]);
         render(DecompositionPanel, { code: 'C6135' });
         expect(await screen.findByText('Source-backed filler share')).toBeInTheDocument();
-        expect(screen.getByText(/literally stated in NCIt.*not.*accepted or correct/)).toBeInTheDocument();
+        expect(screen.getByText(/stated restriction\/genus or corroborated P334.*not.*acceptance or correctness/)).toBeInTheDocument();
         expect(screen.getByText('restriction-backed: 1/2 (50.0%)')).toBeInTheDocument();
         expect(screen.getByText('genus-backed: 0/2 (0.0%)')).toBeInTheDocument();
         expect(screen.getByText('not-source-backed: 1/2 (50.0%)')).toBeInTheDocument();
