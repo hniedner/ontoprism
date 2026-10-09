@@ -66,7 +66,7 @@ _ADDITIVE_GRAPH_IRIS = frozenset(
 )
 
 
-# A full run takes about fifteen hours. Before one starts, the branch's tracked
+# Full-run duration depends on the engine and corpus. Before one starts, the tracked
 # stratified SME sample (for neoplasm the D63 oracle cohort: 20 concepts across every
 # review stratum) is rehearsed through the same pipeline and the same reporting, so an
 # input, environment or reporting defect surfaces well before the full run does the
