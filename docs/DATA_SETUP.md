@@ -569,18 +569,17 @@ pdm run decompose \
 The command defaults to the reviewed genus-chain walker depth 7 used by the packaged
 normalized group policy; the documented invocation therefore needs no depth override.
 
-A full run takes about fifteen hours, so by default it is preceded by a preflight: the
+Full-run duration depends on engine version and corpus; measure and budget it before
+launch. By default a full run is preceded by a preflight: the
 branch's tracked stratified SME sample (for neoplasm
 `samples/ncit-26.07d-m1-sme-review.json`, 20 concepts across every review stratum) is
-rehearsed through the same pipeline, including the final metrics report, to
-`data/ncit_decomposed.ttl.preflight` without loading the graph. The rehearsal is a
+rehearsed through the same pipeline, including the final metrics report, without
+writing a Turtle artifact or loading the graph. It does not test publication. The rehearsal is a
 throwaway run: it is admitted afresh every time, it borrows only the sample's codes (the
 source the sample was reviewed against is recorded but not enforced), its mint proposals
 never reach the curator queue, it cannot be resumed, and it is listed with
-`rehearsal: true` in the runs API. Its output file is deleted after a successful
-preflight and not deleted after a failed one. A preflight failure, or a preflight that
-decomposed nothing, stops the run before hour zero; the error names the sample, whether
-this attempt wrote output and where (or that a file there predates it), and
+`rehearsal: true` in the runs API. A preflight failure, or a preflight that
+decomposed nothing, stops the full run; the error names the sample and
 `--no-preflight`. Whole-worklist closure checks still run at the start of the full run.
 `--no-preflight` skips the preflight; resumes,
 `--total-limit` and `--sample-manifest` runs never preflight, and a branch without a
@@ -627,6 +626,12 @@ Preflight failures fail the run, while post-completion lock-release failures sur
 without demoting it (D53).
 
 ### Rebuild QLever after graph publication
+
+Before starting `decompose --load`, set `ONTOPRISM_JENA_DIR` to the repository-pinned
+Jena installation and verify that its RIOT executable can parse/convert the input.
+Graph publication requires RIOT and Java; the engine-only preflight does not
+exercise that dependency. Validate disk capacity for artifacts, conversion and
+staging before the combined run-and-publish command, not after engine completion.
 
 After a successful `decompose --load`, rebuild the NCIt index with the server's
 `cmd=rebuild-index` HTTP operation. The CLI reports that this manual step is due;
