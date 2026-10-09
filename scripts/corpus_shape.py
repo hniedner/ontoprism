@@ -20,7 +20,8 @@ from ontolib.decomposition.normalized_group_policy import (
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.provenance import (
-    _constituent_review_reason,
+    CONSTITUENT_REVIEW_ROWS_SQL,
+    constituent_review_reason,
     missing_group_policy_pairs,
     primary_site_values,
 )
@@ -114,17 +115,7 @@ async def _flag_counts(
     reasons = (
         (
             await conn.execute(
-                text(
-                    "SELECT c.concept_code,c.axis,c.filler_code,c.needs_review,EXISTS ("
-                    "SELECT 1 FROM decomp_occurrence_disposition d "
-                    "WHERE d.run_id=c.run_id "
-                    "AND d.concept_code=c.concept_code AND d.normalized_axis=c.axis "
-                    "AND d.retained_filler=c.filler_code "
-                    "AND d.semantic_route IN ('missing-p106','unknown-role')) "
-                    "AS unknown_route "
-                    "FROM decomp_constituent c WHERE c.run_id=:run_id "
-                    "AND (c.needs_review OR c.axis='op:PrimarySite')"
-                ),
+                text(CONSTITUENT_REVIEW_ROWS_SQL),
                 {"run_id": run_id},
             )
         )
@@ -136,7 +127,7 @@ async def _flag_counts(
         if not row["needs_review"]:
             continue
         axis = row["axis"]
-        reason = _constituent_review_reason(row, primary_sites)
+        reason = constituent_review_reason(row, primary_sites)
         counts[f"review-flags.constituent.axis.{axis}.reason.{reason}"] += 1
         counts[f"review-flags.constituent.axis.{axis}"] += 1
         counts["review-flags.constituent.total"] += 1

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 from scripts.decompose import _source_snapshot
-from sqlalchemy import text
+from sqlalchemy import RowMapping, text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from backend.config import get_settings
@@ -35,6 +35,23 @@ class AssessmentMetadata(BaseModel):
     ncit_version: str = Field(min_length=1)
     fingerprint: StoredDetector
     metrics: StoredD37
+
+
+def _metadata(row: RowMapping, run_id: str) -> AssessmentMetadata:
+    try:
+        return AssessmentMetadata(
+            ncit_version=row["ncit_version"],
+            fingerprint=StoredDetector.model_validate(
+                {key: row["fingerprint"][key] for key in StoredDetector.model_fields}
+            ),
+            metrics=StoredD37.model_validate(
+                {key: row["metrics"][key] for key in StoredD37.model_fields}
+            ),
+        )
+    except (KeyError, TypeError) as exc:
+        raise ValueError(
+            f"run {run_id} has incomplete metrics or fingerprint: {exc}"
+        ) from exc
 
 
 async def read_assessment_inputs(
@@ -94,15 +111,7 @@ async def read_assessment_inputs(
         .all()
     )
     return (
-        AssessmentMetadata(
-            ncit_version=row["ncit_version"],
-            fingerprint=StoredDetector.model_validate(
-                {key: row["fingerprint"][key] for key in StoredDetector.model_fields}
-            ),
-            metrics=StoredD37.model_validate(
-                {key: row["metrics"][key] for key in StoredD37.model_fields}
-            ),
-        ),
+        _metadata(row, run_id),
         [Endpoint.model_validate(dict(r)) for r in rows],
         {r["concept_code"] for r in outcomes if r["outcome"] == "decomposed"},
         Counter(r["outcome"] for r in outcomes),

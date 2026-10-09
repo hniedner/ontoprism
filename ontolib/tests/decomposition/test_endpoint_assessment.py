@@ -3,7 +3,7 @@
 from collections import Counter
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from scripts import endpoint_assessment as report_module
@@ -234,6 +234,28 @@ def test_missing_d37_metric_is_not_reported_as_a_stored_null():
                 "residual_precoordination": None,
             }
         )
+
+
+@pytest.mark.parametrize("metrics", [None, {"decomposed": 1}])
+async def test_stored_report_rejects_incomplete_metadata_with_named_error(metrics):
+    conn = AsyncMock()
+    metadata = MagicMock()
+    metadata.mappings.return_value.first.return_value = {
+        "status": "complete",
+        "source_identity": "a" * 64,
+        "ncit_version": "26.07d",
+        "metrics": metrics,
+        "fingerprint": {"routing_implementation_identity": "stored"},
+    }
+    outcomes = MagicMock()
+    outcomes.mappings.return_value.all.return_value = [
+        {"concept_code": "C1", "state": "complete", "outcome": "decomposed"},
+    ]
+    endpoints = MagicMock()
+    endpoints.mappings.return_value.all.return_value = []
+    conn.execute.side_effect = [metadata, outcomes, endpoints]
+    with pytest.raises(ValueError, match=r"metrics|residual_precoordinated_count"):
+        await report_module.read_assessment_inputs(conn, "r", "a" * 64)
 
 
 def test_summary_keeps_overlapping_flags_and_absent_anchors_visible():

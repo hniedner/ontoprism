@@ -47,7 +47,9 @@ The normalized grouping decision record and its policy identity remain unchanged
 Owner M17 review clarification: an anchor alone still counts as an emitted
 constituent for the decomposed outcome; that outcome does not imply semantic
 reduction. HistologyAnchor modality is non-defining, with P334 provenance unchanged.
-The completed v7 demonstration is retained; this export-contract amendment is v8.
+The completed v7 demonstration is retained. Engine v8 includes this export-contract
+amendment, refusal of an empty source-wide P334 inventory, and D58 review-reason
+attribution using all known-route retained PrimarySites, not only flagged sites.
 
 ### D100. Issues merge into the milestone branch without CI; CI runs on the milestone PR
 

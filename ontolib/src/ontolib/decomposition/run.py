@@ -19,7 +19,8 @@ Scope of this orchestrator (documented boundaries, not oversights):
   assessment before accepted ``op:ToldGenus`` constituents are appended, and
   ``detector.detect`` counts the axis once.
 - HistologyAnchor is selected independently from run-scoped P334 annotations and
-  the told hierarchy; every incomparable minimum is retained and flagged. Its
+  the told hierarchy; every incomparable minimum is retained, with ambiguity flagged
+  when more than one remains. Its
   annotations accompany the staging artifact, without invented definition-fact links.
 - File and optional named-graph publication are coordinated inside ``run_pipeline``.
   A complete artifact is rendered and validated first, the graph is replaced through

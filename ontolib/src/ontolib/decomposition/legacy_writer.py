@@ -358,7 +358,8 @@ async def write_ttl(
     Always emits the ``AXIS_CONTRACTS`` relation ontology as a header — object
     property declarations, labels, domains, ranges, RO alignments and governance
     triples — before the decomposition triples, including when *decompositions* is
-    empty.
+    empty. Modality and cardinality with its source are included; cardinality is
+    an explanatory contract-provenance annotation, not an OWL cardinality axiom.
 
     Emitted P334 anchor carriers also carry their source annotation values as
     evidence, not equivalence. Their annotations must be supplied in ``p334_values``.

@@ -33,6 +33,7 @@ from ontolib.decomposition.provenance import (
     _concept_outcome_reason,
     _publication_flags,
     missing_group_policy_pairs,
+    primary_site_values,
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -46,6 +47,29 @@ from ontolib.decomposition.r101_run_conservation import (
     R101PathEdge,
     R101RunConservation,
 )
+
+
+def test_unflagged_primary_site_contributes_to_flagged_sibling_reason():
+    rows = cast(
+        "Any",
+        [
+            {
+                "concept_code": "C1",
+                "axis": "op:PrimarySite",
+                "filler_code": code,
+                "unknown_route": False,
+                "needs_review": flagged,
+            }
+            for code, flagged in [("C2", True), ("C3", False)]
+        ],
+    )
+    flags = _publication_flags(
+        rows[:1], (), (), (), primary_sites=primary_site_values(rows)
+    )
+    assert len(flags["C1"]) == 1
+    assert flags["C1"][0].reason == (
+        "sourced-limit violation: PrimarySite 0..1 (D58); multiple organs retained"
+    )
 
 
 def _empty_completion_metrics() -> dict[str, object]:
@@ -129,7 +153,13 @@ def test_multiple_primary_sites_publish_the_retained_sites_reason() -> None:
             "unknown_route": True,
         },
     ]
-    flags = _publication_flags(cast("Any", rows), (), (), ())
+    flags = _publication_flags(
+        cast("Any", rows),
+        (),
+        (),
+        (),
+        primary_sites=primary_site_values(cast("Any", rows)),
+    )
 
     assert [flag.reason for flag in flags["C1"][:2]] == [
         "sourced-limit violation: PrimarySite 0..1 (D58); multiple organs retained",
@@ -151,7 +181,13 @@ def test_unknown_primary_routes_do_not_claim_a_sourced_limit_violation():
         }
         for filler in ("C2", "C3")
     ]
-    flags = _publication_flags(cast("Any", rows), (), (), ())
+    flags = _publication_flags(
+        cast("Any", rows),
+        (),
+        (),
+        (),
+        primary_sites=primary_site_values(cast("Any", rows)),
+    )
     assert len(flags["C1"]) == 2
     assert all(flag.reason.startswith("nesting undecidable:") for flag in flags["C1"])
 
@@ -173,6 +209,7 @@ def test_histology_ambiguity_has_its_own_evidence_reason() -> None:
         (),
         (),
         (),
+        primary_sites={},
     )
     assert "incomparable" in flags["C1"][0].reason
     assert "P334" in flags["C1"][0].reason
@@ -219,6 +256,7 @@ def test_publication_flags_include_a_missing_group_policy_pair() -> None:
                 },
             ),
         ),
+        primary_sites={},
     )
 
     assert {flag.kind for flag in flags["C1"]} == {
