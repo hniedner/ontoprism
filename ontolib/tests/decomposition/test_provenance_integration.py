@@ -21,6 +21,7 @@ import pytest
 from pydantic import ValidationError
 from scripts import oracle_metrics
 from scripts.corpus_shape import corpus_shape_counts
+from scripts.endpoint_assessment import read_assessment_inputs
 from scripts.research.current_evidence import generate_current_evidence
 from sqlalchemy import text
 
@@ -250,7 +251,7 @@ async def test_stored_oracle_scores_database_pairs_read_only(tmp_path, monkeypat
 
 
 @pytest.mark.integration
-async def test_corpus_shape_counts_every_section_from_a_stored_run():
+async def test_corpus_shape_counts_every_section_from_a_stored_run():  # noqa: PLR0915
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
     try:
@@ -268,7 +269,7 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
                     source_roles=("R101",),
                 ),
                 Constituent(
-                    axis="op:Morphology",
+                    axis="op:ToldGenus",
                     filler_code="C9",
                     axis_source="role",
                     source_roles=("R105",),
@@ -284,11 +285,16 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
                     semantic_type="Neoplastic Process",
                     constituents=(
                         Constituent(
-                            axis="op:Morphology",
+                            axis="op:ToldGenus",
                             filler_code="C9",
                             axis_source="role",
                             source_roles=("R105",),
                             needs_review=True,
+                        ),
+                        Constituent(
+                            axis="op:HistologyAnchor",
+                            filler_code="C9",
+                            axis_source="p334",
                         ),
                     ),
                 ),
@@ -312,10 +318,21 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
         async with engine.begin() as conn:
             await conn.execute(
                 text(
-                    "UPDATE decomp_run SET status='complete',finished_at=now() "
+                    "UPDATE decomp_run SET status='complete',finished_at=now(), "
+                    "metrics=CAST(:metrics AS jsonb) "
                     "WHERE id=:run"
                 ),
-                {"run": _RUN_ID},
+                {
+                    "run": _RUN_ID,
+                    "metrics": json.dumps(
+                        {
+                            "decomposed": 2,
+                            "residual_precoordinated_count": 2,
+                            "residual_precoordination_unknown_count": 0,
+                            "residual_precoordination": 1.0,
+                        }
+                    ),
+                },
             )
             await conn.execute(
                 text(
@@ -332,8 +349,25 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
         counts = await corpus_shape_counts(
             _RUN_ID, database_url=get_settings().database_url
         )
+        async with engine.connect() as conn:
+            metadata, endpoints, decomposed, outcomes = await read_assessment_inputs(
+                conn,
+                _RUN_ID,
+                "a" * 64,
+            )
+            assert metadata.ncit_version == "26.07d"
+            assert decomposed == {"C6135", "C2"}
+            assert outcomes == {"decomposed": 2}
+            assert len(endpoints) == 5
+            assert {r.classification for r in endpoints if r.filler_code == "C9"} == {
+                "precoordinated"
+            }
+            with pytest.raises(ValueError, match="source differs"):
+                await read_assessment_inputs(conn, _RUN_ID, "b" * 64)
+            with pytest.raises(ValueError, match="complete stored run"):
+                await read_assessment_inputs(conn, "absent-run", "a" * 64)
         assert counts["outcomes.decomposed"] == 2
-        assert counts["constituents.total"] == 4
+        assert counts["constituents.total"] == 5
         assert counts["constituents.axis.op:PrimarySite"] == 2
         assert counts["concepts-with-multiple-values.axis.op:PrimarySite"] == 1
         assert counts["review-flags.constituent.total"] == 2
@@ -352,15 +386,18 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
             )
             == missing_group_flags
         )
-        reason = "constituent op:Morphology / C9 needs review"
+        reason = (
+            "nesting undecidable: op:ToldGenus / C9; "
+            "routing or class-level grouping remains unresolved"
+        )
         assert (
-            counts[f"review-flags.constituent.axis.op:Morphology.reason.{reason}"] == 1
+            counts[f"review-flags.constituent.axis.op:ToldGenus.reason.{reason}"] == 1
         )
         label = (
             "flagged-constituents-by-retained-value-count-on-axis."
             "co-occurrence-not-cause"
         )
-        assert counts[f"{label}.axis.op:Morphology.exactly-one"] == 1
+        assert counts[f"{label}.axis.op:ToldGenus.exactly-one"] == 1
         assert counts[f"{label}.axis.op:PrimarySite.more-than-one"] == 1
         assert (
             sum(value for key, value in counts.items() if key.startswith(label))
@@ -368,7 +405,20 @@ async def test_corpus_shape_counts_every_section_from_a_stored_run():
         )
         assert counts["primary-site-more-than-one"] == 1
         assert counts["residual-precoordinated.including-morphology"] == 2
-        assert counts["residual-precoordinated.excluding-morphology"] == 1
+        assert counts["residual-precoordinated.excluding-morphology"] == 2
+        assert counts["D37-attribution.excluding-genus-and-anchor"] == 1
+        assert counts["D37-attribution.anchor-positive-concepts"] == 1
+        primary_reason = (
+            "sourced-limit violation: PrimarySite 0..1 (D58); multiple organs retained"
+        )
+        assert (
+            counts[
+                f"review-flags.constituent.axis.op:PrimarySite.reason.{primary_reason}"
+            ]
+            == 1
+        )
+        publications = await store.concept_publications_for_run(_RUN_ID)
+        assert primary_reason in [flag.reason for p in publications for flag in p.flags]
         assert counts["stated-occurrences.total"] == 2
         assert counts["stated-occurrences.category.projected"] == 2
         assert (

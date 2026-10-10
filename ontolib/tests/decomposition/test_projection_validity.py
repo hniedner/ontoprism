@@ -103,11 +103,11 @@ def test_rejection_counts_unique_pairs_including_parent_morphologies():
                 _range("op:StageValue", "C10", "invalid"),
                 _range("op:StageValue", "C20", "invalid"),
                 _range("op:CellType", "C30", "unknown"),
-                _range("op:Morphology", "C40", "invalid"),
+                _range("op:ToldGenus", "C40", "invalid"),
             )
         ),
     )
-    assert result.invalid_axis_range_by_axis == {"op:StageValue": 2, "op:Morphology": 1}
+    assert result.invalid_axis_range_by_axis == {"op:StageValue": 2, "op:ToldGenus": 1}
     assert [(c.axis, c.filler_code) for c in result.constituents] == [
         ("op:CellType", "C30")
     ]

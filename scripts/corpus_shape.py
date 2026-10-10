@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -13,11 +14,17 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from backend.config import get_settings
+from ontolib.decomposition.endpoint_assessment import GENUS_AXES
 from ontolib.decomposition.enhancement_delta import DeltaOccurrence, delta_sql
 from ontolib.decomposition.normalized_group_policy import (
     load_packaged_normalized_group_policy,
 )
-from ontolib.decomposition.provenance import missing_group_policy_pairs
+from ontolib.decomposition.provenance import (
+    CONSTITUENT_REVIEW_ROWS_SQL,
+    constituent_review_reason,
+    missing_group_policy_pairs,
+    primary_site_values,
+)
 
 _WHOLE_RUN_DELTA_SQL = delta_sql(whole_run=True)
 _FLAG_SPLIT = (
@@ -81,34 +88,49 @@ async def _ordinary_counts(conn: AsyncConnection, run_id: str) -> Counter[str]:
         await conn.execute(
             text(
                 "SELECT count(DISTINCT c.concept_code),count(DISTINCT c.concept_code) "
-                "FILTER(WHERE c.axis!='op:Morphology') FROM decomp_constituent c JOIN "
+                "FILTER(WHERE NOT c.axis=ANY(CAST(:genus AS text[]))), "
+                "count(DISTINCT c.concept_code) FILTER(WHERE "
+                "NOT c.axis=ANY(CAST(:genus AS text[])) "
+                "AND c.axis!='op:HistologyAnchor'), "
+                "count(DISTINCT c.concept_code) "
+                "FILTER(WHERE c.axis='op:HistologyAnchor') "
+                "FROM decomp_constituent c JOIN "
                 "decomp_residual_filler f ON f.run_id=c.run_id AND "
                 "f.filler_code=c.filler_code WHERE c.run_id=:run_id AND "
                 "f.state='complete' AND f.classification='precoordinated'"
             ),
-            {"run_id": run_id},
+            {"run_id": run_id, "genus": sorted(GENUS_AXES)},
         )
     ).one()
     counts["residual-precoordinated.including-morphology"] = int(residual[0])
     counts["residual-precoordinated.excluding-morphology"] = int(residual[1])
+    counts["D37-attribution.excluding-genus-and-anchor"] = int(residual[2])
+    counts["D37-attribution.anchor-positive-concepts"] = int(residual[3])
     return counts
 
 
 async def _flag_counts(
     conn: AsyncConnection, run_id: str, counts: Counter[str]
 ) -> None:
-    reasons = await _grouped(
-        conn,
-        "SELECT axis,filler_code,count(*) FROM decomp_constituent WHERE "
-        "run_id=:run_id AND needs_review GROUP BY axis,filler_code",
-        run_id,
+    reasons = (
+        (
+            await conn.execute(
+                text(CONSTITUENT_REVIEW_ROWS_SQL),
+                {"run_id": run_id},
+            )
+        )
+        .mappings()
+        .all()
     )
-    for axis, filler, count in reasons:
-        value = int(count)
-        reason = f"constituent {axis} / {filler} needs review"
-        counts[f"review-flags.constituent.axis.{axis}.reason.{reason}"] = value
-        counts[f"review-flags.constituent.axis.{axis}"] += value
-        counts["review-flags.constituent.total"] += value
+    primary_sites = primary_site_values(reasons)
+    for row in reasons:
+        if not row["needs_review"]:
+            continue
+        axis = row["axis"]
+        reason = constituent_review_reason(row, primary_sites)
+        counts[f"review-flags.constituent.axis.{axis}.reason.{reason}"] += 1
+        counts[f"review-flags.constituent.axis.{axis}"] += 1
+        counts["review-flags.constituent.total"] += 1
     split = await _grouped(
         conn,
         "WITH value_counts AS (SELECT concept_code,axis,count(*) AS retained FROM "
@@ -121,7 +143,7 @@ async def _flag_counts(
     )
     for axis, bucket, count in split:
         counts[f"{_FLAG_SPLIT}.axis.{axis}.{bucket}"] = int(count)
-    flagged_axes = {str(axis) for axis, _filler, _count in reasons}
+    flagged_axes = {row["axis"] for row in reasons if row["needs_review"]}
     for axis in flagged_axes:
         counts.setdefault(f"{_FLAG_SPLIT}.axis.{axis}.exactly-one", 0)
         counts.setdefault(f"{_FLAG_SPLIT}.axis.{axis}.more-than-one", 0)
@@ -219,22 +241,36 @@ def render_report(
     return "\n".join(lines)
 
 
-async def _execute(run_id: str, against_id: str | None) -> str:
+async def _execute(
+    run_id: str,
+    against_id: str | None,
+    source_manifest: Path | None = None,
+) -> str:
     selected = await corpus_shape_counts(run_id)
     against = (
         (against_id, await corpus_shape_counts(against_id))
         if against_id is not None
         else None
     )
-    return render_report(run_id, selected, against=against)
+    report = render_report(run_id, selected, against=against)
+    if source_manifest is not None:
+        from scripts.endpoint_assessment import endpoint_report  # noqa: PLC0415
+
+        report += "\n" + await endpoint_report(run_id, source_manifest)
+        if against_id is not None:
+            report += "\n" + await endpoint_report(against_id, source_manifest)
+    return report
 
 
 def main(
     run_id: Annotated[str, typer.Option("--run")],
     against: Annotated[str | None, typer.Option("--against")] = None,
+    source_manifest: Annotated[
+        Path | None, typer.Option("--endpoint-assessment")
+    ] = None,
 ) -> None:
-    """Print corpus distributions and optional selected-minus-baseline differences."""
-    typer.echo(asyncio.run(_execute(run_id, against)))
+    """Print corpus distributions, optional differences and endpoint assessment."""
+    typer.echo(asyncio.run(_execute(run_id, against, source_manifest)))
 
 
 if __name__ == "__main__":

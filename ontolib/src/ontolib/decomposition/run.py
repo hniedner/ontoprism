@@ -13,11 +13,15 @@ Scope of this orchestrator (documented boundaries, not oversights):
   nested ``owl:intersectionOf`` groups once, collecting role restrictions from the same
   record later persisted as provenance. A ``_CORE_NEOPLASM_ROLES`` boundary filter
   prevents over-collection of generic neoplasm biology from deep genus ancestors.
-- Morphology-from-parent (design §6, the ``op:Morphology`` axis) is wired:
+- Genus-from-parent (design §6, the ``op:ToldGenus`` axis) is wired:
   ``stated_queries.resolve_morphology_fillers`` walks every co-equal genus branch to
   its first non-qualifier genus, parent-derived fillers pass through projection-validity
-  assessment before accepted ``op:Morphology`` constituents are appended, and
+  assessment before accepted ``op:ToldGenus`` constituents are appended, and
   ``detector.detect`` counts the axis once.
+- HistologyAnchor is selected independently from run-scoped P334 annotations and
+  the told hierarchy; every incomparable minimum is retained, with ambiguity flagged
+  when more than one remains. Its
+  annotations accompany the staging artifact, without invented definition-fact links.
 - File and optional named-graph publication are coordinated inside ``run_pipeline``.
   A complete artifact is rendered and validated first, the graph is replaced through
   a run-scoped staging graph and one transactional update, the file is atomically
@@ -72,6 +76,7 @@ from ontolib.decomposition.collapse_policy import (
     CollapseVetoPolicy,
     load_packaged_collapse_veto_policy,
 )
+from ontolib.decomposition.histology_anchor import HistologyAnchors, read_p334_values
 from ontolib.decomposition.label_validation import ConceptLabelError
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import (
@@ -171,6 +176,7 @@ class RunStaticLookups:
     source_identity: str
     semantic_types: Mapping[str, tuple[str, ...]]
     role_labels: Mapping[str, str | None]
+    p334_values: Mapping[str, tuple[str, ...]]
 
     def __post_init__(self) -> None:
         if len(self.source_identity) != _SHA256_HEX_LENGTH or any(
@@ -182,6 +188,9 @@ class RunStaticLookups:
             for code, values in self.semantic_types.items()
         }
         object.__setattr__(self, "semantic_types", MappingProxyType(semantic_types))
+        object.__setattr__(
+            self, "p334_values", MappingProxyType(dict(self.p334_values))
+        )
         object.__setattr__(
             self, "role_labels", MappingProxyType(dict(self.role_labels))
         )
@@ -681,6 +690,7 @@ async def _load_run_static_lookups(
         source_identity=source_identity,
         semantic_types={},
         role_labels=role_labels,
+        p334_values=await read_p334_values(client),
     )
     return await _extend_static_semantic_types(empty, client, codes)
 
@@ -704,6 +714,7 @@ async def _extend_static_semantic_types(
         source_identity=lookups.source_identity,
         semantic_types={**lookups.semantic_types, **additions},
         role_labels=lookups.role_labels,
+        p334_values=lookups.p334_values,
     )
 
 
@@ -727,7 +738,7 @@ def _projection_keys(plan: fs.RoutedPlan) -> set[tuple[str, str]]:
         for occurrence in plan.occurrences
     }
     morphologies = {
-        (axes.MORPHOLOGY_AXIS, filler) for filler in plan.parent_morphologies
+        (axes.TOLD_GENUS_AXIS, filler) for filler in plan.parent_morphologies
     }
     return routed | morphologies
 
@@ -885,6 +896,7 @@ async def _decompose_one(
         source_identity=source_identity,
     )
     if isinstance(detected, _CandidateResult):
+        _require_unbound_noncandidate(code, normalized_group_policy)
         return detected
     result, roles, morphology_fillers, definition, semantic_types = detected
 
@@ -905,6 +917,7 @@ async def _decompose_one(
     )
 
     if not result.is_precoordinated:
+        _require_unbound_noncandidate(code, normalized_group_policy)
         return _CandidateResult(
             decomposition=None,
             outcome=_non_candidate_outcome(semantic_types),
@@ -950,6 +963,19 @@ async def _decompose_one(
     decomposition = _apply_group_policy(
         decomposition, normalized_group_policy, source_identity
     )
+    anchor_values = (
+        static_lookups.p334_values
+        if static_lookups is not None
+        else await read_p334_values(client)
+    )
+    anchors = HistologyAnchors(diagnostic_source.snapshot, anchor_values)
+    decomposition = replace(
+        decomposition,
+        constituents=(
+            *decomposition.constituents,
+            *anchors.constituents(code),
+        ),
+    )
     return _CandidateResult(
         decomposition=decomposition,
         outcome="decomposed" if decomposition.constituents else "residual",
@@ -982,6 +1008,15 @@ def _bind_source_groups(
         )
         for constituent in constituents
     ]
+
+
+def _require_unbound_noncandidate(
+    code: str, policy: ActiveNormalizedGroupPolicy | None
+) -> None:
+    """A pinned policy cannot be satisfied by an unknown or non-candidate outcome."""
+    active_policy = policy or load_packaged_normalized_group_policy()
+    if code in active_policy.by_code:
+        raise ValueError(f"policy-bound concept {code} produced no decomposition")
 
 
 def _apply_group_policy(
@@ -1700,6 +1735,11 @@ async def _write_staging_artifact(
             run_id=setup.run_id,
             emitted_on=setup.fingerprint.emitted_at.date(),
             publications=publications,
+            p334_values=(
+                setup.static_lookups.p334_values
+                if setup.static_lookups is not None
+                else None
+            ),
         )
     except BaseException as exc:
         _discard_staging(publication[0], exc)

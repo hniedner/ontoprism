@@ -47,6 +47,7 @@ from ontolib.decomposition.models import (
 )
 from ontolib.decomposition.normalized_group_policy import (
     ActiveNormalizedGroupPolicy,
+    group_policy_axis,
     load_packaged_normalized_group_policy,
 )
 from ontolib.decomposition.provenance_models import (
@@ -795,6 +796,25 @@ def _r101_conservation_rows(
     ]
 
 
+def _missing_histology_flags(
+    outcomes: Sequence[WorkItemOutcome],
+    anchored_codes: set[str],
+    flags: dict[str, list[ConceptReviewFlag]],
+) -> None:
+    for item in outcomes:
+        if (
+            item.outcome in {"decomposed", "residual"}
+            and item.concept_code not in anchored_codes
+        ):
+            flags.setdefault(item.concept_code, []).append(
+                ConceptReviewFlag(
+                    kind="needs-review",
+                    reason="no histology anchor: no emitted "
+                    "self-or-told-ancestor carrier of eligible NCIt P334 /0-/3",
+                )
+            )
+
+
 def _concept_outcome_reason(item: WorkItemOutcome) -> str:
     fixed = {
         "residual": "decomposition candidate yielded no constituents",
@@ -811,21 +831,58 @@ def _concept_outcome_reason(item: WorkItemOutcome) -> str:
     raise RunStateError("complete concept has no typed publication outcome")
 
 
+CONSTITUENT_REVIEW_ROWS_SQL = (
+    "SELECT c.concept_code,c.axis,c.filler_code,c.needs_review,EXISTS ("
+    "SELECT 1 FROM decomp_occurrence_disposition d WHERE d.run_id=c.run_id "
+    "AND d.concept_code=c.concept_code AND d.normalized_axis=c.axis "
+    "AND d.retained_filler=c.filler_code "
+    "AND d.semantic_route IN ('missing-p106','unknown-role')) AS unknown_route "
+    "FROM decomp_constituent c WHERE c.run_id=:run_id "
+    "AND (c.needs_review OR c.axis='op:PrimarySite') "
+    "ORDER BY c.concept_code,c.axis,c.filler_code"
+)
+
+
+def constituent_review_reason(
+    row: RowMapping, primary_sites: dict[str, set[str]]
+) -> str:
+    if row["axis"] == "op:HistologyAnchor":
+        return (
+            f"ambiguous histology anchor: {row['filler_code']} is one of multiple "
+            "incomparable minima in the told hierarchy carrying P334 /0-/3"
+        )
+    if (
+        row["axis"] == "op:PrimarySite"
+        and len(primary_sites.get(row["concept_code"], set())) > 1
+        and not row["unknown_route"]
+    ):
+        return (
+            "sourced-limit violation: PrimarySite 0..1 (D58); multiple organs retained"
+        )
+    return (
+        f"nesting undecidable: {row['axis']} / {row['filler_code']}; "
+        "routing or class-level grouping remains unresolved"
+    )
+
+
+def primary_site_values(rows: Sequence[RowMapping]) -> dict[str, set[str]]:
+    """All known-route primary fillers, including those without a review flag."""
+    values: dict[str, set[str]] = {}
+    for row in rows:
+        if row["axis"] == "op:PrimarySite" and not row["unknown_route"]:
+            values.setdefault(row["concept_code"], set()).add(row["filler_code"])
+    return values
+
+
 def _constituent_review_flags(
     needs_review: Sequence[RowMapping],
+    primary_sites: dict[str, set[str]],
 ) -> list[tuple[str, str, str]]:
-    primary_sites: dict[str, set[str]] = {}
-    for row in needs_review:
-        if row["axis"] == "op:PrimarySite":
-            primary_sites.setdefault(row["concept_code"], set()).add(row["filler_code"])
     return [
         (
             row["concept_code"],
             "needs-review",
-            "multiple primary sites retained for review"
-            if row["axis"] == "op:PrimarySite"
-            and len(primary_sites[row["concept_code"]]) > 1
-            else f"constituent {row['axis']} / {row['filler_code']} needs review",
+            constituent_review_reason(row, primary_sites),
         )
         for row in needs_review
     ]
@@ -836,10 +893,12 @@ def _publication_flags(
     unresolved: Sequence[RowMapping],
     group_policy_missing: Sequence[MissingGroupPolicyPair],
     mints: Sequence[RowMapping],
+    *,
+    primary_sites: dict[str, set[str]],
 ) -> dict[str, list[ConceptReviewFlag]]:
     flags: dict[str, list[ConceptReviewFlag]] = {}
     rendered = chain(
-        _constituent_review_flags(needs_review),
+        _constituent_review_flags(needs_review, primary_sites),
         (
             (
                 row["concept_code"],
@@ -892,7 +951,7 @@ def missing_group_policy_pairs(
     emitted: dict[str, set[tuple[str, str]]] = {}
     for row in constituents:
         emitted.setdefault(row["concept_code"], set()).add(
-            (row["axis"], row["filler_code"])
+            (group_policy_axis(row["axis"]), row["filler_code"])
         )
     missing = []
     for policy_row in policy.rows:
@@ -2846,11 +2905,7 @@ class ProvenanceStore:
             )
         async with self._sf() as session:
             needs_review = await session.execute(
-                text(
-                    "SELECT concept_code, axis, filler_code FROM decomp_constituent "
-                    "WHERE run_id=:run_id AND needs_review "
-                    "ORDER BY concept_code, axis, filler_code"
-                ),
+                text(CONSTITUENT_REVIEW_ROWS_SQL),
                 {"run_id": run_id},
             )
             unresolved = await session.execute(
@@ -2872,12 +2927,24 @@ class ProvenanceStore:
             group_policy_missing = await _missing_group_policy_pairs_for_run(
                 session, run_id, outcomes
             )
+            anchored = await session.execute(
+                text(
+                    "SELECT DISTINCT concept_code FROM decomp_constituent "
+                    "WHERE run_id=:run_id AND axis='op:HistologyAnchor' "
+                    "AND axis_source='p334'"
+                ),
+                {"run_id": run_id},
+            )
+            anchored_codes = set(anchored.scalars())
+        review_rows = needs_review.mappings().all()
         flags = _publication_flags(
-            needs_review.mappings().all(),
+            [row for row in review_rows if row["needs_review"]],
             unresolved.mappings().all(),
             group_policy_missing,
             mints.mappings().all(),
+            primary_sites=primary_site_values(review_rows),
         )
+        _missing_histology_flags(outcomes, anchored_codes, flags)
         return tuple(
             ConceptPublication.model_validate(
                 {

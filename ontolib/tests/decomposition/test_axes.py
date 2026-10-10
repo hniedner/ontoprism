@@ -9,9 +9,9 @@ from ontolib.decomposition.axes import (
     GENERIC_SUPPRESSION_VERSION,
     IN_SCOPE_SEMANTIC_TYPES,
     LINEAGE_GENERIC_GENERA,
-    MORPHOLOGY_AXIS,
     ORGAN_SEMANTIC_TYPE,
     PRIMARY_SITE_ROLE,
+    TOLD_GENUS_AXIS,
     UNSUPPORTED_FILLER_VERSION,
     UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE,
     is_defining_role,
@@ -86,10 +86,9 @@ def test_unknown_role_is_nondefining_without_losing_projectability() -> None:
 
 
 @pytest.mark.unit
-def test_morphology_axis_is_an_ontoprism_axis() -> None:
-    # Morphology is carried by the taxonomic parent, not a role, so it needs its own
-    # op: axis identifier (design §6).
-    assert MORPHOLOGY_AXIS.startswith("op:")
+def test_told_genus_axis_is_an_ontoprism_axis() -> None:
+    # Told genus is taxonomic context, not pure morphology or an NCIt role.
+    assert TOLD_GENUS_AXIS.startswith("op:")
 
 
 @pytest.mark.unit

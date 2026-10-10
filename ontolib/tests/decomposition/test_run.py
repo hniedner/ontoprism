@@ -273,6 +273,7 @@ class _FakeClient:
         label_rows: list[dict[str, str | None]] | None = None,
         hierarchy_edges: list[tuple[str, str]] | None = None,
         disjoint_rows: list[dict[str, str | None]] | None = None,
+        p334_rows: list[dict[str, str | None]] | None = None,
     ) -> None:
         self._version = version
         self._pages = pages if pages is not None else [[]]
@@ -318,6 +319,11 @@ class _FakeClient:
         self._part_of_expansions = part_of_expansions or {}
         self._hierarchy_edges = hierarchy_edges or []
         self._disjoint_rows = disjoint_rows or []
+        self._p334_rows = (
+            p334_rows
+            if p334_rows is not None
+            else [{"concept": _iri("C999999"), "value": "8000/3"}]
+        )
         self.queries: list[str] = []
         self.required_variables: list[frozenset[str]] = []
         self.query_requirements: list[tuple[str, frozenset[str]]] = []
@@ -464,6 +470,8 @@ class _FakeClient:
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
         self.single_attempt_queries.append(query)
+        if "P334>" in query:
+            return self._p334_rows
         return await self.select(query, required_variables=required_variables)
 
 
@@ -1257,6 +1265,55 @@ async def test_run_pipeline_morphology_counts_as_decomposable_axis() -> None:
     metrics = await run_pipeline(config, client, provenance)
     assert metrics.total_in_scope == 1
     assert metrics.decomposed == 1
+
+
+@pytest.mark.unit
+async def test_told_genus_preserves_parent_values_and_provenance() -> None:
+    client = _FakeClient(
+        pages=[["C1"]],
+        semantic_types={"C1": ["Neoplastic Process"]},
+        roles={"C1": [_role("R101", "Has_Primary_Site", "C2")]},
+    )
+    role_row = client._complete_rows["C1"][0]
+    client._complete_rows["C1"] = [
+        {**role_row, "member": _iri("C99"), "role": None, "target": None},
+        {**role_row, "position": "1"},
+    ]
+    provenance = _mock_provenance()
+    await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+    written = provenance.complete_work_item.await_args.kwargs["decomposition"]
+    (genus,) = [c for c in written.constituents if c.axis_source == "parent"]
+    assert genus.axis == "op:ToldGenus"
+    assert genus.filler_code == "C99"
+    assert genus.source_definition_ids
+    assert all(c.axis != "op:Morphology" for c in written.constituents)
+
+
+@pytest.mark.unit
+async def test_run_pipeline_emits_p334_minimum_without_definition_fact_links() -> None:
+    client = _FakeClient(
+        pages=[["C1"]],
+        semantic_types={"C1": ["Neoplastic Process"]},
+        roles={
+            "C1": [
+                _role("R101", "Has_Primary_Site", "C2"),
+                _role("R110", "Has_Grade", "C3"),
+            ]
+        },
+        hierarchy_edges=[("C1", "C99"), ("C99", "C100")],
+        p334_rows=[
+            {"concept": _iri("C99"), "value": "8000/3"},
+            {"concept": _iri("C100"), "value": "8010/3"},
+        ],
+    )
+    provenance = _mock_provenance()
+    await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+    written = provenance.complete_work_item.await_args.kwargs["decomposition"]
+    (anchor,) = [c for c in written.constituents if c.axis == "op:HistologyAnchor"]
+    assert anchor.filler_code == "C99"
+    assert anchor.axis_source == "p334"
+    assert anchor.source_definition_ids == anchor.source_roles == ()
+    assert not anchor.needs_review
 
 
 @pytest.mark.unit
@@ -2678,6 +2735,7 @@ def test_run_static_lookups_require_a_sha256_source_identity(
 ) -> None:
     with pytest.raises(ValueError, match="SHA-256"):
         run_module.RunStaticLookups(
+            p334_values={},
             source_identity=source_identity,
             semantic_types={},
             role_labels={},
@@ -2687,6 +2745,7 @@ def test_run_static_lookups_require_a_sha256_source_identity(
 @pytest.mark.unit
 def test_run_static_lookups_fail_closed_on_wrong_source_or_missing_rows() -> None:
     lookups = run_module.RunStaticLookups(
+        p334_values={},
         source_identity="a" * 64,
         semantic_types={"C1": ("Neoplastic Process",)},
         role_labels={"R101": "Disease_Has_Primary_Anatomic_Site"},
@@ -2705,6 +2764,7 @@ def test_run_static_lookups_fail_closed_on_wrong_source_or_missing_rows() -> Non
 @pytest.mark.unit
 async def test_static_lookups_require_a_source_identity_at_detection() -> None:
     lookups = run_module.RunStaticLookups(
+        p334_values={},
         source_identity="a" * 64,
         semantic_types={"C1": ("Neoplastic Process",)},
         role_labels={},
@@ -4347,6 +4407,7 @@ async def test_range_recount_includes_completed_residuals_on_resume(cached):
     )
     if cached:
         setup.static_lookups = run_module.RunStaticLookups(
+            p334_values={},
             source_identity="a" * 64,
             semantic_types={"C12400": (), "C27970": ()},
             role_labels={"R88": "Has_Stage", "R101": "Has_Primary_Site"},
@@ -4363,6 +4424,7 @@ async def test_range_recount_includes_completed_residuals_on_resume(cached):
     assert counts == {"op:StageValue": 1}
     if cached:
         setup.static_lookups = run_module.RunStaticLookups(
+            p334_values={},
             source_identity="a" * 64,
             semantic_types={"C12400": (), "C27970": ()},
             role_labels={},
@@ -4535,6 +4597,37 @@ async def test_a_group_policy_mismatch_is_found_before_the_run_is_admitted() -> 
         "Raised by the group-policy dry run of 'C6135', before admission: "
         "no run state was written."
     ]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("unsupported", [False, True])
+async def test_policy_bound_noncandidate_is_refused_before_admission(
+    monkeypatch, unsupported
+):
+    client = _FakeClient(
+        pages=[["C6135"]], semantic_types={"C6135": ["Neoplastic Process"]}
+    )
+    if unsupported:
+        monkeypatch.setattr(
+            run_module.stated_queries,
+            "read_complete_genus_chain",
+            AsyncMock(
+                side_effect=UnsupportedDefinitionConstructorError(
+                    "unsupported owl:unionOf"
+                )
+            ),
+        )
+    provenance = _mock_provenance()
+    with pytest.raises(
+        ValueError, match=r"policy-bound concept C6135.*no decomposition"
+    ):
+        await _run_with_group_policy(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            _group_policy_bound_to("C6135"),
+        )
+    provenance.admit_run.assert_not_awaited()
 
 
 @pytest.mark.unit

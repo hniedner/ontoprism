@@ -13,7 +13,10 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 from ontolib.decomposition import axes
-from ontolib.decomposition.axis_contracts import normalized_axis_for_role
+from ontolib.decomposition.axis_contracts import (
+    AXIS_CONTRACTS,
+    normalized_axis_for_role,
+)
 from ontolib.decomposition.axis_diagnostics import (
     AxisRangeEvidence,
     InvalidAxisEvidence,
@@ -640,6 +643,7 @@ def _review_fields(
 ) -> tuple[bool, bool]:
     return (
         _needs_review(
+            axis_name,
             known_retained_count,
             unknown=unknown,
             routed_exempt=routed_exempt,
@@ -657,6 +661,7 @@ def _review_fields(
 
 
 def _needs_review(
+    axis_name: str,
     known_retained_count: int,
     *,
     unknown: bool,
@@ -667,7 +672,11 @@ def _needs_review(
         return True
     if known_retained_count <= 1:
         return False
-    return not routed_exempt or policy_protected_axis
+    if routed_exempt and axis_name != axes.STAGE_SYSTEM_AXIS:
+        return policy_protected_axis
+    # Raw/unrecognized roles returned above as unknown routes; known routes have
+    # a declared contract, not an implicit single-valued fallback.
+    return AXIS_CONTRACTS[axis_name].cardinality != "0..*"
 
 
 def _axis_is_ambiguous(
@@ -681,11 +690,18 @@ def _axis_is_ambiguous(
 ) -> bool:
     if retained_count <= 1:
         return False
+    if _known_multivalued_axis(axis_name, unknown):
+        return False
     if policy_protected_axis:
         return True
     if routed_exempt and axis_name != axes.ASSOCIATED_LINEAGE_AXIS:
         return True
     return _requires_ambiguity_group(unknown, routed_exempt, known_retained_count)
+
+
+def _known_multivalued_axis(axis_name: str, unknown: bool) -> bool:
+    # As in _needs_review, unknown routes do not imply a declared contract.
+    return not unknown and AXIS_CONTRACTS[axis_name].cardinality == "0..*"
 
 
 def _requires_ambiguity_group(
@@ -833,7 +849,7 @@ def _occurrences_by_projection_key(
             occurrence
         )
     for filler in plan.parent_morphologies:
-        result[(axes.MORPHOLOGY_AXIS, filler)]
+        result[(axes.TOLD_GENUS_AXIS, filler)]
     return result
 
 
@@ -871,7 +887,7 @@ def _retained_parent_morphologies(
     return tuple(
         filler
         for filler in plan.parent_morphologies
-        if (axes.MORPHOLOGY_AXIS, filler) in accepted
+        if (axes.TOLD_GENUS_AXIS, filler) in accepted
     )
 
 
@@ -978,7 +994,7 @@ def _append_morphology(
     for parent_morphology in parent_morphologies:
         constituents.append(
             Constituent(
-                axis=axes.MORPHOLOGY_AXIS,
+                axis=axes.TOLD_GENUS_AXIS,
                 filler_code=parent_morphology,
                 axis_source="parent",
             )

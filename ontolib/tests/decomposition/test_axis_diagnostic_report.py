@@ -27,12 +27,14 @@ from scripts.research.current_evidence import (
     CurrentComparison,
     CurrentEngineEvidence,
 )
+from scripts.research.decision_axis_contracts import classify_decision_axis
 from scripts.research.golden_review import (
     load_migrated_historical_adjudication,
     load_row_decisions,
 )
 
 from ontolib.decomposition.axis_diagnostics import (
+    AxisDiagnosticSource,
     AxisHierarchyEvidence,
     HierarchyEdge,
     ValidAxisEvidence,
@@ -103,15 +105,16 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
         )
     )
 
-    range_verdict = classify_axis_range(
+    range_verdict = classify_decision_axis(
+        AxisDiagnosticSource(
+            AxisHierarchyEvidence(
+                source_identity=evidence.source_identity,
+                edges=(HierarchyEdge(child="C35501", parent="C7057"),),
+                disjoint_pairs=(),
+            )
+        ),
         "op:Morphology",
         "C35501",
-        "C7057",
-        AxisHierarchyEvidence(
-            source_identity=evidence.source_identity,
-            edges=(HierarchyEdge(child="C35501", parent="C7057"),),
-            disjoint_pairs=(),
-        ),
     )
     residual_verdict = ResidualPrecoordinationVerdict(
         status="detected",
@@ -119,6 +122,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
         detector_identity=evidence.detector_identity,
     )
     assert isinstance(range_verdict, ValidAxisEvidence)
+    assert range_verdict.axis == "op:Morphology"
     report = build_axis_diagnostic_report(
         oracle=oracle,
         rows=rows,

@@ -11,7 +11,7 @@ from uuid import UUID
 
 import asyncpg
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from test_support.projection import unknown_axis_diagnostic_source
@@ -60,6 +60,7 @@ from ontolib.decomposition.provenance_models import (
     RunOutcomeCounts,
 )
 from ontolib.decomposition.run import RunConfig, _new_run_id, run_pipeline
+from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -410,6 +411,8 @@ class _LifecycleClient:
             return []
         if "SELECT ?code ?st" in query:
             return []
+        if "P334>" in query:
+            return [{"concept": NCIT_NS + "C999999", "value": "8000/3"}]
         if "SELECT ?member ?type ?role ?target ?roleLabel" in query:
             return []
         raise AssertionError(f"unexpected query: {query}")
@@ -661,18 +664,23 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
         await dispose_engine(engine)
 
 
-async def test_empty_complete_definition_survives_postgres_round_trip() -> None:
+@pytest.mark.parametrize("axis_source", ["nlp", "p334"])
+@pytest.mark.parametrize("semantic_type", ["Neoplastic Process", "Disease or Syndrome"])
+async def test_empty_complete_definition_survives_postgres_round_trip(
+    axis_source,
+    semantic_type,
+) -> None:
     run_id = _new_run_id("neoplasm")
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
     decomposition = Decomposition(
         code="C0",
-        semantic_type="Neoplastic Process",
+        semantic_type=semantic_type,
         constituents=(
             Constituent(
-                axis="op:Laterality",
+                axis="op:HistologyAnchor" if axis_source == "p334" else "op:Laterality",
                 filler_code="C25229",
-                axis_source="nlp",
+                axis_source=axis_source,
             ),
         ),
         complete_definition=CompleteDefinition(root_code="C0", facts=()),
@@ -687,10 +695,42 @@ async def test_empty_complete_definition_survives_postgres_round_trip() -> None:
             claim,
             decomposition=decomposition,
             minted=(),
-            semantic_types=("Neoplastic Process",),
+            semantic_types=(semantic_type,),
         )
 
         assert await store.decompositions_for_run(run_id) == [decomposition]
+        other_claim = await store.claim_work_item(run_id, "C1")
+        assert other_claim is not None
+        await store.complete_work_item(
+            run_id,
+            "C1",
+            other_claim,
+            decomposition=None,
+            minted=(),
+            outcome="atomic-no-op",
+            semantic_types=("Neoplastic Process",),
+        )
+        publications = await store.concept_publications_for_run(run_id)
+        flags = {p.concept_code: [f.reason for f in p.flags] for p in publications}
+        assert any("no histology anchor" in reason for reason in flags["C0"]) == (
+            axis_source == "nlp"
+        )
+        if axis_source == "p334":
+            for statement in (
+                "UPDATE decomp_constituent SET source_roles='[\"R101\"]'::jsonb "
+                "WHERE run_id=:run",
+                "UPDATE decomp_constituent SET axis='op:PrimarySite' WHERE run_id=:run",
+            ):
+                async with make_sessionmaker(engine)() as session:
+                    with pytest.raises(
+                        IntegrityError, match="ck_decomp_constituent_source_roles"
+                    ):
+                        await session.execute(
+                            text(statement),
+                            {"run": run_id},
+                        )
+                    await session.rollback()
+            assert await store.decompositions_for_run(run_id) == [decomposition]
         # A second run has an all-rejected candidate, not an atomic non-candidate.
         residual_run = _new_run_id("neoplasm")
         try:
@@ -734,6 +774,7 @@ async def test_empty_complete_definition_survives_postgres_round_trip() -> None:
                 fingerprint=_fingerprint(),
                 collapse_policy=NO_COLLAPSE_VETO_POLICY,
                 static_lookups=run_module.RunStaticLookups(
+                    p334_values={},
                     source_identity="a" * 64,
                     role_labels={"R88": "Has_Stage"},
                     semantic_types={"C27970": ()},

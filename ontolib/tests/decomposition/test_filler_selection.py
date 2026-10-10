@@ -8,9 +8,9 @@ import pytest
 from ontolib.decomposition.axes import (
     ASSOCIATED_LINEAGE_AXIS,
     ASSOCIATED_REGION_AXIS,
-    MORPHOLOGY_AXIS,
     PRIMARY_SITE_AXIS,
     STAGE_VALUE_AXIS,
+    TOLD_GENUS_AXIS,
 )
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.filler_selection import (
@@ -33,6 +33,31 @@ from ontolib.decomposition.site_resolution import (
     MORPHOLOGY_TO_ORGAN,
     MORPHOLOGY_TO_PRIMARY_SUBSITES,
 )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "role", ["R100", "R102", "R103", "R104", "R105", "R106", "R107", "R108"]
+)
+def test_tier_zero_multi_valued_axes_retain_incomparable_values_without_review(role):
+    constituents = select_constituents(
+        [RoleRestriction(role, "C10001"), RoleRestriction(role, "C10002")],
+        lambda _a, _b: False,
+    )
+    assert {item.filler_code for item in constituents} == {"C10001", "C10002"}
+    assert all(not item.needs_review for item in constituents)
+    assert all(not item.axis_ambiguous for item in constituents)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("role", ["R88", "R110"])
+def test_assessment_scoped_limits_remain_unresolved_for_multiple_values(role):
+    constituents = select_constituents(
+        [RoleRestriction(role, "C10001"), RoleRestriction(role, "C10002")],
+        lambda _a, _b: False,
+    )
+    assert len(constituents) == 2
+    assert all(item.needs_review for item in constituents)
 
 
 def select_constituents(*args: Any, **kwargs: Any):
@@ -529,7 +554,7 @@ def test_select_adds_morphology_from_parent() -> None:
     constituents = select_constituents(
         restrictions, _is_ancestor, parent_morphologies=("C40384",)
     )
-    morph = [c for c in constituents if c.axis == MORPHOLOGY_AXIS]
+    morph = [c for c in constituents if c.axis == TOLD_GENUS_AXIS]
     assert len(morph) == 1
     assert morph[0].filler_code == "C40384"
     assert morph[0].axis_source == "parent"
@@ -887,7 +912,7 @@ def test_ratified_lung_primary_routes_bronchus_to_primary_subsite() -> None:
     assert {(item.axis, item.filler_code) for item in constituents} == {
         ("op:PrimarySite", "C12468"),
         ("op:PrimarySubsite", "C12683"),
-        ("op:Morphology", "C4878"),
+        ("op:ToldGenus", "C4878"),
     }
 
 
@@ -915,7 +940,7 @@ def test_ratified_endometrial_primary_routes_cavity_to_subsite() -> None:
         ("op:AssociatedRegion", "C12402"),
         ("op:PrimarySite", "C12316"),
         ("op:PrimarySubsite", "C32514"),
-        ("op:Morphology", "C7558"),
+        ("op:ToldGenus", "C7558"),
     }
     primary = next(item for item in constituents if item.axis == "op:PrimarySite")
     assert primary.source_roles == ("R100",)
@@ -945,7 +970,7 @@ def test_routing_precedes_region_axis_collapse() -> None:
     assert {(item.axis, item.filler_code) for item in constituents} == {
         ("op:PrimarySite", "C12400"),
         ("op:AssociatedRegion", "C13063"),
-        ("op:Morphology", "C3879"),
+        ("op:ToldGenus", "C3879"),
     }
 
 
@@ -1356,7 +1381,7 @@ def test_stage_value_axis_normalizes_non_system_r88() -> None:
 
 
 @pytest.mark.unit
-def test_multiple_stage_systems_are_grouped_and_not_flagged() -> None:
+def test_multiple_stage_systems_remain_unresolved() -> None:
     restrictions = [
         RoleRestriction("R88", "C90529", "Disease_Is_Stage"),  # AJCC v6
         RoleRestriction("R88", "C90530", "Disease_Is_Stage"),  # AJCC v7
@@ -1365,7 +1390,7 @@ def test_multiple_stage_systems_are_grouped_and_not_flagged() -> None:
     stage_sys = [c for c in cons if c.axis == "op:StageSystem"]
     assert len(stage_sys) == 2
     assert {c.filler_code for c in stage_sys} == {"C90529", "C90530"}
-    assert all(c.needs_review is False for c in stage_sys)
+    assert all(c.needs_review for c in stage_sys)
     assert all(c.axis_ambiguous for c in stage_sys)
 
 

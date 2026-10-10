@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import subprocess
 import tarfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
+from ontolib.core import data_build_tools as tools
 from ontolib.core.data_build_tools import (
     JENA_RIOT_ARTIFACT,
     ROBOT_ARTIFACT,
@@ -24,7 +27,6 @@ from ontolib.core.data_build_tools import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 pytestmark = [pytest.mark.unit, pytest.mark.security]
 
@@ -279,3 +281,206 @@ def test_tool_identity_rejects_noncanonical_digest(digest: str) -> None:
         DataBuildToolIdentity(
             name="tool", source="https://example.test/tool", version="1", digest=digest
         )
+
+
+@pytest.mark.parametrize("kind", ["jena", "robot"])
+@pytest.mark.parametrize("damage", ["missing", "malformed", "wrong-version"])
+def test_installed_tool_metadata_damage_refuses_execution(tmp_path, kind, damage):
+    payload = _jena_archive() if kind == "jena" else b"test robot jar"
+    artifact = _jena_artifact(payload) if kind == "jena" else _artifact(payload)
+    install = install_jena if kind == "jena" else install_robot
+    identify = (
+        identify_jena_installation if kind == "jena" else identify_robot_installation
+    )
+    target = tmp_path / kind
+    install(target, artifact=artifact, downloader=_downloader(payload))
+    metadata = target / f"{kind}-tool.json"
+    if damage == "missing":
+        metadata.unlink()
+    elif damage == "malformed":
+        metadata.write_text("not json")
+    else:
+        document = json.loads(metadata.read_text())
+        document["version"] = "0.0.0"
+        metadata.write_text(json.dumps(document))
+
+    def unexpected_probe(*args, **kwargs):
+        pytest.fail("damaged installation must not execute")
+
+    with pytest.raises(ToolIdentityError, match="metadata"):
+        identify(target, artifact=artifact, runner=unexpected_probe)
+
+
+@pytest.mark.parametrize("kind", ["jena", "robot"])
+def test_failed_version_process_cannot_certify_tool(tmp_path, kind):
+    payload = _jena_archive() if kind == "jena" else b"test robot jar"
+    artifact = _jena_artifact(payload) if kind == "jena" else _artifact(payload)
+    install = install_jena if kind == "jena" else install_robot
+    identify = (
+        identify_jena_installation if kind == "jena" else identify_robot_installation
+    )
+    target = tmp_path / kind
+    install(target, artifact=artifact, downloader=_downloader(payload))
+    with pytest.raises(ToolIdentityError, match="exited 7"):
+        identify(
+            target,
+            artifact=artifact,
+            runner=lambda *a, **k: subprocess.CompletedProcess(
+                args=[], returncode=7, stdout="9.8.7", stderr="java failed"
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    "member_type", [tarfile.SYMTYPE, tarfile.LNKTYPE, tarfile.FIFOTYPE]
+)
+def test_jena_special_archive_members_never_replace_existing_install(
+    tmp_path, member_type
+):
+    target = tmp_path / "jena"
+    target.mkdir()
+    (target / "keep").write_text("working installation")
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        member = tarfile.TarInfo("apache-jena-9.8.7/bin/riot")
+        member.type = member_type
+        member.linkname = "outside"
+        archive.addfile(member)
+    payload = buffer.getvalue()
+    with pytest.raises(ToolIdentityError, match="unsafe archive"):
+        install_jena(
+            target, artifact=_jena_artifact(payload), downloader=_downloader(payload)
+        )
+    assert (target / "keep").read_text() == "working installation"
+    assert list(tmp_path.iterdir()) == [target]
+
+
+def test_jena_directory_entries_and_reinstall_replace_old_files(tmp_path):
+    target = tmp_path / "jena"
+    target.mkdir()
+    (target / "obsolete").write_text("old")
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name in (
+            "apache-jena-9.8.7",
+            "apache-jena-9.8.7/bin",
+            "apache-jena-9.8.7/lib",
+        ):
+            member = tarfile.TarInfo(name)
+            member.type = tarfile.DIRTYPE
+            archive.addfile(member)
+        member = tarfile.TarInfo("apache-jena-9.8.7/bin/riot")
+        member.size = 3
+        archive.addfile(member, io.BytesIO(b"new"))
+    payload = buffer.getvalue()
+    install_jena(
+        target, artifact=_jena_artifact(payload), downloader=_downloader(payload)
+    )
+    assert (target / "bin/riot").read_bytes() == b"new"
+    assert not (target / "obsolete").exists()
+    assert list(tmp_path.iterdir()) == [target]
+
+
+def test_jena_failed_publish_restores_existing_install(tmp_path, monkeypatch):
+
+    target = tmp_path / "jena"
+    target.mkdir()
+    (target / "keep").write_text("working installation")
+    replace = Path.replace
+
+    def fail_staging(source, destination):
+        if source.name.endswith(".staging"):
+            raise OSError("disk refused publish")
+        return replace(source, destination)
+
+    monkeypatch.setattr(Path, "replace", fail_staging)
+    payload = _jena_archive()
+    with pytest.raises(OSError, match="disk refused"):
+        install_jena(
+            target, artifact=_jena_artifact(payload), downloader=_downloader(payload)
+        )
+    assert (target / "keep").read_text() == "working installation"
+    assert list(tmp_path.iterdir()) == [target]
+
+
+@pytest.mark.parametrize(
+    "redirect", ["https://cdn.example.test/tool", "http://cdn.example.test/tool"]
+)
+def test_download_accepts_https_chunks_but_rejects_insecure_redirect(
+    tmp_path, monkeypatch, redirect
+):
+    class Response(io.BytesIO):
+        def geturl(self):
+            return redirect
+
+    payload = b"x" * (1024 * 1024 + 17)
+    monkeypatch.setattr(
+        tools.urllib.request, "urlopen", lambda *a, **k: Response(payload)
+    )
+    destination = tmp_path / "tool"
+    if redirect.startswith("http:"):
+        with pytest.raises(ToolIdentityError, match="redirected away"):
+            tools._download_https("https://example.test/tool", destination)
+        assert destination.read_bytes() == b""
+    else:
+        tools._download_https("https://example.test/tool", destination)
+        assert destination.read_bytes() == payload
+
+
+def test_download_refuses_insecure_source_and_reports_transport_failure(
+    tmp_path, monkeypatch
+):
+    with pytest.raises(ToolIdentityError, match="must use HTTPS"):
+        tools._download_https("http://example.test/tool", tmp_path / "tool")
+    assert not (tmp_path / "tool").exists()
+
+    def failed_open(*a, **k):
+        raise OSError("connection closed")
+
+    monkeypatch.setattr(tools.urllib.request, "urlopen", failed_open)
+    with pytest.raises(ToolIdentityError, match=r"download failed.*connection closed"):
+        tools._download_https("https://example.test/tool", tmp_path / "tool")
+
+
+@pytest.mark.parametrize("payload", [b"not a tar file", None])
+def test_unusable_jena_archive_never_publishes(tmp_path, payload):
+    if payload is None:
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz"):
+            pass
+        payload = buffer.getvalue()
+    with pytest.raises(ToolIdentityError, match=r"cannot extract|no RIOT executable"):
+        install_jena(
+            tmp_path / "jena",
+            artifact=_jena_artifact(payload),
+            downloader=_downloader(payload),
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "failure", [OSError("java missing"), subprocess.TimeoutExpired("riot", 30)]
+)
+def test_jena_probe_transport_errors_preserve_cause(tmp_path, failure):
+    payload = _jena_archive()
+    artifact = _jena_artifact(payload)
+    target = tmp_path / "jena"
+    install_jena(target, artifact=artifact, downloader=_downloader(payload))
+
+    def failed_probe(*a, **k):
+        raise failure
+
+    with pytest.raises(ToolIdentityError, match="probe could not run") as caught:
+        identify_jena_installation(target, artifact=artifact, runner=failed_probe)
+    assert caught.value.__cause__ is failure
+
+
+def test_absent_tool_artifact_is_not_an_installation(tmp_path):
+    with pytest.raises(ToolIdentityError, match="cannot read pinned artifact"):
+        identify_robot_installation(tmp_path, artifact=_artifact())
+
+
+def test_unconfigured_robot_fails_before_build(monkeypatch):
+    monkeypatch.delenv(tools.ROBOT_INSTALL_DIR_ENV, raising=False)
+    with pytest.raises(ToolIdentityError, match="must name an installation"):
+        tools.configured_robot_installation()

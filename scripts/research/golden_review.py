@@ -28,7 +28,6 @@ from ontolib.common.boundary_models import (
     StrictFrozenBoundaryModel,
     canonical_json_sha256,
 )
-from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.proposal_registry import (
     ConceptProposal,
     ProposalRegistry,
@@ -41,6 +40,8 @@ from ontolib.decomposition.proposal_registry_migration import (
     validate_migrated_proposal_registry,
 )
 from ontolib.decomposition.score import ExtractionScore, score
+
+from .decision_axis_contracts import DECISION_AXIS_CONTRACTS as AXIS_CONTRACTS
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

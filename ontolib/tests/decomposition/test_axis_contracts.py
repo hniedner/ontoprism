@@ -9,6 +9,13 @@ from ontolib.decomposition.axis_contracts import (
 )
 
 
+def test_resolved_cardinality_requires_explicit_source():
+    contract = AXIS_CONTRACTS["op:PrimarySite"].model_dump()
+    contract.pop("cardinality_source")
+    with pytest.raises(ValueError, match="cardinality requires"):
+        AxisContract.model_validate(contract)
+
+
 @pytest.mark.unit
 def test_required_univocal_axes_have_complete_semantic_contracts() -> None:
     required = {

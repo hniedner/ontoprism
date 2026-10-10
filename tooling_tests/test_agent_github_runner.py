@@ -328,6 +328,58 @@ def test_workflow_dispatch_refuses_a_branch_absent_from_origin(tmp_path: Path) -
     assert [call[0][3] for call in calls] == ["GET"]
 
 
+@pytest.mark.parametrize(
+    ("response", "stderr", "expected"),
+    [
+        (
+            '{"message":"Validation Failed","status":"422",'
+            '"errors":[{"field":"body","code":"custom","message":"secret"}]}',
+            "gh: Validation Failed (HTTP 422) secret",
+            "HTTP 422; validation failed",
+        ),
+        (
+            '{"message":"Resource not accessible by personal access token",'
+            '"status":"403"}',
+            "gh: secret (HTTP 403)",
+            "HTTP 403; insufficient permissions",
+        ),
+        (
+            '{"message":"You have exceeded a secondary rate limit.","status":"403"}',
+            "gh: secret (HTTP 403)",
+            "HTTP 403; secondary rate limit",
+        ),
+        ("secret", "secret", "CLI exit 1"),
+    ],
+)
+def test_failed_comment_reports_safe_reason_without_leaking_response(
+    tmp_path,
+    response,
+    stderr,
+    expected,
+    capsys,
+):
+    body = write_body(tmp_path)
+    calls = []
+    with pytest.raises(AgentGitHubProcessError) as error:
+        run_agent_github(
+            ["issue-comment", "467", "--body-file", str(body)],
+            tmp_path,
+            read_only=False,
+            runner=recording_runner(
+                [
+                    Result(0, '{"number":467}'),
+                    Result(1, response, stderr),
+                ],
+                calls,
+            ),
+        )
+    assert expected in str(error.value)
+    assert "inspect the repository before retrying" in str(error.value)
+    assert "secret" not in str(error.value)
+    assert capsys.readouterr().out == ""
+    assert len(calls) == 2
+
+
 def test_issue_create_checks_duplicates_and_labels_then_uses_fixed_api(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

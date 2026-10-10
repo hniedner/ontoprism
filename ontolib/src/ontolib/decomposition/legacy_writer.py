@@ -27,7 +27,7 @@ from ontolib.decomposition.provenance_models import ConceptPublication
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
 
     from ontolib.decomposition.models import (
         Constituent,
@@ -113,6 +113,7 @@ def _render_axis_contract(contract: AxisContract) -> list[str]:
     axis = _axis_uri(contract.axis)
     owl_object_property = "<http://www.w3.org/2002/07/owl#ObjectProperty>"
     rdfs = "http://www.w3.org/2000/01/rdf-schema#"
+    cardinality = f"Cardinality {contract.cardinality}: {contract.cardinality_source}"
     lines = [
         f"{axis} <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> "
         f"{owl_object_property} .",
@@ -121,6 +122,7 @@ def _render_axis_contract(contract: AxisContract) -> list[str]:
         f"{axis} <{rdfs}domain> <{NCIT_NS}{contract.domain_code}> .",
         f"{axis} <{rdfs}range> <{NCIT_NS}{contract.range_code}> .",
         f"{axis} {_p(vocab.AXIS_MODALITY)} {json.dumps(contract.modality)} .",
+        f"{axis} {_p(vocab.CONTRACT_PROVENANCE)} {json.dumps(cardinality)} .",
         f"{axis} {_p(vocab.GOVERNANCE_STATUS)} "
         f"{json.dumps(contract.governance.status)} .",
     ]
@@ -317,6 +319,30 @@ def _render_demonstration(
     return lines
 
 
+def _render_p334(
+    materialized: tuple[Decomposition, ...],
+    values: Mapping[str, tuple[str, ...]] | None,
+) -> list[str]:
+    codes = _p334_codes(materialized)
+    values = {} if values is None else values
+    if not codes <= values.keys():
+        raise ValueError("P334 anchor export requires source annotation values")
+    return [
+        f"<{NCIT_NS}{code}> <{NCIT_NS}P334> {json.dumps(value)} ."
+        for code in sorted(codes)
+        for value in values[code]
+    ]
+
+
+def _p334_codes(materialized: tuple[Decomposition, ...]) -> set[str]:
+    return {
+        c.filler_code
+        for d in materialized
+        for c in d.constituents
+        if c.axis_source == "p334"
+    }
+
+
 async def write_ttl(
     decompositions: Iterable[Decomposition],
     dest: Path | None = None,
@@ -325,13 +351,18 @@ async def write_ttl(
     emitted_on: date | None = None,
     emit_equivalence: bool = False,
     publications: Iterable[ConceptPublication] = (),
+    p334_values: Mapping[str, tuple[str, ...]] | None = None,
 ) -> Path | None:
     """Render all *decompositions* as Turtle triples into *dest* (or stdout).
 
     Always emits the ``AXIS_CONTRACTS`` relation ontology as a header — object
     property declarations, labels, domains, ranges, RO alignments and governance
     triples — before the decomposition triples, including when *decompositions* is
-    empty.
+    empty. Modality and cardinality with its source are included; cardinality is
+    an explanatory contract-provenance annotation, not an OWL cardinality axiom.
+
+    Emitted P334 anchor carriers also carry their source annotation values as
+    evidence, not equivalence. Their annotations must be supplied in ``p334_values``.
 
     Writes additively — no deletes, no other graph targeted.  Returns the written path
     or ``None`` when writing to stdout.
@@ -343,6 +374,7 @@ async def write_ttl(
         a separately validated proof-bearing export mode (D43).
         Also when run-bound decompositions lack publication records, or records
         are supplied without a run identifier.
+        Also when an emitted P334 carrier lacks supplied source annotation values.
     """
     if emit_equivalence:
         raise ValueError(
@@ -354,6 +386,7 @@ async def write_ttl(
     materialized = tuple(decompositions)
     publication_rows = _publication_rows(materialized, publications, run_id)
     buf = [*_render_axis_contracts(), *_render_demonstration(run_id, publication_rows)]
+    buf.extend(_render_p334(materialized, p334_values))
 
     for dec in materialized:
         buf.extend(

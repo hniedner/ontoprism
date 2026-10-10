@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 
@@ -48,6 +48,17 @@ class AxisContract(_StrictModel):
     ro_parent: str | None = Field(default=None, pattern=r"^RO:[0-9]{7}$")
     governance: AxisGovernance = Field(default_factory=StableGovernance)
     modality: AxisModality = "asserted"
+    cardinality: Literal["0..1", "0..*", "unresolved"] = "unresolved"
+    cardinality_source: str = "No approved class-level cardinality source"
+
+    @model_validator(mode="after")
+    def _resolved_cardinality_has_source(self) -> Self:
+        if self.cardinality != "unresolved" and self.cardinality_source in {
+            "",
+            "No approved class-level cardinality source",
+        }:
+            raise ValueError("resolved cardinality requires an explicit source")
+        return self
 
 
 _DISEASE = ("C7057", "Disease, Disorder or Finding")
@@ -62,6 +73,32 @@ _PROVENANCE = (
     "NCIt concepts used as relation endpoint classes",
 )
 
+# Owner #466: tier-0 own-definition non-nested values establish multiplicity;
+# D58 overrides PrimarySite, and Stage/Grade remain assessment-scope unresolved.
+_MULTI_VALUED_AXES = frozenset(
+    {
+        "op:ClinicalFinding",
+        "op:MetastaticSite",
+        "op:AssociatedSite",
+        "op:NormalTissueOrigin",
+        "op:CellOrigin",
+        "op:CellType",
+        "op:MolecularAbnormality",
+        "op:CytogeneticAbnormality",
+    }
+)
+
+
+def _cardinality(axis: str) -> tuple[Literal["0..1", "0..*", "unresolved"], str]:
+    if axis == "op:PrimarySite":
+        return "0..1", "D58: one organ of origin; owner reaffirmed #466"
+    if axis in _MULTI_VALUED_AXES:
+        return "0..*", "NCIt 26.07d own-definition non-nested multiplicity; owner #466"
+    return (
+        "unresolved",
+        "No approved class-level limit; Stage/Grade sources are per assessment",
+    )
+
 
 def _contract(
     axis: str,
@@ -73,6 +110,7 @@ def _contract(
     governance: AxisGovernance | None = None,
     modality: AxisModality = "asserted",
 ) -> AxisContract:
+    cardinality, cardinality_source = _cardinality(axis)
     return AxisContract(
         axis=axis,
         label=label,
@@ -86,6 +124,8 @@ def _contract(
         ro_parent=ro_parent,
         governance=governance or StableGovernance(),
         modality=modality,
+        cardinality=cardinality,
+        cardinality_source=cardinality_source,
     )
 
 
@@ -216,10 +256,26 @@ _CONTRACT_SEQUENCE = (
         "R110",
     ),
     _contract(
-        "op:Morphology",
-        "morphology",
-        "Relates a disease to the morphology represented by its taxonomic genus.",
+        "op:ToldGenus",
+        "told genus",
+        "Relates a disease to its nearest non-qualifier told genus classes; "
+        "these retain site, behavior and other disease context, not pure morphology.",
         _DISEASE,
+    ),
+    AxisContract(
+        axis="op:HistologyAnchor",
+        modality="non-defining",
+        label="histology anchor",
+        definition="Self or most-specific told ancestor carrying an NCIt P334 "
+        "value matching four digits and /0, /1, /2 or /3. All incomparable minima "
+        "are retained and flagged; coarse carriers are not excluded. Not equivalence.",
+        domain_code="C3262",
+        domain_label="Neoplasm",
+        range_code="C3262",
+        range_label="Neoplasm",
+        provenance=("NCIt stated P334 and told genus/subclass hierarchy; owner #467",),
+        cardinality="unresolved",
+        cardinality_source="Owner #467: absent or incomparable anchors need review",
     ),
     _contract(
         "op:Laterality",

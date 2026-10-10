@@ -7,7 +7,49 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-10-08 — Endpoint assessment without an atomicity scalar
+
+### D102. Axis-endpoint evidence assessment supplements, not replaces, D37
+
+Owner approval in #469 supersedes the initial terminality/scalar proposal.
+D37 keeps its calculation and stored values, explicitly labeled historical and
+detector-relative. A separate read-only assessment reports retained context,
+source-qualified anchor, range-valid endpoint, detector-positive disease endpoint,
+invalid endpoint, or unknown. None proves terminality or semantic atomicity.
+Genus is retained context. P334 minima use D101; other named endpoints use the
+existing axis range evidence. Disease/finding endpoints additionally expose their
+stored detector result; unavailable results remain unknown. Invalid range evidence
+is distinct from unknown; proposed fillers and unresolved axes remain unknown.
+Anchor source absence/ambiguity, emitted absence/multiplicity, review flags and
+whole-concept outcomes are reported alongside categories, not hidden by them.
+No replacement scalar, new stopping rule, or change to existing engine output.
+Source rationale: WHO ICD-O's independent dimensions, SNOMED MRCM domain/range
+rules and morphology/finding distinction, mCODE stage context; links and limitations
+are recorded in #469 comments6043388636 and6047108036. Range membership does not
+establish irreducibility. Any future scalar requires clear meaning and expert checks.
+
 ## 2026-10-01 — CI runs once per milestone
+
+### D101. Preserve ToldGenus and add a separate P334 HistologyAnchor
+
+Owner approval in #467 (2026-10-06): rename the unchanged genus projection ToldGenus;
+no new genus collapse. HistologyAnchor is self or a most-specific told ancestor
+carrying syntactically valid P334 /0, /1, /2 or /3. Keep every incomparable minimum
+and flag ambiguity; absent anchors receive an explicit reason. Keep coarse carriers.
+NCIt P334 is curated cross-reference evidence, not identity or equivalence (D73).
+WHO ICD-O defines the four histology digits and fifth behavior digit; SNOMED's
+associated morphology pattern does not turn NCIt disease classes into pure morphology.
+Source links and the corrected production-hierarchy census are in #467 comments
+6024610964 and 6025613057. The earlier analyst counts there are withdrawn.
+Approved persistence is only migration0034's narrow source-role CHECK extension;
+P334 paths and annotations are read/recomputed, not stored in a new evidence table.
+The normalized grouping decision record and its policy identity remain unchanged.
+Owner M17 review clarification: an anchor alone still counts as an emitted
+constituent for the decomposed outcome; that outcome does not imply semantic
+reduction. HistologyAnchor modality is non-defining, with P334 provenance unchanged.
+The completed v7 demonstration is retained. Engine v8 includes this export-contract
+amendment, refusal of an empty source-wide P334 inventory, and D58 review-reason
+attribution using all known-route retained PrimarySites, not only flagged sites.
 
 ### D100. Issues merge into the milestone branch without CI; CI runs on the milestone PR
 
@@ -2580,6 +2622,9 @@ reporting success.
 ## 2026-07-14 — #126: what `residual_precoordination` actually counts
 
 ### D37. Residual pre-coordination = a decomposition whose own constituents are not atomic
+**Interpretation clarified by D102 (#469):** the calculation remains unchanged as a
+historical, detector-relative diagnostic; its name does not establish atomhood.
+Use the separate axis-endpoint assessment and unresolved counts alongside it.
 **Current-status note (D43):** `roundtrip_fidelity` below describes the intended future
 completeness metric. The complete representation does not yet exist; new runs record
 `null`, and #153 owns its implementation.

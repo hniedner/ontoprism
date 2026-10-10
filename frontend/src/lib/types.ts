@@ -402,7 +402,7 @@ export interface DecompositionConstituent {
 	axis_label: string | null;
 	filler: string;
 	filler_label: string | null;
-	axis_source: 'role' | 'parent' | 'nlp';
+	axis_source: 'role' | 'parent' | 'nlp' | 'p334';
 	source_roles: string[];
 	most_specific: boolean;
 	needs_review: boolean;
@@ -446,8 +446,9 @@ export interface ConstituentEvidence {
     concept_code: string;
     axis: string;
     filler_code: string;
-    axis_source: 'role' | 'parent' | 'nlp';
-    support: 'restriction-backed' | 'genus-backed' | 'not-source-backed';
+    axis_source: 'role' | 'parent' | 'nlp' | 'p334';
+    support: 'restriction-backed' | 'genus-backed' | 'p334-backed' | 'not-source-backed';
+    p334?: { eligible_values: string[]; other_values: string[]; path: string[] } | null;
     policy_choices: ('axis-assignment' | 'collapse' | 'grouping')[];
     inferred_assertions: string[];
     sources: {

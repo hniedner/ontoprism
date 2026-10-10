@@ -33,6 +33,7 @@ from ontolib.decomposition.provenance import (
     _concept_outcome_reason,
     _publication_flags,
     missing_group_policy_pairs,
+    primary_site_values,
 )
 from ontolib.decomposition.provenance_models import (
     RUN_STAGE_SEQUENCE_IDENTITY,
@@ -46,6 +47,29 @@ from ontolib.decomposition.r101_run_conservation import (
     R101PathEdge,
     R101RunConservation,
 )
+
+
+def test_unflagged_primary_site_contributes_to_flagged_sibling_reason():
+    rows = cast(
+        "Any",
+        [
+            {
+                "concept_code": "C1",
+                "axis": "op:PrimarySite",
+                "filler_code": code,
+                "unknown_route": False,
+                "needs_review": flagged,
+            }
+            for code, flagged in [("C2", True), ("C3", False)]
+        ],
+    )
+    flags = _publication_flags(
+        rows[:1], (), (), (), primary_sites=primary_site_values(rows)
+    )
+    assert len(flags["C1"]) == 1
+    assert flags["C1"][0].reason == (
+        "sourced-limit violation: PrimarySite 0..1 (D58); multiple organs retained"
+    )
 
 
 def _empty_completion_metrics() -> dict[str, object]:
@@ -109,20 +133,86 @@ def test_publication_reasons_cover_every_concept_outcome(
 @pytest.mark.unit
 def test_multiple_primary_sites_publish_the_retained_sites_reason() -> None:
     rows = [
-        {"concept_code": "C1", "axis": "op:PrimarySite", "filler_code": "C2"},
-        {"concept_code": "C1", "axis": "op:PrimarySite", "filler_code": "C3"},
+        {
+            "concept_code": "C1",
+            "axis": "op:PrimarySite",
+            "filler_code": "C2",
+            "unknown_route": False,
+        },
+        {
+            "concept_code": "C1",
+            "axis": "op:PrimarySite",
+            "filler_code": "C3",
+            "unknown_route": False,
+        },
         {"concept_code": "C1", "axis": "op:Morphology", "filler_code": "C4"},
-        {"concept_code": "C5", "axis": "op:PrimarySite", "filler_code": "C6"},
+        {
+            "concept_code": "C5",
+            "axis": "op:PrimarySite",
+            "filler_code": "C6",
+            "unknown_route": True,
+        },
     ]
-    flags = _publication_flags(cast("Any", rows), (), (), ())
+    flags = _publication_flags(
+        cast("Any", rows),
+        (),
+        (),
+        (),
+        primary_sites=primary_site_values(cast("Any", rows)),
+    )
 
     assert [flag.reason for flag in flags["C1"][:2]] == [
-        "multiple primary sites retained for review",
-        "multiple primary sites retained for review",
+        "sourced-limit violation: PrimarySite 0..1 (D58); multiple organs retained",
+        "sourced-limit violation: PrimarySite 0..1 (D58); multiple organs retained",
     ]
     assert all(flag.kind == "needs-review" for flag in flags["C1"])
-    assert flags["C1"][2].reason == "constituent op:Morphology / C4 needs review"
-    assert flags["C5"][0].reason == "constituent op:PrimarySite / C6 needs review"
+    assert flags["C1"][2].reason.startswith("nesting undecidable: op:Morphology / C4")
+    assert flags["C5"][0].reason.startswith("nesting undecidable: op:PrimarySite / C6")
+
+
+@pytest.mark.unit
+def test_unknown_primary_routes_do_not_claim_a_sourced_limit_violation():
+    rows = [
+        {
+            "concept_code": "C1",
+            "axis": "op:PrimarySite",
+            "filler_code": filler,
+            "unknown_route": True,
+        }
+        for filler in ("C2", "C3")
+    ]
+    flags = _publication_flags(
+        cast("Any", rows),
+        (),
+        (),
+        (),
+        primary_sites=primary_site_values(cast("Any", rows)),
+    )
+    assert len(flags["C1"]) == 2
+    assert all(flag.reason.startswith("nesting undecidable:") for flag in flags["C1"])
+
+
+@pytest.mark.unit
+def test_histology_ambiguity_has_its_own_evidence_reason() -> None:
+    flags = _publication_flags(
+        cast(
+            "Any",
+            [
+                {
+                    "concept_code": "C1",
+                    "axis": "op:HistologyAnchor",
+                    "filler_code": "C99",
+                    "unknown_route": False,
+                }
+            ],
+        ),
+        (),
+        (),
+        (),
+        primary_sites={},
+    )
+    assert "incomparable" in flags["C1"][0].reason
+    assert "P334" in flags["C1"][0].reason
 
 
 @pytest.mark.unit
@@ -130,7 +220,14 @@ def test_publication_flags_include_a_missing_group_policy_pair() -> None:
     flags = _publication_flags(
         cast(
             "Any",
-            ({"concept_code": "C1", "axis": "op:PrimarySite", "filler_code": "C2"},),
+            (
+                {
+                    "concept_code": "C1",
+                    "axis": "op:PrimarySite",
+                    "filler_code": "C2",
+                    "unknown_route": True,
+                },
+            ),
         ),
         cast(
             "Any",
@@ -159,6 +256,7 @@ def test_publication_flags_include_a_missing_group_policy_pair() -> None:
                 },
             ),
         ),
+        primary_sites={},
     )
 
     assert {flag.kind for flag in flags["C1"]} == {
@@ -861,7 +959,8 @@ async def test_finish_run_sets_complete() -> None:
 
 
 @pytest.mark.unit
-async def test_completed_run_for_evidence_returns_validated_publication() -> None:
+@pytest.mark.parametrize("damage", [None, "source", "representation", "artifact"])
+async def test_completed_run_for_evidence_returns_validated_publication(damage) -> None:
     sf = _make_mock_sf()
     fingerprint = RunFingerprint(
         schema_version=7,
@@ -896,6 +995,21 @@ async def test_completed_run_for_evidence_returns_validated_publication() -> Non
     }
     worklist_result.scalars.return_value.all.return_value = ["C1"]
     sf().execute.side_effect = [run_result, worklist_result]
+
+    row = run_result.mappings.return_value.first.return_value
+    if damage is not None:
+        field = {
+            "source": "source_identity",
+            "representation": "representation_identity",
+            "artifact": "publication_artifact_path",
+        }[damage]
+        row[field] = "f" * 64 if damage == "source" else None
+        with pytest.raises(
+            (RunStateError, RunIdentityMismatchError),
+            match=r"source identity|publication evidence",
+        ):
+            await ProvenanceStore(sf).completed_run_for_evidence("run-1")
+        return
 
     completed = await ProvenanceStore(sf).completed_run_for_evidence("run-1")
 
@@ -943,7 +1057,10 @@ async def test_published_evidence_reader_rejects_a_rehearsal() -> None:
 
 
 @pytest.mark.unit
-async def test_oracle_metrics_reader_returns_only_a_completed_rehearsal() -> None:
+@pytest.mark.parametrize(
+    "damage", [None, "missing", "running", "published", "nonce", "source"]
+)
+async def test_oracle_metrics_reader_returns_only_a_completed_rehearsal(damage) -> None:
     sf = _make_mock_sf()
     fingerprint = RunFingerprint(
         schema_version=7,
@@ -977,6 +1094,27 @@ async def test_oracle_metrics_reader_returns_only_a_completed_rehearsal() -> Non
     }
     worklist_result.scalars.return_value.all.return_value = ["C1"]
     sf().execute.side_effect = [run_result, worklist_result]
+
+    row = run_result.mappings.return_value.first.return_value
+    if damage is not None:
+        if damage == "missing":
+            run_result.mappings.return_value.first.return_value = None
+        elif damage == "running":
+            row["status"] = "running"
+        elif damage == "published":
+            row["publication_state"] = "published"
+        elif damage == "source":
+            row["source_identity"] = "f" * 64
+        else:
+            changed = fingerprint.model_copy(update={"rehearsal_nonce": None})
+            row["fingerprint"] = changed.model_dump(mode="json")
+            row["fingerprint_sha256"] = changed.identity
+        with pytest.raises(
+            (RunStateError, RunIdentityMismatchError),
+            match=r"does not exist|unpublished|not a rehearsal|source identity",
+        ):
+            await ProvenanceStore(sf).completed_rehearsal_for_oracle_metrics("run-1")
+        return
 
     completed = await ProvenanceStore(sf).completed_rehearsal_for_oracle_metrics(
         "run-1"

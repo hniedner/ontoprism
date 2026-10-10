@@ -5,13 +5,20 @@ from itertools import product
 from typing import Protocol
 
 from ontolib.decomposition import vocab
+from ontolib.decomposition.axis_diagnostics import read_axis_diagnostic_source
+from ontolib.decomposition.histology_anchor import HistologyAnchors, read_p334_values
 from ontolib.decomposition.read_queries import (
     build_compact_decomposition_query,
     build_publication_progress_query,
 )
+from ontolib.decomposition.source_support import ConstituentEvidence
 
 
 class _SelectClient(Protocol):
+    async def select_once(
+        self, query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str]]: ...
+
     async def select(
         self,
         query: str,
@@ -25,6 +32,19 @@ class DecompositionReader:
 
     def __init__(self, client: _SelectClient) -> None:
         self._client = client
+
+    async def histology_evidence(
+        self, evidence: list[ConstituentEvidence], source_identity: str
+    ) -> list[ConstituentEvidence]:
+        """Recompute P334 support from the configured stated source, not the label."""
+        source = await read_axis_diagnostic_source(self._client, source_identity)
+        anchors = HistologyAnchors(
+            source.snapshot, await read_p334_values(self._client)
+        )
+        return [
+            anchors.support(item) if item.axis_source == "p334" else item
+            for item in evidence
+        ]
 
     async def rows_for(self, concept_code: str) -> list[dict[str, str]]:
         """Return decomposition rows for one injection-safe NCIt code."""

@@ -10,7 +10,7 @@ from rdflib import Literal, URIRef
 from rdflib.namespace import OWL, RDFS
 
 from ontolib.decomposition import vocab
-from ontolib.decomposition.axes import MORPHOLOGY_AXIS
+from ontolib.decomposition.axes import TOLD_GENUS_AXIS
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import (
     CompleteDefinition,
@@ -34,7 +34,7 @@ async def test_single_decomposition_writes_to_file(tmp_path: Path) -> None:
             constituents=[
                 Constituent(axis="R88", filler_code="C27970", axis_source="role"),
                 Constituent(
-                    axis=MORPHOLOGY_AXIS,
+                    axis=TOLD_GENUS_AXIS,
                     filler_code="C36761",
                     axis_source="parent",
                     most_specific=True,
@@ -291,7 +291,7 @@ async def test_writer_output_is_valid_turtle(tmp_path: Path) -> None:
             constituents=[
                 Constituent(axis="R88", filler_code="C27970", axis_source="role"),
                 Constituent(
-                    axis=MORPHOLOGY_AXIS,
+                    axis=TOLD_GENUS_AXIS,
                     filler_code="C36761",
                     axis_source="parent",
                     most_specific=True,

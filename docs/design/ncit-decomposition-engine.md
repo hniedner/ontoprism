@@ -124,7 +124,7 @@ ncit:C6135 op:representationStatus "legacy-precoordinated" ;
            op:hasConstituent [ op:axis op:StageSystem ; op:sourceRole ncit:R88 ; op:filler ncit:C90530 ; op:axisSource "role" ] ;  # AJCC v7
            op:hasConstituent [ op:axis op:PrimarySite ; op:sourceRole ncit:R101 ; op:filler ncit:C12400 ; op:axisSource "role" ; op:mostSpecific true ] ;  # Thyroid Gland
            op:hasConstituent [ op:axis op:CellType ; op:sourceRole ncit:R105 ; op:filler ncit:C36761 ; op:axisSource "role" ; op:mostSpecific true ] ;  # Neoplastic Neuroendocrine Cell
-           op:hasConstituent [ op:axis op:Morphology ; op:filler ncit:C… ; op:axisSource "parent" ] .  # Medullary Carcinoma
+           op:hasConstituent [ op:axis op:ToldGenus ; op:filler ncit:C… ; op:axisSource "parent" ] .  # retained genus
 ```
 
 ### 4.3 Reversibility & caDSR preservation
@@ -252,6 +252,18 @@ projected but deliberately does not contribute a defining detector axis; optiona
 
 ## 6. Filler selection — routed-axis specificity (`filler_selection.py`)
 
+**Assessment, not atomicity (D102/#469):**
+`pdm run corpus-shape --run <id> --endpoint-assessment <source-manifest>` adds a
+read-only six-category endpoint evidence report. `--against` assesses both runs
+independently against the matching configured source. D37's stored count, unknown
+count and rate are printed unchanged with their detector identity. Current range
+and P334 evidence are recomputed; failure to verify the source aborts the report.
+Range-valid endpoints are not declared terminal. Source-qualified anchors can
+still be ambiguous. Both source-anchor absence/ambiguity and emitted-anchor
+absence/multiplicity are shown, including for historical runs that emitted none.
+The report retains overlapping review flags and whole-concept outcomes; its
+category counts are endpoint counts, not a composite score or expert acceptance.
+
 The core engineering. For each projectable positive source restriction of a candidate,
 route it to an axis and choose the intended
 filler or preserve unresolved co-equal fillers without silently discarding them.
@@ -264,7 +276,20 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
 - **Projection filter:** `Excludes_*` negative axioms and optional R89/R111–R116
   `May_Have_*` roles are removed before selection (§5). Projectable non-defining `R103`
   is retained in the curated projection but does not help a concept pass the detector.
-- **Morphology-from-parent:** morphology is not a role; it is carried by the taxonomic parent (e.g. `C6135`'s parent *Medullary Carcinoma*). The `op:Morphology` axis filler is derived from the nearest named parent whose semantic type is a morphology/neoplasm-by-morphology type, tagged `op:axisSource "parent"`.
+- **ToldGenus (#467):** retain the existing nearest non-qualifier named genus values,
+  without new collapse, tagged `op:axisSource "parent"`. This is a disease-class
+  projection, not pure morphology; selection does not require a morphology semantic type.
+- **HistologyAnchor (#467):** independently select self or strict most-specific told
+  ancestors carrying a P334 matching `[0-9]{4}/[0-3]`. The shared production named
+  subclass/definition-genus hierarchy supplies ancestry; no composite SPARQL closure.
+  Emit all incomparable minima with review flags; absent anchors have a publication
+  reason. Retain coarse carriers. Any eligible annotation qualifies the carrier;
+  malformed and other-behavior values do not qualify but remain visible evidence.
+  `axisSource="p334"` has no invented role or direct genus-fact link. Read-time evidence
+  recomputes the path and annotation values against the run's source; Turtle carries
+  the emitted carriers' P334 annotations. This is not an equivalence mapping.
+  Historical grouping decisions retain their original Morphology coordinates and
+  identity; the application maps the unchanged ToldGenus relation to those coordinates.
 - **Anatomy validation:** location specificity uses NCIt's own is-a plus bounded
   transitive `R82` part-of hierarchy. Unresolved ordinary axes receive `needs_review`;
   ambiguous routed region and stage-system values are retained as grouped,

@@ -12,5 +12,6 @@
 {/if}
 {#if c.axis_ambiguous}<span class="text-xs text-subtle">Ambiguous axis</span>{/if}
 <ReviewBadge visible={c.needs_review} />
+{#if c.axis_source === 'p334'}<span class="text-xs text-muted">NCIt P334 histology anchor</span>{/if}
 {#if publicationStatus}<span class="text-xs">{publicationStatus}</span>{/if}
 {#if c.filler.startsWith('MINT-')}<span class="text-xs">mint-filler: proposed filler</span>{/if}
