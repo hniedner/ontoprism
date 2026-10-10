@@ -1,12 +1,10 @@
 # Repository release changes and enhancement carry-forward (#490)
 
-**Status: measurements and carry-forward proposal ready for owner approval.**
-The owner has decided the tooling choice below; approval of the full design remains
-pending.
+**Status: owner-approved design**, subject to the completion conditions in
+[#490 comment 6101202146](https://github.com/hniedner/ontoprism/issues/490#issuecomment-6101202146).
 No source activation or automatic carry-forward is authorized by this document.
-The design must be approved before #491 and the implementation adjustments to
-#492–#494. Existing source stores, historical curator decisions and completed run
-artifacts remain unchanged.
+Proposed #491–#494 and #347 contract edits require separate owner approval.
+Existing source stores, historical decisions and completed artifacts remain unchanged.
 
 ## Simplest path first: full re-derivation, not an incremental engine
 
@@ -89,10 +87,8 @@ certified publisher inputs, not arbitrary uploaded XML. This is a scoped future
 tool-execution requirement, not permission to weaken runtime/CI defaults globally.
 Keep the launcher unchanged during #490 as the owner directed.
 
-The original 5–20 minute / 3–6 GiB RSS estimate was wrong: the successful invocation
-was faster and used substantially more memory. Tiny-fixture memory did not predict
-full OWLAPI parsing requirements. Heap size is not process RSS. A single successful
-run establishes feasibility, not repeatability or an upper bound.
+The 5–20 minute / 3–6 GiB estimate was wrong: faster, but more memory. Heap is not
+RSS; one success establishes feasibility, not repeatability or an upper bound.
 
 The completed report is **6,340,567 bytes, 25,162 lines**; retain it, never overwrite
 it for a rerun. Agent read-only census reconciles every entry:
@@ -108,14 +104,10 @@ it for a rerun. Agent read-only census reconciles every entry:
 |DatatypeDefinition|1|1|
 |**Total**|**3,544**|**21,615**|
 
-Logical change rows have 556 distinct named first-argument classes on the removed
-side and 1,849 on the added side, 1,874 in their union. These are whole-release
-report subjects, **not yet Neoplasm changed-definition counts**: they include new
-classes and OWL equivalence expressions whose members require structural handling.
-ROBOT supplies axiom-level additions/removals and ignores serialization differences;
-it does not establish the meaning of NCI merge/split events or independently prove
-that an overlay assertion remains supported. Do not replace structural expression
-parsing with regex extraction of filler codes from nested axioms.
+Logical rows name 556 removed-side / 1,849 added-side classes, union 1,874; these
+whole-release subjects include new classes, not just changed Neoplasm definitions.
+ROBOT axioms do not supply lifecycle meaning or prove overlay support. Nested
+expressions require structural parsing, not regex filler extraction.
 
 ## Publisher history: documentation versus actual data
 
@@ -148,14 +140,11 @@ completed ROBOT report and publisher monthly history to source hierarchy invento
 and the published v8 run `neoplasm-44721971-4466-4e2a-8952-4ba06edc0025`.
 The public marker was checked before counting its flags. No store was activated.
 
-The diagnostic streams top-level named classes from each certified stated RDF/XML
-file, reading direct named subclass edges and named members of equivalent-class
-intersections. All observed genus lists use RDF Collection syntax (23,940 / 24,164).
-It reuses production `scope.descendant_codes` for strict C3262 descendants. The
-26.07d edge set and scope exactly match production `read_scope_hierarchy_edges`;
-the 26.09d scope is file-derived, not yet verified against a served sibling store.
-This is a scope/impact adapter, not a second OWL axiom differ: logical changes come
-from ROBOT's SubClassOf and EquivalentClasses rows. It does not flatten restrictions.
+The diagnostic streams direct named subclass and equivalent-intersection genus
+edges from stated RDF/XML (23,940 / 24,164 RDF Collections), reusing production
+`scope.descendant_codes`. The 26.07d edges exactly match the production reader;
+26.09d is file-derived, not yet checked against a served sibling. Logical changes
+come from ROBOT, not a second axiom differ; restrictions are not flattened.
 
 | Inventory | 26.07d | 26.09d |
 |---|---:|---:|
@@ -177,14 +166,11 @@ axioms and four removed / five added SubClassOf axioms, including new concepts.
 
 ### Published outcomes and attached flags touched
 
-The existing run has 15,633 outcomes, of which 14,884 are decomposed. Its served
-graph has 11,375 review flags on 6,233 concepts. For each change set, count subjects
-by three joins: (a) subject itself changed, (b) a stored definition fact's
-`anchor_code` changed, or (c) an emitted `filler_code` changed. Deduplicate subjects
-before counting their published flags. These are **re-examination candidates**, not
-assertions that every inherited fact or attached flag became invalid. This census
-does not yet cover all hierarchy paths, range witnesses, P334 annotation changes,
-or dependencies on facts absent from the stored projection.
+The run has 15,633 outcomes / 14,884 decompositions and 11,375 flags on 6,233 concepts.
+Join changed subject, stored fact `anchor_code`, or emitted `filler_code`; deduplicate
+subjects before counting flags. These are **re-examination candidates**, not invalid
+assertions. Unrecorded dependencies, hierarchy/range paths and P334 annotation
+changes are not exhaustively covered by these joins.
 
 |Change set|Changed codes|Direct outcomes / decomposed|Union outcomes / decomposed|Union flagged concepts|Attached flags on union|
 |---|---:|---:|---:|---:|---:|
@@ -226,34 +212,21 @@ filler or stored source-anchor reference. Shared dependants explain why individu
 rows sum to more than the deduplicated retirement union of 79 outcomes / 38 flags.
 Publisher merge targets do not themselves authorize semantic rebinding.
 
-AnnotationAssertion impact is **not yet measured**: ROBOT also emits nested axiom
-annotations, which a simple first-subject regex does not fully handle. Preliminary
-annotation-only counts were discarded. This limitation must be resolved for complete
-P334/provenance carry-forward; it does not alter the logical-definition counts above.
+AnnotationAssertion impact is **not measured**: nested axiom annotations defeated
+simple subject extraction, so preliminary counts were discarded. Future human
+P334/provenance carry-forward must resolve this; logical counts above are unaffected.
 
 ## OAK/KGCL evaluation: full-pair timeout and tooling decision
 
-Estimate posted on #490 before execution: 10–30 minutes full comparison, 8–24 GiB
-RSS planning range, 60-minute timeout. Isolated installation:
-`tmp/issue-490-oak-venv`, OAK 0.7.4, Pronto 2.7.3, fastobo 0.14.1,
-kgcl-schema 0.7.0, kgcl-rdflib 0.5.0, RDFLib 7.6.0, Python 3.14.
-The installed dependency inventory is available via the read-only diagnostic
-`tmp/scratch/issue490_oak_inspect.py`. Neither project dependencies nor ROBOT's
-launcher were changed. Evaluation HOME/PYSTOW_HOME point to dedicated tmp paths.
-
-Installed `runoak diff --help` explicitly says it does not diff every axiom and
-recommends ROBOT for complete OWL comparison. Selector discovery found that `rdf:`
-is invalid; explicit `rdflib:path` was interpreted as an endpoint; a plain local
-Turtle selector loads but its SPARQL adapter lacks DifferInterface. These are
-sample setup failures, not observations about full NCIt loading.
-
-Using explicit `pronto:` local RDF/XML inputs, the small sample completed in
-2.52 seconds, maximum RSS 224,395,264 bytes. It covers the earlier fixture's new
-class/parent and existential replacement, plus an old/new label, using synthetic
-URN identifiers. Actual output: one ClassCreation, one NodeRename, one EdgeDeletion
-and one NodeMove. The added class's parent edge is absent from this output. NodeMove
-represents the added restriction edge here; it must not be read as a code migration.
-This is already a counterexample to treating event counts as ROBOT axiom counts.
+Estimate posted first: 10–30 minutes, 8–24 GiB RSS, 60-minute timeout. Isolated
+`tmp/issue-490-oak-venv`: OAK 0.7.4, Pronto 2.7.3, fastobo 0.14.1, kgcl-schema
+0.7.0, kgcl-rdflib 0.5.0, RDFLib 7.6.0, Python 3.14; HOME/PYSTOW_HOME under tmp/.
+No project dependency or launcher changes. `runoak diff --help` recommends ROBOT
+for complete OWL diffs. Sample selector failures (`rdf:`, endpoint-style `rdflib:`,
+Turtle adapter without DifferInterface) did not test full NCIt.
+The Pronto RDF/XML sample took 2.52 s / 224,395,264 bytes RSS: one ClassCreation,
+NodeRename, EdgeDeletion and NodeMove each. It omitted the new class's parent edge;
+NodeMove represented an added restriction edge, not semantic code migration.
 
 |Question|ROBOT evidence|OAK/KGCL evidence so far|
 |---|---|---|
@@ -263,48 +236,30 @@ This is already a counterexample to treating event counts as ROBOT axiom counts.
 |Existential replacement|Removed/added ObjectSomeValuesFrom axioms|EdgeDeletion + NodeMove observed; not full expression preservation evidence|
 |Retirement / merge|Publisher history supplies lifecycle meaning|KGCL has event types, but recognition of NCIt P310/history is unverified|
 
-The agent's background launch was denied before execution. The owner launched
-attempt 1 at **2026-10-10T17:30:04Z**, runoak PID 4365, with the planned timeout.
-The measured command inside the owner's background job was:
+After the agent's launch was denied, the owner launched attempt 1 at
+**2026-10-10T17:30:04Z**, PID 4365, with the following timed command:
 
 ```bash
 HOME="$PWD/tmp/issue-490-oak-home" PYSTOW_HOME="$PWD/tmp/issue-490-oak-cache" /usr/bin/time -l gtimeout --kill-after=30s 3600s tmp/issue-490-oak-venv/bin/runoak -i pronto:data/ncit-owl/Thesaurus-stated.owl diff -X pronto:tmp/issue-490-ncit-26.09d/Thesaurus-stated.owl -O json
 ```
 
-**Tooling finding:** OAK 0.7.4 via Pronto did not complete the full stated-NCIt
-26.07d → 26.09d diff within **60 minutes on this machine**. The retained exit file
-records **124** from gtimeout; stderr records **3,600.17 s real, 3,582.66 s user,
-12.68 s sys**, maximum RSS **8,458,715,136 bytes**, and two signals received.
-These are owner-run measurements, inspected by the agent in the retained files.
-The owner reports that the processes exited; the agent did not signal or relaunch them.
+**Finding:** OAK/Pronto did not complete this pair within **60 minutes on this
+machine**. Retained owner-run evidence: exit **124**, **3,600.17 s real**, 3,582.66 s
+user, 12.68 s sys, **8,458,715,136 bytes RSS**, two signals. Agent inspected the
+files; owner confirmed process exit. Partial JSON: **123,194 bytes / 645
+ClassCreation tokens**, incomplete array; all output by 17:31Z, then 59 minutes
+without output. Warning: `cannot process plain owl:AnnotationProperty`. No full
+rename/obsoletion/merge coverage or axiom-count parity was demonstrated.
+Owner sampling showed entity-generator set construction before the relationship
+pool; Python line-level cause is **not verified**. This does not prove an infinite
+loop or failure of every adapter. **No retry or OAK repair**, per owner; retain
+`tmp/issue-490-oak-runs/full-attempt-1.*` unchanged, never repair partial JSON.
+**Decision:** ROBOT with measured JVM settings plus NCI monthly history; #491
+derives display events from these, **no OAK dependency**. Label assertion pairs
+can explain renames; publisher history explains lifecycle, not identity. The OAK
+runtime estimate was exceeded; 60 minutes is a failure bound, not a successful time.
 
-`tmp/issue-490-oak-runs/full-attempt-1.json` is **123,194 bytes**, with 645
-ClassCreation type tokens in an **incomplete JSON array**. It is not a valid change
-report: do not repair the array and count it as completed coverage. The owner reports
-all output appeared by 17:31Z, with no later output for 59 minutes. Stderr includes
-Pronto's `NotImplementedWarning: cannot process plain owl:AnnotationProperty`.
-The partial 645 events cannot be substituted for the 1,049 new named classes or
-ROBOT's 3,544 / 21,615 axiom counts. Full-pair rename, obsoletion and merge event
-coverage was not demonstrated.
-
-Owner diagnosis evidence: one process remained near 100% CPU, without pool workers;
-a macOS sample around 20 minutes showed set construction from a Pronto entity
-generator with per-entity object/weakref creation, before the relationship pool
-step. Python line-level cause is **not verified**. This is a bounded runtime failure,
-not proof of an infinite loop or failure of every OAK adapter. Retain stdout, stderr
-and exit files unchanged. **No retry**, by owner decision: there is no diagnosed
-cause to change. Repairing or contributing to OAK is outside #490.
-
-**Owner tooling decision:** use **ROBOT with the measured JVM settings** for the
-complete axiom diff and **NCI monthly history** for lifecycle. #491 derives any
-human-readable change events from those two inputs; **no OAK dependency**. A rename
-may summarize a label assertion removal/addition on a stable code; retirement and
-merge meaning comes from publisher history, not inferred identity. Preserve the
-underlying axiom/event evidence and do not imply an exhaustive KGCL mapping where
-none was measured. The 10–30 minute OAK forecast was exceeded; the 60-minute timeout
-is the observed limit, not a successful runtime.
-
-## Proposed carry-forward rules — owner approval required
+## Approved carry-forward rules
 
 The overlay principle is proposed, not an authorization to implement new storage:
 official sources remain immutable. Separate the historical curator decision from
@@ -353,7 +308,7 @@ Evidence citations, author/rationale, lifecycle and original decision must remai
 separate from candidate-release applicability and any proposed successor binding.
 The exact migration/tables/file formats remain subject to separate issue approval.
 
-### Proposed refresh sequence and activation boundary
+### Shared refresh sequence and activation boundary
 
 1. Prepare and certify an inactive candidate; retain the active source. Obtain
    publisher history, compare actual source facts, and reject conflicting releases.
@@ -376,14 +331,60 @@ The exact migration/tables/file formats remain subject to separate issue approva
    the old generation for authorized recovery. Apply analogous candidate/certify/
    generation activation to Uberon and ICD-O without mixing publisher releases.
 
-## Remaining design evidence and decisions
+## Publisher-specific evidence and refresh sequences
+
+Read-only configured-store census: `pdm run python tmp/scratch/issue490_publishers.py`.
+SQLite opened with `mode=ro`; Postgres transaction read-only; QLever SELECT only.
+These are installed release facts, not claims about newer publisher releases.
+
+|Publisher supplies / configured observation|What ONTOPRISM must compute|
+|---|---|
+|Uberon OWL version IRI `.../releases/2026-06-19/uberon.owl`, `owl:deprecated` and `IAO:0100001` replacement assertions. Among UBERON-prefixed terms: **1,387 obsolete**, **535 with replacement**, **852 without**, **0 multiple replacements**. Imported CL terms excluded from these counts.|Compare versioned axioms/annotations and affected mappings; validate replacement targets/ranges, detect missing or conflicting successors. A replacement is not identity or automatic mapping approval.|
+|caDSR versioned CDE export: configured `cdes` has composite key **public_id/version**, both TEXT; workflow_status and registration_status are separate fields. **79,835 rows / 79,157 public IDs**, zero null version/workflow values. Versions include `1`, `1.1`, `2.31`, `16` (not safely parsed as floats).|Compare version-qualified CDE semantics, permissible values and NCIt anchors. Distinguish missing-from-export from retirement; publisher status and comparison evidence decide lifecycle. Version ordering requires defined semantics, not numeric guessing.|
+|ICD-O generation manifests identify **edition, axis, publisher URL, source artifact and reader**, not just a printed code. Active **3.2 morphology: 1,143**, **4.0 morphology: 2,390**, **4.0 topography: 406** records; no 3.2 topography generation. Publisher URLs identify IACR 3.2 and IARC's `/icd-o-4/` distribution.|Compare edition/axis-qualified code presence, terms, behavior and notes; revalidate NCIt P334 support against the applicable edition. No monthly lifecycle feed was established in these configured sources; do not invent merge/split events from missing codes.|
+
+caDSR workflow counts: RELEASED **60,301**, RETIRED ARCHIVED **16,845**, DRAFT NEW
+**2,595**, DRAFT MOD **93**, RELEASED-NON-CMPLNT **1**. Registration includes both
+publisher spellings `Superceded` (638) and `Superseded` (112), and `Retired` (24);
+do not conflate registration with workflow retirement. Compare raw statuses as well
+as any explicitly approved normalization. The export is not an exhaustive history.
+
+Each repository has a candidate phase ending in a report and owner release decision;
+only explicit subsequent activation exposes the new generation, followed by a final
+report. Failure before activation leaves the active generation untouched.
+
+- **NCIt:** download/certify stated+inferred pair → existing offline sibling builder
+  → ROBOT axiom delta + monthly history → full Neoplasm re-derivation at baseline
+  engine version → human-only applicability checks → candidate search/export and
+  smoke/readiness → report and owner release decision → journaled coherent
+  source/overlay activation → readiness/recovery check and final report.
+- **caDSR:** download source archive to a separate candidate path → existing
+  `cadsr.build` database/FTS/provenance validation → compare public ID/version,
+  workflow and anchors against active NCIt → recompute generated links and check
+  any human decisions → certify dependent views/embeddings and smoke → report and
+  owner release decision → reuse `scripts/data_build.py::_build_cadsr`'s validated
+  candidate `.replace(destination)` path (same-filesystem SQLite replacement),
+  coordinating dependent overlay generations → reopen/certify readers and final
+  report. SQLite replacement alone is not atomic publication of Postgres overlays.
+- **Uberon:** obtain/certify pinned OWL → build inactive index via existing
+  `uberon.store` → compare axioms, obsolete/replacement annotations and affected
+  mappings/ranges → recompute derived evidence, check human applicability → candidate
+  search/smoke/readiness → report and owner release decision → coherent source and
+  mapping-view activation with retained recovery index → verify and final report.
+- **ICD-O:** obtain entitled edition-specific workbook/annexes → existing ingest
+  format validation and generation certification → compare each edition/axis's
+  records and P334 uses → recompute derived support, queue unresolved human items
+  → candidate access-policy/search/smoke checks → report and owner release decision
+  → existing active-generation publication coordinated with overlay views → verify
+  edition/axis/readiness and final report. Preserve entitlement and source provenance.
+
+## Implementation follow-through (contracts await owner approval)
 
 - For future human decisions, resolve support checks for annotation and hierarchy/
   range dependencies beyond the measured joins; do not build incremental engine
   re-derivation. No human release-overlay decisions need migration before G1.
 - Implement the owner's ROBOT-plus-history choice in #491 without adding OAK;
   handle nested axiom structures explicitly when deriving display events.
-- Validate and obtain approval of the proposed rules, ledger requirements and
-  repository refresh sequence above. No persistence is approved by this draft.
-- Obtain the owner's design approval and then adjust #492–#494 accordingly before
-  implementing the read-only release-delta command in #491.
+- Submit proposed #491–#494 and #347 contract edits together; do not edit issues
+  without owner approval. No schema, persistence, launcher or dependency changes
+  are authorized by the design approval.
