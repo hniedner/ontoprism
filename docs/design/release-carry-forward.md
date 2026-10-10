@@ -6,6 +6,35 @@ The design must be approved before #491 and the implementation adjustments to
 #492–#494. Existing source stores, historical curator decisions and completed run
 artifacts remain unchanged.
 
+## Simplest path first: full re-derivation, not an incremental engine
+
+Owner direction (October 10, 2026): a full Neoplasm run takes about **33 minutes**
+(the v8 publication took 1,968.20 seconds). **Always fully re-derive engine output
+on the candidate release**, including outcomes, constituents, generated flags and
+machine-derived evidence. The change census explains the release and informs human
+review; it must not select a subset of concepts for engine execution. #491–#494
+must not introduce incremental re-derivation machinery or an engine dependency
+invalidation service on the strength of this design.
+
+Dependency-closure impact tracking is needed **only for human decisions**: curator
+decisions, human flag dispositions and human-reviewed evidence. Per the owner,
+none of this release-overlay human curation exists before G1. Before G1, report
+that inventory as empty and re-derive the entire candidate corpus; do not build
+incremental machinery for a future inventory. Historical development/oracle
+decisions remain retained records, not evidence that G1 curation has occurred.
+When human decisions exist, check their full support before carrying applicability
+forward; unchanged codes or unchanged emitted pairs alone are insufficient.
+
+**Pin the comparison engine.** Candidate-release re-derivation uses the engine
+version of the baseline run it is compared with, including its versioned rules,
+policy inputs and run configuration. Only the source release changes in that
+before/after. An engine upgrade is a separate, explicitly versioned run; do not
+compare an upgraded engine on a new release against the old baseline and attribute
+the combined difference to source change. If the baseline engine/configuration
+cannot be reproduced on the candidate, report the blocked comparison rather than
+silently substituting the current engine. The measured 33 minutes is a planning
+reference, not a candidate-release runtime guarantee.
+
 ## Measured release pair
 
 Compare certified **stated** NCIt 26.07d and 26.09d OWL, not inferred closure.
@@ -200,19 +229,136 @@ annotations, which a simple first-subject regex does not fully handle. Prelimina
 annotation-only counts were discarded. This limitation must be resolved for complete
 P334/provenance carry-forward; it does not alter the logical-definition counts above.
 
+## OAK/KGCL evaluation: sample evidence, full pair pending
+
+Estimate posted on #490 before execution: 10–30 minutes full comparison, 8–24 GiB
+RSS planning range, 60-minute timeout. Isolated installation:
+`tmp/issue-490-oak-venv`, OAK 0.7.4, Pronto 2.7.3, fastobo 0.14.1,
+kgcl-schema 0.7.0, kgcl-rdflib 0.5.0, RDFLib 7.6.0, Python 3.14.
+The installed dependency inventory is available via the read-only diagnostic
+`tmp/scratch/issue490_oak_inspect.py`. Neither project dependencies nor ROBOT's
+launcher were changed. Evaluation HOME/PYSTOW_HOME point to dedicated tmp paths.
+
+Installed `runoak diff --help` explicitly says it does not diff every axiom and
+recommends ROBOT for complete OWL comparison. Selector discovery found that `rdf:`
+is invalid; explicit `rdflib:path` was interpreted as an endpoint; a plain local
+Turtle selector loads but its SPARQL adapter lacks DifferInterface. These are
+sample setup failures, not observations about full NCIt loading.
+
+Using explicit `pronto:` local RDF/XML inputs, the small sample completed in
+2.52 seconds, maximum RSS 224,395,264 bytes. It covers the earlier fixture's new
+class/parent and existential replacement, plus an old/new label, using synthetic
+URN identifiers. Actual output: one ClassCreation, one NodeRename, one EdgeDeletion
+and one NodeMove. The added class's parent edge is absent from this output. NodeMove
+represents the added restriction edge here; it must not be read as a code migration.
+This is already a counterexample to treating event counts as ROBOT axiom counts.
+
+|Question|ROBOT evidence|OAK/KGCL evidence so far|
+|---|---|---|
+|Complete axiom additions/removals|3,544 / 21,615 on actual pair|Owner's full attempt in progress; no matching-count claim|
+|Label rename|AnnotationAssertion removal/addition|Explicit NodeRename observed on sample|
+|New named class and parent|Separate declaration and subclass axioms|ClassCreation observed; new class parent edge omitted on sample|
+|Existential replacement|Removed/added ObjectSomeValuesFrom axioms|EdgeDeletion + NodeMove observed; not full expression preservation evidence|
+|Retirement / merge|Publisher history supplies lifecycle meaning|KGCL has event types, but recognition of NCIt P310/history is unverified|
+
+The agent's background launch was denied before execution. The **owner subsequently
+launched attempt 1 at 2026-10-10T17:30:04Z**, runoak PID 4365, with the planned
+60-minute timeout and `/usr/bin/time -l`. This is the owner's job: the agent must
+not launch another attempt or signal it. The owner will relay its exit code, time
+output and files. No full-pair conclusion is available yet.
+
+Owner-reported interim observations, **not a verdict**: a Pronto warning says it
+cannot process plain owl:AnnotationProperty; partial JSON was 123,194 bytes with
+645 ClassCreation events and no further output since 17:31Z. RSS peaked near
+7.9 GiB, later 6.9–7.3 GiB, with one busy process and no pool workers. A macOS sample
+points to set construction from a Pronto entity generator before the relationship
+pool step; the line-level cause is **not verified**. Partial events do not establish
+complete class coverage, and inactivity in the output does not prove a hang.
+Preserve the first result; at most one documented retry may follow a diagnosed
+cause. Repairing or contributing to OAK is outside #490. The final OAK/KGCL-versus-
+ROBOT recommendation remains open until the owner's result is reconciled.
+
+## Proposed carry-forward rules — owner approval required
+
+The overlay principle is proposed, not an authorization to implement new storage:
+official sources remain immutable. Separate the historical curator decision from
+its applicability to a candidate release. Unchanged codes alone do not prove
+unchanged support. Incomplete or conflicting dependency information goes to review.
+
+|Overlay item / source change|Proposed outcome|Required check or review reason|
+|---|---|---|
+|Engine output, with any source change or none|Fully re-derive the entire candidate Neoplasm scope with the baseline engine version|Never use dependency impact to select incremental engine work; engine upgrades are separate runs|
+|Curator decision, all supporting assertions and applicable policy unchanged|Carry decision unchanged, scoped to candidate release|Check structured assertion/group context, source semantics and policy applicability|
+|Supporting restriction, parent, group structure, range witness or provenance changes|Re-derive engine assertion; return affected human decision to needs-SME|Name changed support and retain old rationale; do not retain an approval on a different assertion|
+|Label-only change on a stable code|Carry nonlexical decision if its support is unchanged; refresh display label|Re-derive lexical/NLP-dependent assertions instead of assuming label independence|
+|New concept or existing concept enters scope|Derive new outcome and evidence|No old decomposition to carry; do not infer acceptance from an adjacent concept|
+|Concept exits scope but remains active|Keep historical decision; mark inapplicable to this scope|Explicit scope-exit reason, no silent deletion|
+|Concept retires without a unique supported successor|Keep historical item, queue unresolved successor|Retired code is not a current assertion endpoint|
+|Publisher merge with one surviving code|Propose rebinding; re-derive and check support; needs-SME unless equivalence of this assertion's support is established|Merge history identifies survivor but does not establish interchangeability of every old assertion|
+|Publisher split|Re-derive candidates; needs-SME for target selection|Original code survives; neither it nor a new branch inherits approval by default|
+|P334 anchor annotation or any relevant told path changes|Recompute all minima, absence and ambiguity; re-examine affected decisions|Anchor membership and uniqueness depend on the candidate set, not only one retained path|
+|Per-assertion evidence / external range evidence|Recheck source assertion and applicability; retain citation history|Evidence tier and source version remain explicit; provenance is not new evidence|
+|Generated review flag, cause disappears or changes|Recompute in the full run; separately reassess any human disposition|Do not copy old flags wholesale or treat disappearance as expert acceptance|
+|Proposal appears to be adopted upstream|Recognize adopted status only with verified structural release evidence|Labels or matching codes alone are insufficient; conflicting evidence goes to needs-SME|
+|Mapping endpoint or domain/range changes|Revalidate mapping; queue unresolved cases|No promotion to identity grade or automatic equivalence from release history|
+|caDSR CDE version/workflow changes|Compare the versioned CDE and relevant semantic fields; re-examine affected annotations|Public ID alone does not identify unchanged versioned support|
+|Uberon obsolete term / replacement changes|Use publisher replacement as a candidate, revalidate each assertion|Multiple replacements or changed range entail review, not guessed rebinding|
+|ICD-O edition/code meaning changes|Revalidate edition-qualified histology/behavior/topography support|Equal printed code across editions does not alone prove stable meaning|
+
+The human carry-forward rules are conditional: the impact census identifies
+candidate review cohorts, not proof that every untouched decision remains applicable.
+Human support checks must consider inherited facts and newly added candidates or
+paths that change minima. This dependency closure protects human decisions only;
+the engine recomputes all concepts regardless of the impact set. With the pre-G1
+human inventory empty, there are no such applicability decisions to carry forward.
+Flag and decision histories must remain visible even when their current applicability
+changes. Queue reports must give before/after counts by reason and axis, along with
+the evidence-supported share; no change is silently dropped.
+
+### Consequences for the ledger (#347), not a schema proposal
+
+For human decisions once they exist, the logical key must identify the subject,
+axis/relation, filler and the relevant
+source definition/group occurrence, plus source release and decision scope. Reuse
+existing structured provenance and policy records; run-local occurrence/group IDs
+alone are not a cross-release semantic key. Capture enough structural support to
+re-evaluate the assertion without declaring two internal artifacts identical by hash.
+Evidence citations, author/rationale, lifecycle and original decision must remain
+separate from candidate-release applicability and any proposed successor binding.
+The exact migration/tables/file formats remain subject to separate issue approval.
+
+### Proposed refresh sequence and activation boundary
+
+1. Prepare and certify an inactive candidate; retain the active source. Obtain
+   publisher history, compare actual source facts, and reject conflicting releases.
+2. Compute lifecycle, structural, annotation and scope changes for explanation.
+   Inventory human decisions; evaluate dependency closure only for those decisions,
+   recording unresolved support with reasons. Before G1, this inventory is empty.
+3. Fully re-derive all candidate Neoplasm engine outputs using the baseline run's
+   engine version, rules, policies and configuration. Recompute machine evidence
+   and flags; separately recheck human-reviewed evidence and decisions, if any.
+   Rebuild candidate search/export views from that same candidate. Report source
+   deltas at the pinned engine; perform any engine upgrade as a separate run.
+4. Report preserved/re-derived/rebound/review/adopted counts, queue and evidence
+   distributions. Obtain the owner's release decision; no source activation here.
+5. Activate one coherent source-plus-overlay generation. Existing NCIt journaled
+   activation and caDSR replacement provide building blocks, **not yet a guarantee
+   of atomic source/overlay activation across QLever and Postgres**. The approved
+   implementation must define a single visible generation and crash recovery rather
+   than claim a distributed transaction that does not exist.
+6. Verify readiness, source/overlay agreement and representative reads; preserve
+   the old generation for authorized recovery. Apply analogous candidate/certify/
+   generation activation to Uberon and ICD-O without mixing publisher releases.
+
 ## Remaining design evidence and decisions
 
-- Complete assertion-specific support impact, including annotation changes and
-  hierarchy/range dependencies beyond the measured stored-reference joins above.
-- Execute OAK/KGCL on samples and the real pair, measuring wall time/RSS and checking
-  whether its output preserves nested restrictions, named parents and annotations.
-  OAK is not installed in the application environment; capability/performance is
-  **not verified**. No recommendation to replace ROBOT is established yet.
-- Build the carry-forward table for each overlay kind and source change. Keep
-  publisher lifecycle evidence distinct from a semantic decision to rebind a code;
-  do not choose split successors heuristically or infer adoption from labels.
-- Determine ledger requirements (#347) and repository-specific refresh sequences,
-  using existing source certification/activation and provenance mechanisms rather
-  than parallel implementations. New persistence is not approved by this draft.
+- For future human decisions, resolve support checks for annotation and hierarchy/
+  range dependencies beyond the measured joins; do not build incremental engine
+  re-derivation. No human release-overlay decisions need migration before G1.
+- Await the owner's full OAK result and reconcile types/coverage against ROBOT,
+  including nested restrictions, named parents and annotations. Full-pair completion
+  and performance are **not verified**; no final OAK verdict is recorded.
+- Validate and obtain approval of the proposed rules, ledger requirements and
+  repository refresh sequence above. No persistence is approved by this draft.
 - Obtain the owner's design approval and then adjust #492–#494 accordingly before
   implementing the read-only release-delta command in #491.
