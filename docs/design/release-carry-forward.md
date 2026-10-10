@@ -1,6 +1,8 @@
 # Repository release changes and enhancement carry-forward (#490)
 
-**Status: measurement record and design in progress; not owner-approved.**
+**Status: measurements and carry-forward proposal ready for owner approval.**
+The owner has decided the tooling choice below; approval of the full design remains
+pending.
 No source activation or automatic carry-forward is authorized by this document.
 The design must be approved before #491 and the implementation adjustments to
 #492–#494. Existing source stores, historical curator decisions and completed run
@@ -229,7 +231,7 @@ annotations, which a simple first-subject regex does not fully handle. Prelimina
 annotation-only counts were discarded. This limitation must be resolved for complete
 P334/provenance carry-forward; it does not alter the logical-definition counts above.
 
-## OAK/KGCL evaluation: sample evidence, full pair pending
+## OAK/KGCL evaluation: full-pair timeout and tooling decision
 
 Estimate posted on #490 before execution: 10–30 minutes full comparison, 8–24 GiB
 RSS planning range, 60-minute timeout. Isolated installation:
@@ -255,28 +257,52 @@ This is already a counterexample to treating event counts as ROBOT axiom counts.
 
 |Question|ROBOT evidence|OAK/KGCL evidence so far|
 |---|---|---|
-|Complete axiom additions/removals|3,544 / 21,615 on actual pair|Owner's full attempt in progress; no matching-count claim|
+|Complete axiom additions/removals|3,544 / 21,615 on actual pair|Timed out; incomplete 645 ClassCreation events cannot be reconciled as a full axiom diff|
 |Label rename|AnnotationAssertion removal/addition|Explicit NodeRename observed on sample|
 |New named class and parent|Separate declaration and subclass axioms|ClassCreation observed; new class parent edge omitted on sample|
 |Existential replacement|Removed/added ObjectSomeValuesFrom axioms|EdgeDeletion + NodeMove observed; not full expression preservation evidence|
 |Retirement / merge|Publisher history supplies lifecycle meaning|KGCL has event types, but recognition of NCIt P310/history is unverified|
 
-The agent's background launch was denied before execution. The **owner subsequently
-launched attempt 1 at 2026-10-10T17:30:04Z**, runoak PID 4365, with the planned
-60-minute timeout and `/usr/bin/time -l`. This is the owner's job: the agent must
-not launch another attempt or signal it. The owner will relay its exit code, time
-output and files. No full-pair conclusion is available yet.
+The agent's background launch was denied before execution. The owner launched
+attempt 1 at **2026-10-10T17:30:04Z**, runoak PID 4365, with the planned timeout.
+The measured command inside the owner's background job was:
 
-Owner-reported interim observations, **not a verdict**: a Pronto warning says it
-cannot process plain owl:AnnotationProperty; partial JSON was 123,194 bytes with
-645 ClassCreation events and no further output since 17:31Z. RSS peaked near
-7.9 GiB, later 6.9–7.3 GiB, with one busy process and no pool workers. A macOS sample
-points to set construction from a Pronto entity generator before the relationship
-pool step; the line-level cause is **not verified**. Partial events do not establish
-complete class coverage, and inactivity in the output does not prove a hang.
-Preserve the first result; at most one documented retry may follow a diagnosed
-cause. Repairing or contributing to OAK is outside #490. The final OAK/KGCL-versus-
-ROBOT recommendation remains open until the owner's result is reconciled.
+```bash
+HOME="$PWD/tmp/issue-490-oak-home" PYSTOW_HOME="$PWD/tmp/issue-490-oak-cache" /usr/bin/time -l gtimeout --kill-after=30s 3600s tmp/issue-490-oak-venv/bin/runoak -i pronto:data/ncit-owl/Thesaurus-stated.owl diff -X pronto:tmp/issue-490-ncit-26.09d/Thesaurus-stated.owl -O json
+```
+
+**Tooling finding:** OAK 0.7.4 via Pronto did not complete the full stated-NCIt
+26.07d → 26.09d diff within **60 minutes on this machine**. The retained exit file
+records **124** from gtimeout; stderr records **3,600.17 s real, 3,582.66 s user,
+12.68 s sys**, maximum RSS **8,458,715,136 bytes**, and two signals received.
+These are owner-run measurements, inspected by the agent in the retained files.
+The owner reports that the processes exited; the agent did not signal or relaunch them.
+
+`tmp/issue-490-oak-runs/full-attempt-1.json` is **123,194 bytes**, with 645
+ClassCreation type tokens in an **incomplete JSON array**. It is not a valid change
+report: do not repair the array and count it as completed coverage. The owner reports
+all output appeared by 17:31Z, with no later output for 59 minutes. Stderr includes
+Pronto's `NotImplementedWarning: cannot process plain owl:AnnotationProperty`.
+The partial 645 events cannot be substituted for the 1,049 new named classes or
+ROBOT's 3,544 / 21,615 axiom counts. Full-pair rename, obsoletion and merge event
+coverage was not demonstrated.
+
+Owner diagnosis evidence: one process remained near 100% CPU, without pool workers;
+a macOS sample around 20 minutes showed set construction from a Pronto entity
+generator with per-entity object/weakref creation, before the relationship pool
+step. Python line-level cause is **not verified**. This is a bounded runtime failure,
+not proof of an infinite loop or failure of every OAK adapter. Retain stdout, stderr
+and exit files unchanged. **No retry**, by owner decision: there is no diagnosed
+cause to change. Repairing or contributing to OAK is outside #490.
+
+**Owner tooling decision:** use **ROBOT with the measured JVM settings** for the
+complete axiom diff and **NCI monthly history** for lifecycle. #491 derives any
+human-readable change events from those two inputs; **no OAK dependency**. A rename
+may summarize a label assertion removal/addition on a stable code; retirement and
+merge meaning comes from publisher history, not inferred identity. Preserve the
+underlying axiom/event evidence and do not imply an exhaustive KGCL mapping where
+none was measured. The 10–30 minute OAK forecast was exceeded; the 60-minute timeout
+is the observed limit, not a successful runtime.
 
 ## Proposed carry-forward rules — owner approval required
 
@@ -355,9 +381,8 @@ The exact migration/tables/file formats remain subject to separate issue approva
 - For future human decisions, resolve support checks for annotation and hierarchy/
   range dependencies beyond the measured joins; do not build incremental engine
   re-derivation. No human release-overlay decisions need migration before G1.
-- Await the owner's full OAK result and reconcile types/coverage against ROBOT,
-  including nested restrictions, named parents and annotations. Full-pair completion
-  and performance are **not verified**; no final OAK verdict is recorded.
+- Implement the owner's ROBOT-plus-history choice in #491 without adding OAK;
+  handle nested axiom structures explicitly when deriving display events.
 - Validate and obtain approval of the proposed rules, ledger requirements and
   repository refresh sequence above. No persistence is approved by this draft.
 - Obtain the owner's design approval and then adjust #492–#494 accordingly before
