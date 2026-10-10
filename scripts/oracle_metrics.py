@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -160,6 +161,13 @@ def score_pairs(oracle: list[ExpectedConcept], actual: list[StoredPair]) -> str:
         if c.expected is not None
         for r in c.expected.constituents
     }
+    covered_axes = {axis for _, axis, _ in expected}
+    scored = [r for r in actual if r.axis in covered_axes]
+    unscored = Counter(
+        (r.concept_code, r.axis)
+        for r in actual
+        if r.concept_code in codes and r.axis not in covered_axes
+    )
     official_expected = {
         (c.code, r.axis, r.filler)
         for c in accepted
@@ -169,12 +177,12 @@ def score_pairs(oracle: list[ExpectedConcept], actual: list[StoredPair]) -> str:
     }
     emitted = {
         (r.concept_code, r.axis, r.filler_code)
-        for r in actual
+        for r in scored
         if r.concept_code in codes
     }
     official_emitted = {
         (r.concept_code, r.axis, r.filler_code)
-        for r in actual
+        for r in scored
         if r.concept_code in codes
         and not r.needs_review
         and r.filler_code.startswith("C")
@@ -196,6 +204,11 @@ def score_pairs(oracle: list[ExpectedConcept], actual: list[StoredPair]) -> str:
                 _rate(prefix + "exact_pair_recall", len(wanted & got), len(wanted)),
             ]
         )
+    lines.append("pair_score_scope=axes present in the accepted oracle cohort")
+    lines.extend(
+        f"unscored: no oracle axis; concept={code}; axis={axis}; count={count}"
+        for (code, axis), count in sorted(unscored.items())
+    )
     return "\n".join([*lines, *_partitions(accepted, actual)])
 
 
