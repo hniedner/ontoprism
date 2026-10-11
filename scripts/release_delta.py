@@ -104,7 +104,7 @@ def history_windows(releases, readmes):
 
 
 class ReleaseSource(StrictFrozenBoundaryModel):
-    manifest: Path
+    manifest: Path = Field(strict=False)
 
 
 class DeltaSettings(BaseSettings):

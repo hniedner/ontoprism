@@ -23,6 +23,6 @@ history creates versus 1,049 new classes. **C3050 already exists in 26.07d and
 Its September create/modify rows therefore do not mean a newly declared class;
 the publisher's reason for that create event is not established.
 
-CI uses fixtures. The local `full_store` contract and Neoplasm-scope demo remain
-pending owner-run sibling certification at the exact approved manifest path;
-this documentation is not evidence they ran. Never select a candidate by glob.
+CI uses fixtures; the local contract is
+`test_release_delta_command_full_store.py::test_full_store_command_matches_measured_release_delta`.
+It configures the exact approved sibling manifest; never select a candidate by glob.
