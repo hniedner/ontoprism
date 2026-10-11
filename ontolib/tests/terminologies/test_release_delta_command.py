@@ -9,6 +9,7 @@ import pytest
 from scripts import release_delta as command
 from scripts.release_delta import history_interval, history_windows
 
+from ontolib.decomposition.scope import HierarchyEdge
 from ontolib.terminologies.ncit.release_delta import AxiomDelta, parse_history
 
 
@@ -331,3 +332,30 @@ async def test_bad_named_inventory_is_not_an_empty_delta(monkeypatch, rows):
     )
     with pytest.raises(ValueError, match="invalid named class inventory"):
         await command._inventory("http://localhost")
+
+
+async def test_inventory_separates_neoplasm_descendants_from_other_classes(monkeypatch):
+    ns = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
+    codes = {"C3262", "C7057", "C1", "C2", "C3"}
+
+    @asynccontextmanager
+    async def client(endpoint):
+        yield SimpleNamespace(
+            select_once=AsyncMock(return_value=[{"code": ns + code} for code in codes])
+        )
+
+    monkeypatch.setattr(command, "ncit_sparql_client", client)
+    monkeypatch.setattr(
+        command,
+        "read_scope_hierarchy_edges",
+        AsyncMock(
+            return_value=[
+                HierarchyEdge(child="C1", parent="C3262"),
+                HierarchyEdge(child="C2", parent="C1"),
+                HierarchyEdge(child="C3", parent="C7057"),
+            ]
+        ),
+    )
+    inventory = await command._inventory("http://localhost")
+    assert inventory.codes == codes
+    assert inventory.scope == {"C1", "C2"}
