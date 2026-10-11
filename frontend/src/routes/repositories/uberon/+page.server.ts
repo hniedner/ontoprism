@@ -1,10 +1,10 @@
-import { listUberon, searchUberon } from '$lib/api';
-import { critical } from '$lib/server/critical-load';
-import { loadRepositoryPage, type OffsetGridSpec } from '$lib/server/repository-load';
+import { listUberon, searchUberon } from '#lib/api.ts';
+import { critical } from '#lib/server/critical-load.ts';
+import { loadRepositoryPage, type OffsetGridSpec } from '#lib/server/repository-load.ts';
 import { error } from '@sveltejs/kit';
-import type { UberonBrowseSort, UberonRepositoryPage, UberonRepositorySort, UberonSource } from '$lib/types';
+import type { UberonBrowseSort, UberonRepositoryPage, UberonRepositorySort, UberonSource } from '#lib/types.ts';
 import type { PageServerLoad } from './$types';
-import { gridCapabilities, gridControls } from '$lib/repository-registry';
+import { gridCapabilities, gridControls } from '#lib/repository-registry.ts';
 
 export const load: PageServerLoad = async ({ fetch, url }) => {
 	const searching = Boolean(url.searchParams.get('q')?.trim());

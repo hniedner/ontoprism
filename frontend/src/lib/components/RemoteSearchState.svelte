@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { RemoteFailureState } from '$lib/api';
+	import type { RemoteFailureState } from '#lib/api.ts';
 
 	let {
 		service,

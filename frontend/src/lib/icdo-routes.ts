@@ -1,4 +1,4 @@
-import type { IcdoPage } from '$lib/types';
+import type { IcdoPage } from '#lib/types.ts';
 
 export type IcdoDataset =
 	| { edition: '3.2'; axis: 'morphology' }

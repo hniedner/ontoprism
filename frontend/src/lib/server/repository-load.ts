@@ -1,5 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
-import { isPageSize, type PageSize } from '$lib/grid-state';
+import { isPageSize, type PageSize } from '#lib/grid-state.ts';
 
 type FilterSpec = Readonly<Record<string, readonly string[]>>;
 type FilterState<Filters extends FilterSpec> = { [Key in keyof Filters]: Array<Filters[Key][number] & string> };

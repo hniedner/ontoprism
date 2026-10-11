@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { PubMedArticleSummary } from '$lib/types';
-	import DataTable from '$lib/components/data-table/DataTable.svelte';
-	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
-	import { gridCapabilities } from '$lib/repository-registry';
+	import type { PubMedArticleSummary } from '#lib/types.ts';
+	import DataTable from '#lib/components/data-table/DataTable.svelte';
+	import type { DataTableColumn, DataTableOperations } from '#lib/components/data-table/types.ts';
+	import { gridCapabilities } from '#lib/repository-registry.ts';
 
 	let { articles, operations = { kind: 'none' }, emptyMessage = 'No articles.' }: { articles: readonly PubMedArticleSummary[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
 	const interactive = $derived(operations.kind === 'server');

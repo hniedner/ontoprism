@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { similarConcepts } from '$lib/api';
-	import SimilarityPanel, { type SimilarityLink } from '$lib/components/SimilarityPanel.svelte';
+	import { similarConcepts } from '#lib/api.ts';
+	import SimilarityPanel, { type SimilarityLink } from '#lib/components/SimilarityPanel.svelte';
 
 	let { code }: { code: string } = $props();
 

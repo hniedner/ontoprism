@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import GraphNodeCard from './GraphNodeCard.svelte';
-import type { NodeAttrs } from '$lib/graph/neighborhood-graph';
+import type { NodeAttrs } from '#lib/graph/neighborhood-graph.ts';
 
 const selected: NodeAttrs = {
 	code: 'C3262',

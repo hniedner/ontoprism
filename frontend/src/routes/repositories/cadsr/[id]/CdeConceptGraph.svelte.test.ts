@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { CdeDetail, Neighborhood } from '$lib/types';
+import type { CdeDetail, Neighborhood } from '#lib/types.ts';
 import CdeConceptGraph from './CdeConceptGraph.svelte';
 
-vi.mock('$lib/api', () => ({ getCdeNeighborhood: vi.fn() }));
-import { getCdeNeighborhood } from '$lib/api';
+vi.mock('#lib/api.ts', () => ({ getCdeNeighborhood: vi.fn() }));
+import { getCdeNeighborhood } from '#lib/api.ts';
 
 const mock = vi.mocked(getCdeNeighborhood);
 

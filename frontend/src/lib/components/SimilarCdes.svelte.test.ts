@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import SimilarCdes from './SimilarCdes.svelte';
-import type { SimilarCde } from '$lib/types';
+import type { SimilarCde } from '#lib/types.ts';
 
-vi.mock('$lib/api', () => ({ similarCdes: vi.fn() }));
-import { similarCdes } from '$lib/api';
+vi.mock('#lib/api.ts', () => ({ similarCdes: vi.fn() }));
+import { similarCdes } from '#lib/api.ts';
 
 const mock = vi.mocked(similarCdes);
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import PublicationProgress from '$lib/components/PublicationProgress.svelte';
+	import PublicationProgress from '#lib/components/PublicationProgress.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();

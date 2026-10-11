@@ -12,10 +12,10 @@ from starlette.concurrency import run_in_threadpool
 
 from backend.repository_metadata import RepositoryUnhealthy
 from backend.repository_registry import (
-    REPOSITORY_MANIFEST_PATH,
     GridCapabilities,
     GridFilter,
     load_repository_registry,
+    repository_manifest_path,
 )
 from ontolib.common.grid import ProductPageSize
 from ontolib.core.exceptions import StorageError
@@ -210,7 +210,7 @@ def _declared(repository_id: str):
     descriptor = next(
         (
             entry
-            for entry in load_repository_registry(REPOSITORY_MANIFEST_PATH)
+            for entry in load_repository_registry(repository_manifest_path())
             if entry.id == repository_id
         ),
         None,

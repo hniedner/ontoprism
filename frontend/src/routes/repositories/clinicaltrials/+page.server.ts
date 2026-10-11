@@ -1,9 +1,9 @@
 import { error } from '@sveltejs/kit';
-import { searchClinicalTrials } from '$lib/api.clinicaltrials';
-import { gridControls } from '$lib/repository-registry';
-import { loadRemoteSearch } from '$lib/server/remote-search-load';
-import { parseCursorGridUrl } from '$lib/server/repository-load';
-import type { CTFilterPhase, CTStatus, CTStudySearchPage } from '$lib/types';
+import { searchClinicalTrials } from '#lib/api.clinicaltrials.ts';
+import { gridControls } from '#lib/repository-registry.ts';
+import { loadRemoteSearch } from '#lib/server/remote-search-load.ts';
+import { parseCursorGridUrl } from '#lib/server/repository-load.ts';
+import type { CTFilterPhase, CTStatus, CTStudySearchPage } from '#lib/types.ts';
 import type { PageServerLoad } from './$types';
 
 function sameValues(left: readonly string[], right: readonly string[] | undefined): boolean {

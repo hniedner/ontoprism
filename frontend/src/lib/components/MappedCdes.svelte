@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { cdesForConcept } from '$lib/api';
-	import type { CdeSummary } from '$lib/types';
-	import LoadingState from '$lib/components/LoadingState.svelte';
-	import { handleLatest } from '$lib/latest';
+	import { cdesForConcept } from '#lib/api.ts';
+	import type { CdeSummary } from '#lib/types.ts';
+	import LoadingState from '#lib/components/LoadingState.svelte';
+	import { handleLatest } from '#lib/latest.ts';
 
 	let { code }: { code: string } = $props();
 

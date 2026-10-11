@@ -1,6 +1,6 @@
 <script lang="ts">
     import { resolve } from '$app/paths';
-    import type { DeltaOccurrence } from '$lib/types';
+    import type { DeltaOccurrence } from '#lib/types.ts';
     let { row }: { row: DeltaOccurrence } = $props();
     const represented = $derived(row.category === 'projected' || row.category === 'represented-through-collapse');
 </script>

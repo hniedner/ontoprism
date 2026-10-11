@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import TrialOverview from '$lib/components/trial/TrialOverview.svelte';
-	import TrialProtocol from '$lib/components/trial/TrialProtocol.svelte';
-	import TrialOutcomes from '$lib/components/trial/TrialOutcomes.svelte';
-	import TrialSupport from '$lib/components/trial/TrialSupport.svelte';
+	import TrialOverview from '#lib/components/trial/TrialOverview.svelte';
+	import TrialProtocol from '#lib/components/trial/TrialProtocol.svelte';
+	import TrialOutcomes from '#lib/components/trial/TrialOutcomes.svelte';
+	import TrialSupport from '#lib/components/trial/TrialSupport.svelte';
 	import type { PageProps } from './$types';
-	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
-	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
+	import RepositoryKindBadge from '#lib/components/RepositoryKindBadge.svelte';
+	import RemoteServiceDisclosure from '#lib/components/RemoteServiceDisclosure.svelte';
 
 	let { data }: PageProps = $props();
 	const trial = $derived(data.trial);

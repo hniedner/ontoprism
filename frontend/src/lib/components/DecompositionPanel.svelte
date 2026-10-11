@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { getDecomposition, getConstituentEvidence } from '$lib/api';
-	import type { ConceptDecomposition, DecompositionConstituent, ConstituentEvidence } from '$lib/types';
-	import DecompositionAxes from '$lib/components/DecompositionAxes.svelte';
-	import LoadingState from '$lib/components/LoadingState.svelte';
-	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
-	import { handleLatest } from '$lib/latest';
+	import { getDecomposition, getConstituentEvidence } from '#lib/api.ts';
+	import type { ConceptDecomposition, DecompositionConstituent, ConstituentEvidence } from '#lib/types.ts';
+	import DecompositionAxes from '#lib/components/DecompositionAxes.svelte';
+	import LoadingState from '#lib/components/LoadingState.svelte';
+	import RepresentationStatusBadge from '#lib/components/RepresentationStatusBadge.svelte';
+	import { handleLatest } from '#lib/latest.ts';
     import FillerSupportSummary from './FillerSupportSummary.svelte';
     import EnhancementDelta from './EnhancementDelta.svelte';
 

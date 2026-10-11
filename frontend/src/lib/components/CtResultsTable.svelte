@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { CTStudySummary } from '$lib/types';
-	import DataTable from '$lib/components/data-table/DataTable.svelte';
-	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
-	import { columnFilter } from '$lib/repository-registry';
+	import type { CTStudySummary } from '#lib/types.ts';
+	import DataTable from '#lib/components/data-table/DataTable.svelte';
+	import type { DataTableColumn, DataTableOperations } from '#lib/components/data-table/types.ts';
+	import { columnFilter } from '#lib/repository-registry.ts';
 
 	let { studies, operations = { kind: 'none' }, emptyMessage = 'No trials.' }: { studies: readonly CTStudySummary[]; operations?: DataTableOperations; emptyMessage?: string } = $props();
 	const interactive = $derived(operations.kind === 'server');

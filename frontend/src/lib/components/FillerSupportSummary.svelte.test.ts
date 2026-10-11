@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/svelte';
 import { expect, it, vi } from 'vitest';
 import FillerSupportSummary from './FillerSupportSummary.svelte';
-import type { ConstituentEvidence } from '$lib/types';
+import type { ConstituentEvidence } from '#lib/types.ts';
 
 it('accounts for P334-backed fillers in the support denominator', () => {
     const evidence: ConstituentEvidence[] = [{

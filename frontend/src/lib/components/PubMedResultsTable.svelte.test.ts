@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import PubMedResultsTable from './PubMedResultsTable.svelte';
-import type { DataTableOperations } from '$lib/components/data-table/types';
-import type { PubMedArticleSummary } from '$lib/types';
+import type { DataTableOperations } from '#lib/components/data-table/types.ts';
+import type { PubMedArticleSummary } from '#lib/types.ts';
 
 const articles: PubMedArticleSummary[] = [
 	{

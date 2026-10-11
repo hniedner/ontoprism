@@ -1,4 +1,4 @@
-import { forwardFastApi } from '$lib/server/fastapi';
+import { forwardFastApi } from '#lib/server/fastapi.ts';
 import type { RequestHandler } from './$types';
 
 const proxy: RequestHandler = ({ getClientAddress, params, request, url }) => {

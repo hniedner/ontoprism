@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { ConceptLink } from '$lib/types';
+	import type { ConceptLink } from '#lib/types.ts';
 
 	let { concepts }: { concepts: ConceptLink[] } = $props();
 	const LIST_PREVIEW = 6;

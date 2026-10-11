@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import SimilarConcepts from './SimilarConcepts.svelte';
-import type { SimilarConcept } from '$lib/types';
+import type { SimilarConcept } from '#lib/types.ts';
 
-vi.mock('$lib/api', () => ({ similarConcepts: vi.fn() }));
-import { similarConcepts } from '$lib/api';
+vi.mock('#lib/api.ts', () => ({ similarConcepts: vi.fn() }));
+import { similarConcepts } from '#lib/api.ts';
 
 const mock = vi.mocked(similarConcepts);
 

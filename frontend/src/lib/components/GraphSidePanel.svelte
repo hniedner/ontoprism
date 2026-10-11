@@ -3,8 +3,8 @@
 		KIND_COLOR,
 		type AnalyticsSummary,
 		type NodeAttrs
-	} from '$lib/graph/neighborhood-graph';
-	import GraphNodeCard from '$lib/components/GraphNodeCard.svelte';
+	} from '#lib/graph/neighborhood-graph.ts';
+	import GraphNodeCard from '#lib/components/GraphNodeCard.svelte';
 	import type { SvelteSet } from 'svelte/reactivity';
 
 	interface Props {

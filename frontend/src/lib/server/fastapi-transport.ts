@@ -132,4 +132,4 @@ export async function forwardFastApiWith(
 		return gatewayFailure(503, 'FastAPI is unreachable');
 	}
 }
-import { isIcdoProtectedPath } from '$lib/icdo-routes';
+import { isIcdoProtectedPath } from '#lib/icdo-routes.ts';

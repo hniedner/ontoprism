@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import type { RemoteFailureState } from '$lib/api';
-	import RemoteSearchState from '$lib/components/RemoteSearchState.svelte';
+	import type { RemoteFailureState } from '#lib/api.ts';
+	import RemoteSearchState from '#lib/components/RemoteSearchState.svelte';
 
 	interface Props {
 		service: string;

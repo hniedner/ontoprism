@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { CdeSummary } from '$lib/types';
-	import DataTable from '$lib/components/data-table/DataTable.svelte';
-	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
-	import { columnFilter } from '$lib/repository-registry';
-	import type { CadsrFilterDomains } from '$lib/types';
+	import type { CdeSummary } from '#lib/types.ts';
+	import DataTable from '#lib/components/data-table/DataTable.svelte';
+	import type { DataTableColumn, DataTableOperations } from '#lib/components/data-table/types.ts';
+	import { columnFilter } from '#lib/repository-registry.ts';
+	import type { CadsrFilterDomains } from '#lib/types.ts';
 
 	let { hits, operations = { kind: 'none' }, emptyMessage = 'No records.', domains = {} }: { hits: readonly CdeSummary[]; operations?: DataTableOperations; emptyMessage?: string; domains?: Partial<CadsrFilterDomains> } = $props();
 	const interactive = $derived(operations.kind === 'server');

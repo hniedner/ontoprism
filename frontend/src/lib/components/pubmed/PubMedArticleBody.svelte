@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PubMedArticleDetail } from '$lib/types';
+	import type { PubMedArticleDetail } from '#lib/types.ts';
 
 	let { article }: { article: PubMedArticleDetail } = $props();
 

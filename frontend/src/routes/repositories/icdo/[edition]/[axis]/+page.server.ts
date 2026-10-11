@@ -1,10 +1,10 @@
 import { error } from '@sveltejs/kit';
-import { listIcdo, searchIcdo } from '$lib/api';
-import { icdoDatasetKey, parseIcdoDataset, type IcdoPageFor } from '$lib/icdo-routes';
-import { gridCapabilities, gridControls } from '$lib/repository-registry';
-import { critical } from '$lib/server/critical-load';
-import { loadRepositoryPage, type OffsetGridSpec } from '$lib/server/repository-load';
-import type { IcdoBehaviour, IcdoRecordLevel, IcdoRepositorySort } from '$lib/types';
+import { listIcdo, searchIcdo } from '#lib/api.ts';
+import { icdoDatasetKey, parseIcdoDataset, type IcdoPageFor } from '#lib/icdo-routes.ts';
+import { gridCapabilities, gridControls } from '#lib/repository-registry.ts';
+import { critical } from '#lib/server/critical-load.ts';
+import { loadRepositoryPage, type OffsetGridSpec } from '#lib/server/repository-load.ts';
+import type { IcdoBehaviour, IcdoRecordLevel, IcdoRepositorySort } from '#lib/types.ts';
 import type { PageServerLoad } from './$types';
 
 function sameValues(left: readonly string[], right: readonly string[]): boolean {

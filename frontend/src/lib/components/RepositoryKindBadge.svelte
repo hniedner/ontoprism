@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { RepositoryKind } from '$lib/repository-registry';
+	import type { RepositoryKind } from '#lib/repository-registry.ts';
 
 	let { kind, compact = false }: { kind: RepositoryKind; compact?: boolean } = $props();
 	const local = $derived(kind === 'local-certified-proxy');

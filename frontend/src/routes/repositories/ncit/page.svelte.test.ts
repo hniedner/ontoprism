@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import Page from './+page.svelte';
-import type { SearchHit } from '$lib/types';
+import type { SearchHit } from '#lib/types.ts';
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
 vi.mock('$app/state', () => ({ page: { url: new URL('https://example.test/repositories/ncit') }, navigating: { to: null } }));

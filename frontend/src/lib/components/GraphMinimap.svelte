@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import type Graph from 'graphology';
 	import type Sigma from 'sigma';
-	import { minimapBounds, projectToMinimap } from '$lib/graph/graph-explorer';
+	import { minimapBounds, projectToMinimap } from '#lib/graph/graph-explorer.ts';
 
 	// A lightweight overview minimap: node positions drawn as dots into a small canvas,
 	// with a rectangle marking the main view's current viewport. Orientation aid for

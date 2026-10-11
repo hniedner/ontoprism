@@ -1,9 +1,9 @@
 import { error, redirect } from '@sveltejs/kit';
-import { searchPubmed, type PubMedSort } from '$lib/api.pubmed';
-import { gridCapabilities } from '$lib/repository-registry';
-import { loadRemoteSearch } from '$lib/server/remote-search-load';
-import { canonicalOffsetGridSearch, parseOffsetGridUrl } from '$lib/server/repository-load';
-import type { PubMedSearchResult } from '$lib/types';
+import { searchPubmed, type PubMedSort } from '#lib/api.pubmed.ts';
+import { gridCapabilities } from '#lib/repository-registry.ts';
+import { loadRemoteSearch } from '#lib/server/remote-search-load.ts';
+import { canonicalOffsetGridSearch, parseOffsetGridUrl } from '#lib/server/repository-load.ts';
+import type { PubMedSearchResult } from '#lib/types.ts';
 import type { PageServerLoad } from './$types';
 
 const spec = { defaultSort: 'relevance', sorts: gridCapabilities('pubmed').sorts.search as readonly PubMedSort[], filters: {}, resultWindow: 10_000 } as const;

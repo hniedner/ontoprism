@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import RepoBrowsePage from '$lib/components/RepoBrowsePage.svelte';
+	import RepoBrowsePage from '#lib/components/RepoBrowsePage.svelte';
 	import type { PageProps } from './$types';
-	import type { UberonRepositorySort, UberonSearchHit } from '$lib/types';
-	import DataTable from '$lib/components/data-table/DataTable.svelte';
-	import { columnFilter, gridControls } from '$lib/repository-registry';
-	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
+	import type { UberonRepositorySort, UberonSearchHit } from '#lib/types.ts';
+	import DataTable from '#lib/components/data-table/DataTable.svelte';
+	import { columnFilter, gridControls } from '#lib/repository-registry.ts';
+	import type { DataTableColumn, DataTableOperations } from '#lib/components/data-table/types.ts';
 
 	let { data }: PageProps = $props();
 	const suggestions = ['lung', 'blood vessel', 'epithelial cell', 'neuron'];

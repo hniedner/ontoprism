@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { icdoCodeSegment } from '$lib/api';
-	import DataTable from '$lib/components/data-table/DataTable.svelte';
-	import type { DataTableColumn, DataTableOperations } from '$lib/components/data-table/types';
-	import RepoBrowsePage from '$lib/components/RepoBrowsePage.svelte';
-	import { icdoDatasetKey, parseIcdoDataset } from '$lib/icdo-routes';
-	import { columnFilter, gridControls } from '$lib/repository-registry';
-	import type { RepositoryPageData } from '$lib/server/repository-load';
-	import type { IcdoPage, IcdoRecord, IcdoRepositorySort } from '$lib/types';
+	import { icdoCodeSegment } from '#lib/api.ts';
+	import DataTable from '#lib/components/data-table/DataTable.svelte';
+	import type { DataTableColumn, DataTableOperations } from '#lib/components/data-table/types.ts';
+	import RepoBrowsePage from '#lib/components/RepoBrowsePage.svelte';
+	import { icdoDatasetKey, parseIcdoDataset } from '#lib/icdo-routes.ts';
+	import { columnFilter, gridControls } from '#lib/repository-registry.ts';
+	import type { RepositoryPageData } from '#lib/server/repository-load.ts';
+	import type { IcdoPage, IcdoRecord, IcdoRepositorySort } from '#lib/types.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { ResolvedPathname } from '$app/types';
-	import LoadingState from '$lib/components/LoadingState.svelte';
-	import SimilarityList from '$lib/components/SimilarityList.svelte';
-	import { handleLatest } from '$lib/latest';
+	import LoadingState from '#lib/components/LoadingState.svelte';
+	import SimilarityList from '#lib/components/SimilarityList.svelte';
+	import { handleLatest } from '#lib/latest.ts';
 
 	export interface SimilarityLink {
 		key: string;

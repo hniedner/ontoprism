@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { GraphNode, Neighborhood } from '$lib/types';
+import type { GraphNode, Neighborhood } from '#lib/types.ts';
 import {
 	createGraph,
 	KIND_COLOR,
