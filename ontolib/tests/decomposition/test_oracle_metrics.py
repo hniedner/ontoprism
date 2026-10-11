@@ -120,8 +120,66 @@ def test_told_genus_scores_in_unchanged_oracle_coordinates_but_anchor_is_new():
     report = score_pairs([concept], actual)
     assert _fraction(report, "plain_exact_pair_precision") == (
         len(actual) - 1,
-        len(actual),
+        len(actual) - 1,
     )
+    assert (
+        f"unscored: no oracle axis; concept={concept.code}; "
+        "axis=op:HistologyAnchor; count=1" in report
+    )
+
+
+def test_uncovered_axes_are_reported_per_concept_without_hiding_covered_axis_errors():
+    oracle = [
+        ExpectedConcept.model_validate(
+            {
+                "code": code,
+                "adjudication": {"status": "accepted"},
+                "expected": {
+                    "constituents": [
+                        {
+                            "axis": axis,
+                            "filler": "C9",
+                            "needs_review": False,
+                            "provenance_status": "ncit-26.07d",
+                            "relationship_group": None,
+                        }
+                    ]
+                },
+            }
+        )
+        for code, axis in [("C1", "op:CellType"), ("C2", "op:PrimarySite")]
+    ]
+    actual = [
+        StoredPair(
+            concept_code=code,
+            axis=axis,
+            filler_code=filler,
+            needs_review=flagged,
+            normalized_group_id=None,
+        )
+        for code, axis, filler, flagged in [
+            ("C1", "op:CellType", "C9", False),
+            ("C2", "op:PrimarySite", "C9", False),
+            ("C1", "op:PrimarySite", "C8", False),
+            ("C1", "op:CellType", "C7", True),
+            ("C1", "op:HistologyAnchor", "C3", False),
+            ("C1", "op:HistologyAnchor", "C4", True),
+            ("C2", "op:FutureAxis", "C5", False),
+            ("C99", "op:HistologyAnchor", "C6", False),
+        ]
+    ]
+    report = score_pairs(oracle, actual)
+    assert _fraction(report, "exact_pair_precision") == (2, 3)
+    assert _fraction(report, "plain_exact_pair_precision") == (2, 4)
+    assert _fraction(report, "exact_pair_recall") == (2, 2)
+    assert _fraction(report, "plain_exact_pair_recall") == (2, 2)
+    assert (
+        "unscored: no oracle axis; concept=C1; axis=op:HistologyAnchor; count=2"
+        in report
+    )
+    assert "unscored: no oracle axis; concept=C2; axis=op:FutureAxis; count=1" in report
+    assert "concept=C99" not in report
+    assert "axis=op:PrimarySite; count=" not in report
 
 
 def test_runtime_imports_and_commands_do_not_reach_r103_review_chain():

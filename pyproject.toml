@@ -141,6 +141,7 @@ data-build = "python scripts/data_build.py"
 decompose = "python scripts/decompose.py"
 oracle-metrics = "python -m scripts.oracle_metrics"
 corpus-shape = "python -m scripts.corpus_shape"
+release-delta = "python -m scripts.release_delta"
 adjudication = "python scripts/adjudication.py"
 # --- Dev process management (backend :8011 + frontend :5175), fairdata-style ---
 up = "docker compose up -d"

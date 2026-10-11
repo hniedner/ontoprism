@@ -7,6 +7,25 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-10-10 — Release comparison and carry-forward method
+
+### D103. Fully re-derive engine output; carry human decisions by support
+
+Owner approved #490 in comment6101202146. The measured full Neoplasm run takes
+about 33 minutes: fully re-derive the candidate corpus, never incrementally select
+engine work by dependency impact. Pin the baseline engine, rules, policies and
+configuration for source comparisons; engine upgrades are separate versioned runs.
+Dependency closure protects human decisions/dispositions/reviewed evidence only;
+that release-overlay inventory is empty before G1. Preserve historical rationale;
+changed support, ambiguous successors or splits require explicit review.
+Use ROBOT with measured JVM settings (24 GiB heap, XML depth limit disabled for
+certified inputs) plus NCI monthly history; no OAK dependency, retry or repair.
+OAK/Pronto timed out at 60 minutes; the current ROBOT launcher remains unchanged.
+Per-repository candidate certification, report and owner release decision precede
+coherent source/overlay activation. This approval authorizes no activation, schema,
+persistence or dependency change. Details and measurements:
+[release carry-forward design](design/release-carry-forward.md).
+
 ## 2026-10-08 — Endpoint assessment without an atomicity scalar
 
 ### D102. Axis-endpoint evidence assessment supplements, not replaces, D37
