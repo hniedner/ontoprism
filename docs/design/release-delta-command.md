@@ -36,6 +36,6 @@ Neoplasm exits remain in `neoplasm.exited`, including moves out of the branch.
 The accompanying oracle scoring correction (`de743878`) limits official/plain pair
 precision to axes present anywhere in the accepted oracle cohort. Other-axis
 emissions are listed as `unscored`, not false positives; errors on covered axes
-still count. Partition metrics retain all unflagged NCIt-bound emissions without
+still count. Partition metrics retain all unflagged NCIt-bound cohort emissions without
 this axis exclusion. Both scopes are stated in the metrics output; this changes
 pair denominators, not the oracle or stored engine output.

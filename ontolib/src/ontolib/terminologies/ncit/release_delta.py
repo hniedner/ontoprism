@@ -34,7 +34,7 @@ def _append_lexeme(stack: list[list], lexeme: str) -> None:
         stack[-1].append(lexeme)
 
 
-def _expression(source: str) -> tuple[str, list]:
+def parse_expression(source: str) -> tuple[str, list]:
     """Read balanced functional-syntax structure without interpreting OWL semantics."""
     tokens = list(_TOKEN.finditer(source))
     stack: list[list] = [[]]
@@ -74,7 +74,7 @@ def _check_constructor(name: object, arguments: list) -> None:
         raise ValueError("malformed ROBOT axiom constructor")
 
 
-def _named_classes(values: list) -> list[str]:
+def named_classes(values: list) -> list[str]:
     return [
         value[len(NCIT_NS) + 1 : -1]
         for value in values
@@ -84,12 +84,12 @@ def _named_classes(values: list) -> list[str]:
 
 
 def _logical_subjects(source: str) -> list[str]:
-    kind, args = _expression(source)
+    kind, args = parse_expression(source)
     if kind not in {"SubClassOf", "EquivalentClasses"}:
         return []
     while args and args[0] == "Annotation":
         args = args[2:]
-    return _named_classes(args[:1] if kind == "SubClassOf" else args)
+    return named_classes(args[:1] if kind == "SubClassOf" else args)
 
 
 class RobotDiffConfig(StrictFrozenBoundaryModel):
@@ -117,7 +117,7 @@ def _report_line(
             raise ValueError("duplicate ROBOT section")
         counts[side] = int(header[1])
     elif side and line.startswith("- " if side == "left" else "+ "):
-        _expression(line[2:])
+        parse_expression(line[2:])
         rows[side].append(line[2:])
     else:
         raise ValueError("unrecognized ROBOT diff output")

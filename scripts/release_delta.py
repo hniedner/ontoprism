@@ -26,8 +26,8 @@ from ontolib.terminologies.ncit.release_delta import (
     NonnegativeInteger,
     PositiveInteger,
     RobotDiffConfig,
-    _expression,
-    _named_classes,
+    named_classes,
+    parse_expression,
     parse_history,
     robot_diff,
     summarize_delta,
@@ -44,12 +44,12 @@ _MONTHS_PER_YEAR = 12
 def _robot_codes(expressions, retired=False):
     codes = set()
     for expression in expressions:
-        kind, args = _expression(expression)
+        kind, args = parse_expression(expression)
         while args and args[0] == "Annotation":
             args = args[2:]
         iri = _lifecycle_iri(kind, args, retired)
         if iri is not None:
-            codes.update(_named_classes([iri]))
+            codes.update(named_classes([iri]))
     return codes
 
 
