@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { icdoCodeSegment } from '$lib/api';
-	import type { Alignment } from '$lib/types';
+	import { icdoCodeSegment } from '#lib/api.ts';
+	import type { Alignment } from '#lib/types.ts';
 
 	let { title, alignments }: { title: string; alignments: Alignment[] } = $props();
 

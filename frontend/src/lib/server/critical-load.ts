@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
-import { ApiRequestError } from '$lib/api';
-import { failed, ready, type LoadResult } from '$lib/load-result';
+import { ApiRequestError } from '#lib/api.ts';
+import { failed, ready, type LoadResult } from '#lib/load-result.ts';
 
 /** A settled critical load is either ready or an HTTP error — never empty/loading. */
 type SettledResult<T> = Extract<LoadResult<T>, { state: 'ready' | 'error' }>;

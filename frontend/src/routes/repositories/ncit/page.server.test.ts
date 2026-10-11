@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { listNcit, searchNcit } = vi.hoisted(() => ({ listNcit: vi.fn(), searchNcit: vi.fn() }));
-vi.mock('$lib/api', () => ({
+vi.mock('#lib/api.ts', () => ({
 	listNcit,
 	searchNcit,
 	getNcitSemanticTypes: async () => ['Disease or Syndrome', 'Neoplastic Process']

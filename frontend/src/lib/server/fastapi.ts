@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/private';
+import * as env from '$app/env/private';
 import { parseFastApiOrigin, parseFastApiTimeout } from './fastapi-config';
 import { forwardFastApiWith, type FastApiTransport } from './fastapi-transport';
 

@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { CdeDetail } from '$lib/types';
+import type { CdeDetail } from '#lib/types.ts';
 import CdeDetailCards from './CdeDetailCards.svelte';
 
-vi.mock('$lib/api', () => ({ similarCdes: vi.fn(() => new Promise(() => {})) }));
+vi.mock('#lib/api.ts', () => ({ similarCdes: vi.fn(() => new Promise(() => {})) }));
 
 function cdeWithLongLists(): CdeDetail {
 	return {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import LoadingState from '$lib/components/LoadingState.svelte';
+	import LoadingState from '#lib/components/LoadingState.svelte';
 
 	// Shared results wrapper for the repository search pages: the error banner and the
 	// titled results card (header + count + loading state); the concrete results table

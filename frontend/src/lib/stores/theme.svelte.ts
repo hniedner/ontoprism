@@ -4,9 +4,9 @@
  * Applies the `.dark` class to <html> (Tailwind v4 custom variant) and
  * persists the choice to localStorage. Defaults to dark.
  */
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 
-export type Theme = 'light' | 'dark';
+type Theme = 'light' | 'dark';
 
 const STORAGE_KEY = 'ontoprism-theme';
 

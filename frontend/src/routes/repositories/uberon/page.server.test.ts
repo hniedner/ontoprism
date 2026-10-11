@@ -4,7 +4,7 @@ const { listUberon, searchUberon } = vi.hoisted(() => ({
 	listUberon: vi.fn(),
 	searchUberon: vi.fn()
 }));
-vi.mock('$lib/api', () => ({ listUberon, searchUberon }));
+vi.mock('#lib/api.ts', () => ({ listUberon, searchUberon }));
 
 import { load } from './+page.server';
 

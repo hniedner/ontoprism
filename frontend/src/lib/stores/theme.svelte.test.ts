@@ -4,7 +4,7 @@ import { flushSync } from 'svelte';
 // The store reads `browser` and localStorage at import; force the browser path and
 // provide an in-memory localStorage (jsdom's isn't guaranteed in this env) so the
 // persistence + <html> class effect run. Hoisted so both exist before the import.
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.hoisted(() => {
 	const store = new Map<string, string>();
 	Object.defineProperty(globalThis, 'localStorage', {

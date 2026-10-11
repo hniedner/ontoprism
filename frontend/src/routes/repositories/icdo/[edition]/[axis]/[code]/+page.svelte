@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import AlignmentLinks from '$lib/components/AlignmentLinks.svelte';
-	import RepoPageHeader from '$lib/components/RepoPageHeader.svelte';
+	import AlignmentLinks from '#lib/components/AlignmentLinks.svelte';
+	import RepoPageHeader from '#lib/components/RepoPageHeader.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { NodeAttrs } from '$lib/graph/neighborhood-graph';
-	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
+	import type { NodeAttrs } from '#lib/graph/neighborhood-graph.ts';
+	import RepresentationStatusBadge from '#lib/components/RepresentationStatusBadge.svelte';
 
 	interface Props {
 		selected: NodeAttrs | null;

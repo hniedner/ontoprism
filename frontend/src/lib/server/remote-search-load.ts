@@ -1,4 +1,4 @@
-import { ApiRequestError, type RemoteFailureState } from '$lib/api';
+import { ApiRequestError, type RemoteFailureState } from '#lib/api.ts';
 
 export type RemoteSearchResult<T> =
 	| { readonly state: 'ready'; readonly data: T }

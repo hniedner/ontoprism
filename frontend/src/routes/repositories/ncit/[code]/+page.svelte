@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import DecompositionPanel from '$lib/components/DecompositionPanel.svelte';
-	import AlignmentLinks from '$lib/components/AlignmentLinks.svelte';
-	import MappedCdes from '$lib/components/MappedCdes.svelte';
+	import DecompositionPanel from '#lib/components/DecompositionPanel.svelte';
+	import AlignmentLinks from '#lib/components/AlignmentLinks.svelte';
+	import MappedCdes from '#lib/components/MappedCdes.svelte';
 	import NcitConceptGraph from './NcitConceptGraph.svelte';
 	import NcitConceptSummary from './NcitConceptSummary.svelte';
-	import RelationshipList from '$lib/components/RelationshipList.svelte';
-	import SimilarConcepts from '$lib/components/SimilarConcepts.svelte';
+	import RelationshipList from '#lib/components/RelationshipList.svelte';
+	import SimilarConcepts from '#lib/components/SimilarConcepts.svelte';
 	import type { PageProps } from './$types';
-	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
+	import RepositoryKindBadge from '#lib/components/RepositoryKindBadge.svelte';
 
 	let { data }: PageProps = $props();
 	const detail = $derived(data.detail);

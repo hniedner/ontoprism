@@ -1,7 +1,7 @@
 <script lang="ts">
-    import { getEnhancementDelta } from '$lib/api';
-    import type { DeltaCategory, DeltaOccurrence } from '$lib/types';
-    import { handleLatest } from '$lib/latest';
+    import { getEnhancementDelta } from '#lib/api.ts';
+    import type { DeltaCategory, DeltaOccurrence } from '#lib/types.ts';
+    import { handleLatest } from '#lib/latest.ts';
     import LoadingState from './LoadingState.svelte';
     import DeltaOccurrenceRow from './DeltaOccurrenceRow.svelte';
     let { runId, code }: { runId: string; code: string } = $props();

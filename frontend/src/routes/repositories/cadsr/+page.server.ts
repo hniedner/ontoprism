@@ -1,9 +1,9 @@
 import { error } from '@sveltejs/kit';
-import { getCadsrFilterDomains, listCadsr, searchCadsr } from '$lib/api';
-import { gridCapabilities, gridControls } from '$lib/repository-registry';
-import { critical } from '$lib/server/critical-load';
-import { loadRepositoryPage, type OffsetGridSpec } from '$lib/server/repository-load';
-import type { CadsrFilterDomains, CdeRepositorySort, CdeSearchPage } from '$lib/types';
+import { getCadsrFilterDomains, listCadsr, searchCadsr } from '#lib/api.ts';
+import { gridCapabilities, gridControls } from '#lib/repository-registry.ts';
+import { critical } from '#lib/server/critical-load.ts';
+import { loadRepositoryPage, type OffsetGridSpec } from '#lib/server/repository-load.ts';
+import type { CadsrFilterDomains, CdeRepositorySort, CdeSearchPage } from '#lib/types.ts';
 import type { PageServerLoad } from './$types';
 
 const domainKeys = Object.entries(gridCapabilities('cadsr').filters)

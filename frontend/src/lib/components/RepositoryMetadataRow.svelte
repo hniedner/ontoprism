@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { RepositoryMetadata } from '$lib/types';
+	import type { RepositoryMetadata } from '#lib/types.ts';
 
 	let { repository }: { repository: RepositoryMetadata } = $props();
 </script>

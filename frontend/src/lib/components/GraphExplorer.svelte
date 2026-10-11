@@ -17,8 +17,8 @@
 	import ForceAtlas2LayoutSupervisor from 'graphology-layout-forceatlas2/worker';
 	import NoverlapLayoutSupervisor from 'graphology-layout-noverlap/worker';
 	import type Graph from 'graphology';
-	import { getNeighborhood, getUberonNeighborhood } from '$lib/api';
-	import type { Neighborhood } from '$lib/types';
+	import { getNeighborhood, getUberonNeighborhood } from '#lib/api.ts';
+	import type { Neighborhood } from '#lib/types.ts';
 	import {
 		createGraph,
 		mergeNeighborhood,
@@ -26,7 +26,7 @@
 		degreeToSize,
 		type AnalyticsSummary,
 		type NodeAttrs
-	} from '$lib/graph/neighborhood-graph';
+	} from '#lib/graph/neighborhood-graph.ts';
 	import {
 		makeSemanticColorer,
 		nodeColorForMode,
@@ -50,11 +50,11 @@
 		AsyncRequestOwner,
 		type AsyncRequestLease,
 		type LayoutWorker
-	} from '$lib/graph/graph-explorer';
-	import GraphSidePanel from '$lib/components/GraphSidePanel.svelte';
-	import GraphMinimap from '$lib/components/GraphMinimap.svelte';
-	import GraphCanvasState from '$lib/components/GraphCanvasState.svelte';
-	import { theme } from '$lib/stores/theme.svelte';
+	} from '#lib/graph/graph-explorer.ts';
+	import GraphSidePanel from '#lib/components/GraphSidePanel.svelte';
+	import GraphMinimap from '#lib/components/GraphMinimap.svelte';
+	import GraphCanvasState from '#lib/components/GraphCanvasState.svelte';
+	import { theme } from '#lib/stores/theme.svelte.ts';
 
 	interface Props {
 		/** Center concept code. */

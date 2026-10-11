@@ -1,10 +1,10 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/svelte';
 import EnhancementDelta from './EnhancementDelta.svelte';
-import type { DeltaOccurrence } from '$lib/types';
+import type { DeltaOccurrence } from '#lib/types.ts';
 
-vi.mock('$lib/api', () => ({ getEnhancementDelta: vi.fn() }));
-import { getEnhancementDelta } from '$lib/api';
+vi.mock('#lib/api.ts', () => ({ getEnhancementDelta: vi.fn() }));
+import { getEnhancementDelta } from '#lib/api.ts';
 const mock = vi.mocked(getEnhancementDelta);
 const occurrence = (category: DeltaOccurrence['category'], id = category): DeltaOccurrence => ({
     walker_max_depth: 7,

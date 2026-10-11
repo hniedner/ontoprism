@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { EdgeKind, Neighborhood } from '$lib/types';
+	import type { EdgeKind, Neighborhood } from '#lib/types.ts';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 

@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import NeighborhoodGraph from './NeighborhoodGraph.svelte';
-import type { Neighborhood } from '$lib/types';
+import type { Neighborhood } from '#lib/types.ts';
 
 const goto = vi.fn();
 vi.mock('$app/navigation', () => ({ goto: (...a: unknown[]) => goto(...a) }));

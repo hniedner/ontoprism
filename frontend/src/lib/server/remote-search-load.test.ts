@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ApiRequestError } from '$lib/api';
+import { ApiRequestError } from '#lib/api.ts';
 import { loadRemoteSearch } from './remote-search-load';
 
 describe('loadRemoteSearch', () => {

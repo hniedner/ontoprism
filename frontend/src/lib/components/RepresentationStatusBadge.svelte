@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { RepresentationStatus } from '$lib/types';
+	import type { RepresentationStatus } from '#lib/types.ts';
 
 	let { status }: { status: RepresentationStatus } = $props();
 	const labels: Record<RepresentationStatus, string> = {

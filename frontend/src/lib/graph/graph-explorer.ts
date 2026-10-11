@@ -8,12 +8,12 @@
  * appearance rules (the sigma reducers), node search, and the minimap projection.
  */
 import type Graph from 'graphology';
-import type { RepresentationStatus } from '$lib/types';
+import type { RepresentationStatus } from '#lib/types.ts';
 import {
 	communityColor,
 	seededNodePosition,
 	type NodeAttrs
-} from '$lib/graph/neighborhood-graph';
+} from '#lib/graph/neighborhood-graph.ts';
 
 export type ColorMode = 'community' | 'semantic';
 export type GraphTheme = 'light' | 'dark';

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import BrowserGraph from '$lib/components/BrowserGraph.svelte';
-	import AlignmentLinks from '$lib/components/AlignmentLinks.svelte';
+	import BrowserGraph from '#lib/components/BrowserGraph.svelte';
+	import AlignmentLinks from '#lib/components/AlignmentLinks.svelte';
 	import UberonConceptSummary from './UberonConceptSummary.svelte';
 	import type { PageProps } from './$types';
-	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
+	import RepositoryKindBadge from '#lib/components/RepositoryKindBadge.svelte';
 
 	let { data }: PageProps = $props();
 	const detail = $derived(data.detail);

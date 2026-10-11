@@ -1,7 +1,7 @@
 <script lang="ts">
-	import BrowserGraph from '$lib/components/BrowserGraph.svelte';
-	import NeighborhoodGraph from '$lib/components/NeighborhoodGraph.svelte';
-	import type { Neighborhood } from '$lib/types';
+	import BrowserGraph from '#lib/components/BrowserGraph.svelte';
+	import NeighborhoodGraph from '#lib/components/NeighborhoodGraph.svelte';
+	import type { Neighborhood } from '#lib/types.ts';
 
 	let { code, graph }: { code: string; graph: Neighborhood } = $props();
 	let mode = $state<'interactive' | 'radial'>('interactive');

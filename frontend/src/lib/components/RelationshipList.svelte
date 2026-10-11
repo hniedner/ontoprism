@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { Relationship } from '$lib/types';
+	import type { Relationship } from '#lib/types.ts';
 
 	let { title, items }: { title: string; items: Relationship[] } = $props();
 </script>

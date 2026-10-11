@@ -1,5 +1,5 @@
 <script lang="ts">
-	import LoadingState from '$lib/components/LoadingState.svelte';
+	import LoadingState from '#lib/components/LoadingState.svelte';
 
 	let {
 		loading,

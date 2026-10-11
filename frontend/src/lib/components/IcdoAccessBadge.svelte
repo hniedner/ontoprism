@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { IcdoAccessStatus } from '$lib/types';
+	import type { IcdoAccessStatus } from '#lib/types.ts';
 
 	let { status, compact = false }: { status: IcdoAccessStatus; compact?: boolean } = $props();
 	const label = $derived(

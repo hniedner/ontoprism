@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { searchClinicalTrials } = vi.hoisted(() => ({ searchClinicalTrials: vi.fn() }));
-vi.mock('$lib/api.clinicaltrials', () => ({ searchClinicalTrials }));
+vi.mock('#lib/api.clinicaltrials.ts', () => ({ searchClinicalTrials }));
 
 import { load } from './+page.server';
 

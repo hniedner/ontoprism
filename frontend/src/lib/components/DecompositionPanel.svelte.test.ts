@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import { within } from '@testing-library/dom';
 import DecompositionPanel from './DecompositionPanel.svelte';
-import type { ConceptDecomposition } from '$lib/types';
+import type { ConceptDecomposition } from '#lib/types.ts';
 
-vi.mock('$lib/api', () => ({ getDecomposition: vi.fn(), getConstituentEvidence: vi.fn(), getEnhancementDelta: vi.fn().mockResolvedValue([]) }));
-import { getDecomposition, getConstituentEvidence } from '$lib/api';
+vi.mock('#lib/api.ts', () => ({ getDecomposition: vi.fn(), getConstituentEvidence: vi.fn(), getEnhancementDelta: vi.fn().mockResolvedValue([]) }));
+import { getDecomposition, getConstituentEvidence } from '#lib/api.ts';
 
 const mock = vi.mocked(getDecomposition);
 

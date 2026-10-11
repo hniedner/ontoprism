@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { Component } from 'svelte';
-	import type { Neighborhood } from '$lib/types';
-	import LoadingState from '$lib/components/LoadingState.svelte';
+	import type { Neighborhood } from '#lib/types.ts';
+	import LoadingState from '#lib/components/LoadingState.svelte';
 
 	interface Props {
 		code: string;
@@ -18,7 +18,7 @@
 		initial = null,
 		height = '32rem',
 		repository = 'ncit',
-		loader = () => import('$lib/components/GraphExplorer.svelte')
+		loader = () => import('#lib/components/GraphExplorer.svelte')
 	}: Props = $props();
 	let GraphComponent = $state<Component<GraphProps> | null>(null);
 	let failed = $state(false);

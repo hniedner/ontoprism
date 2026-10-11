@@ -1,4 +1,4 @@
-import type { IcdoAccessStatus } from '$lib/types';
+import type { IcdoAccessStatus } from '#lib/types.ts';
 
 export async function readIcdoAccess(fetcher: typeof fetch): Promise<IcdoAccessStatus> {
 	try {

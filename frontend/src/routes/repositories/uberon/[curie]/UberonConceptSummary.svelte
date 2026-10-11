@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { UberonConceptDetail } from '$lib/types';
+	import type { UberonConceptDetail } from '#lib/types.ts';
 
 	let { detail }: { detail: UberonConceptDetail } = $props();
 </script>

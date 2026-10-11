@@ -4,7 +4,7 @@
 	import CdeDetailCards from './CdeDetailCards.svelte';
 	import CdeSummary from './CdeSummary.svelte';
 	import type { PageProps } from './$types';
-	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
+	import RepositoryKindBadge from '#lib/components/RepositoryKindBadge.svelte';
 
 	let { data }: PageProps = $props();
 	const cde = $derived(data.cde);

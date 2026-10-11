@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import RepoPageHeader from '$lib/components/RepoPageHeader.svelte';
+	import RepoPageHeader from '#lib/components/RepoPageHeader.svelte';
 </script>
 
 <svelte:head><title>ICD-O repositories | OntoPrism</title></svelte:head>

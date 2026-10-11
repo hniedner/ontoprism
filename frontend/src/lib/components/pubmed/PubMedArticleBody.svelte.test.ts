@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import PubMedArticleBody from './PubMedArticleBody.svelte';
-import type { PubMedArticleDetail } from '$lib/types';
+import type { PubMedArticleDetail } from '#lib/types.ts';
 
 function article(over: Partial<PubMedArticleDetail> = {}): PubMedArticleDetail {
 	return {
