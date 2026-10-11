@@ -61,6 +61,7 @@ def test_delta_separates_retirement_scope_change_and_nested_logical_changes():
 
 
 @pytest.mark.integration
+@pytest.mark.mutating_integration
 def test_real_robot_fixture_diff_preserves_changed_existential(tmp_path):
     template = """Prefix(:=<urn:test:>)
 Ontology(<urn:test>
