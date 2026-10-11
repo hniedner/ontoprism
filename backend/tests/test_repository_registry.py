@@ -9,13 +9,30 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from backend.api.v1.grid import GridService
+from backend.config import Settings
 from backend.repository_metadata import RepositoryName
-from backend.repository_registry import load_repository_registry
+from backend.repository_registry import (
+    load_repository_registry,
+    repository_manifest_path,
+)
 from ontolib.repositories.clinicaltrials.models import CTFilterPhase, CTStatus
 
 pytestmark = pytest.mark.unit
 
 _MANIFEST = Path(__file__).parents[2] / "repository-manifest.json"
+
+
+def test_manifest_path_uses_working_directory_and_configured_absolute_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = Settings(_env_file=None)
+    monkeypatch.setattr("backend.repository_registry.get_settings", lambda: settings)
+    monkeypatch.chdir(tmp_path)
+    assert repository_manifest_path() == tmp_path / "repository-manifest.json"
+    settings.repository_manifest_path = str(_MANIFEST)
+    assert load_repository_registry(
+        repository_manifest_path()
+    ) == load_repository_registry(_MANIFEST)
 
 
 def test_manifest_declares_exact_served_local_and_remote_repositories() -> None:

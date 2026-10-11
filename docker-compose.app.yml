@@ -37,8 +37,8 @@ services:
       ICDO_ENTITLEMENT_KEY: ${ICDO_ENTITLEMENT_KEY:-}
       ENABLE_LICENSED_MAPPINGS: ${ENABLE_LICENSED_MAPPINGS:-false}
     volumes:
-      # The caDSR SQLite DB is read-only reference data.
-      - ./data/cadsr:/app/data/cadsr:ro
+      # Stores and certification manifests are read-only; downloads stay separate.
+      - ./data:/app/data:ro
       - ontoprism_refresh:/app/refresh
     depends_on:
       qlever-ncit:
