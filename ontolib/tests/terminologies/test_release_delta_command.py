@@ -18,7 +18,9 @@ def test_history_reconciliation_reports_unmatched_creates_without_refusing():
         removed=(),
         added=(
             f"Declaration(Class(<{ns}C2>))",
+            f"Declaration(Class(<{ns}C4>))",
             f'AnnotationAssertion(<{ns}P310> <{ns}C1> "Retired_Concept")',
+            f'AnnotationAssertion(<{ns}P310> <{ns}C5> "Retired_Concept")',
         ),
     )
     events = parse_history(
@@ -26,10 +28,29 @@ def test_history_reconciliation_reports_unmatched_creates_without_refusing():
     )
     result = command.reconcile_history(delta, events)
     assert result["create"]["history_count"] == 2
-    assert result["create"]["robot_count"] == 1
+    assert result["create"]["robot_count"] == 2
     assert result["create"]["history_only"] == ["C3"]
-    assert result["retire"]["history_count"] == result["retire"]["robot_count"] == 1
+    assert result["create"]["robot_only"] == ["C4"]
+    assert result["retire"]["history_count"] == 1
+    assert result["retire"]["robot_count"] == 2
     assert result["retire"]["history_only"] == []
+    assert result["retire"]["robot_only"] == ["C5"]
+
+
+def test_reconciliation_ignores_non_ncit_class_identifiers():
+    ns = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
+    delta = AxiomDelta(
+        removed=(),
+        added=(
+            "Declaration(Class(<http://example.org/C4>))",
+            f"Declaration(Class(<{ns}NotAConcept>))",
+            f"AnnotationAssertion(<{ns}P310> "
+            '<http://example.org/C5> "Retired_Concept")',
+        ),
+    )
+    result = command.reconcile_history(delta, ())
+    assert result["create"]["robot_count"] == 0
+    assert result["retire"]["robot_count"] == 0
 
 
 def settings(tmp_path):
@@ -44,6 +65,13 @@ def settings(tmp_path):
         robot_max_element_depth=100,
         robot_timeout_seconds=60,
     )
+
+
+def test_jvm_profile_rejects_boolean_instead_of_integer(tmp_path):
+    values = settings(tmp_path).model_dump()
+    values["robot_heap_gib"] = True
+    with pytest.raises(ValueError, match="robot_heap_gib"):
+        command.DeltaSettings(**values)
 
 
 @pytest.mark.parametrize("damage", ["version", "pair", "artifact", "path"])
@@ -86,9 +114,11 @@ async def test_comparison_checks_both_sources_before_returning_report(
 ):
     cfg = settings(tmp_path)
     manifests = tuple(
-        (
-            SimpleNamespace(candidate_path=str(tmp_path / "candidate"), owner="owner"),
-            SimpleNamespace(stated=SimpleNamespace(file_path=str(tmp_path / v))),
+        command.CertifiedRelease(
+            manifest=SimpleNamespace(
+                candidate_path=str(tmp_path / "candidate"), owner="owner"
+            ),
+            pair=SimpleNamespace(stated=SimpleNamespace(file_path=str(tmp_path / v))),
         )
         for v in ("old", "new")
     )
@@ -96,7 +126,9 @@ async def test_comparison_checks_both_sources_before_returning_report(
     def certified(source, release):
         index = int(release == "26.09d")
         return (
-            ("changed",)
+            manifests[index]._replace(
+                pair=SimpleNamespace(stated=SimpleNamespace(file_path="changed.owl"))
+            )
             if drift == ("new-artifact" if index else "old-artifact")
             else manifests[index]
         )
@@ -105,7 +137,12 @@ async def test_comparison_checks_both_sources_before_returning_report(
     monkeypatch.setattr(
         command,
         "_inventory",
-        AsyncMock(side_effect=[({"C1"}, {"C1"}), ({"C1", "C2"}, {"C1", "C2"})]),
+        AsyncMock(
+            side_effect=[
+                command.Inventory(codes={"C1"}, scope={"C1"}),
+                command.Inventory(codes={"C1", "C2"}, scope={"C1", "C2"}),
+            ]
+        ),
     )
     monkeypatch.setattr(command, "_history", AsyncMock(return_value=((), [])))
     monkeypatch.setattr(
@@ -238,7 +275,11 @@ async def test_command_uses_exact_sibling_lifecycle_and_propagates_failure(
     cfg = settings(tmp_path)
     target = tmp_path / "exact-candidate"
     manifest = SimpleNamespace(candidate_path=str(target), owner="exact-owner")
-    monkeypatch.setattr(command, "_certified", lambda *args: (manifest, None))
+    monkeypatch.setattr(
+        command,
+        "_certified",
+        lambda *args: command.CertifiedRelease(manifest=manifest, pair=None),
+    )
     live = False
 
     class Runtime:

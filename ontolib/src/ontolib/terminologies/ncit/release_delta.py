@@ -6,7 +6,7 @@ import subprocess
 from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
-from typing import Literal, Self
+from typing import Annotated, Literal, Self, cast
 
 from pydantic import Field, model_validator
 
@@ -16,6 +16,9 @@ from ontolib.terminologies.namespaces import NCIT_NS
 
 _HISTORY_COLUMNS = 6
 _TOKEN = re.compile(r'<[^<>\s]+>|"(?:\\.|[^"\\])*"|[()]|[^\s()"<>]+')
+PositiveInteger = Annotated[int, Field(gt=0)]
+NonnegativeInteger = Annotated[int, Field(ge=0)]
+ReportSide = Literal["left", "right"]
 
 
 def _append_lexeme(stack: list[list], lexeme: str) -> None:
@@ -31,7 +34,7 @@ def _append_lexeme(stack: list[list], lexeme: str) -> None:
         stack[-1].append(lexeme)
 
 
-def _expression(source: str) -> list:
+def _expression(source: str) -> tuple[str, list]:
     """Read balanced functional-syntax structure without interpreting OWL semantics."""
     tokens = list(_TOKEN.finditer(source))
     stack: list[list] = [[]]
@@ -44,9 +47,9 @@ def _expression(source: str) -> list:
     if len(stack) != 1 or source[end:].strip():
         raise ValueError("unbalanced ROBOT axiom")
     match stack[0]:
-        case [str(), list()] as root:
+        case [str(kind), list(args)] as root:
             _check_structure(root)
-            return root
+            return kind, args
         case _:
             raise ValueError("malformed ROBOT axiom expression")
 
@@ -90,9 +93,9 @@ def _logical_subjects(source: str) -> list[str]:
 
 
 class RobotDiffConfig(StrictFrozenBoundaryModel):
-    heap_gib: int = Field(gt=0)
-    max_element_depth: int = Field(ge=0)
-    timeout_seconds: int = Field(gt=0)
+    heap_gib: PositiveInteger
+    max_element_depth: NonnegativeInteger
+    timeout_seconds: PositiveInteger
 
 
 class AxiomDelta(StrictFrozenBoundaryModel):
@@ -100,14 +103,16 @@ class AxiomDelta(StrictFrozenBoundaryModel):
     added: tuple[str, ...]
 
 
-def _report_line(line: str, side: str, counts: dict, rows: dict) -> str:
+def _report_line(
+    line: str, side: ReportSide | None, counts: dict, rows: dict
+) -> ReportSide:
     header = re.fullmatch(
         r"(\d+) axioms in (left|right) ontology "
         r"but not in (right|left) ontology:",
         line,
     )
     if header:
-        side = header[2]
+        side = cast("ReportSide", header[2])  # The regex admits only these two values.
         if side in counts or side == header[3]:
             raise ValueError("duplicate ROBOT section")
         counts[side] = int(header[1])
@@ -125,7 +130,7 @@ def parse_robot_report(report: str) -> AxiomDelta:
         return AxiomDelta(removed=(), added=())
     rows: dict[str, list[str]] = {"left": [], "right": []}
     counts: dict[str, int] = {}
-    side = ""
+    side: ReportSide | None = None
     for line in filter(str.strip, report.splitlines()):
         side = _report_line(line, side, counts, rows)
     if counts.keys() != rows.keys() or any(counts[s] != len(rows[s]) for s in rows):

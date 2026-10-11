@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, NamedTuple
 
 import httpx
 import typer
@@ -13,20 +13,28 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from scripts.decompose import _source_snapshot
 
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel
+from ontolib.decomposition.branches import DecompositionBranch, branch_spec
 from ontolib.decomposition.scope import descendant_codes, read_scope_hierarchy_edges
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.client import ncit_sparql_client
-from ontolib.terminologies.ncit.owl_download import validate_ncit_owl_pair
+from ontolib.terminologies.ncit.owl_download import (
+    OwlArtifactPairManifest,
+    validate_ncit_owl_pair,
+)
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.release_delta import (
+    NonnegativeInteger,
+    PositiveInteger,
     RobotDiffConfig,
     _expression,
+    _named_classes,
     parse_history,
     robot_diff,
     summarize_delta,
 )
 from ontolib.terminologies.ncit.sibling_store import (
     DockerQleverRuntime,
+    NcitSiblingStoreManifest,
     validate_ncit_sibling_manifest,
 )
 
@@ -41,7 +49,7 @@ def _robot_codes(expressions, retired=False):
             args = args[2:]
         iri = _lifecycle_iri(kind, args, retired)
         if iri is not None:
-            codes.add(iri[1:-1].removeprefix(NCIT_NS))
+            codes.update(_named_classes([iri]))
     return codes
 
 
@@ -114,12 +122,22 @@ class DeltaSettings(BaseSettings):
     sources: dict[str, ReleaseSource]
     active_endpoint: str
     history_releases: list[str] = Field(min_length=1)
-    robot_heap_gib: int = Field(gt=0)
-    robot_max_element_depth: int = Field(ge=0)
-    robot_timeout_seconds: int = Field(gt=0)
+    robot_heap_gib: PositiveInteger
+    robot_max_element_depth: NonnegativeInteger
+    robot_timeout_seconds: PositiveInteger
 
 
-def _certified(source: ReleaseSource, release: str):
+class CertifiedRelease(NamedTuple):
+    manifest: NcitSiblingStoreManifest
+    pair: OwlArtifactPairManifest
+
+
+class Inventory(NamedTuple):
+    codes: set[str]
+    scope: set[str]
+
+
+def _certified(source: ReleaseSource, release: str) -> CertifiedRelease:
     manifest = validate_ncit_sibling_manifest(source.manifest)
     pair = validate_ncit_owl_pair(Path(manifest.pair_manifest_path))
     if (manifest.ontology_version, pair.ontology_version) != (release, release):
@@ -133,10 +151,10 @@ def _certified(source: ReleaseSource, release: str):
         != Path(manifest.stated_artifact.path).resolve()
     ):
         raise ValueError("stated artifact path differs from certified store")
-    return manifest, pair
+    return CertifiedRelease(manifest=manifest, pair=pair)
 
 
-async def _inventory(endpoint: str):
+async def _inventory(endpoint: str) -> Inventory:
     async with ncit_sparql_client(endpoint) as client:
         edges = await read_scope_hierarchy_edges(client)
         rows = await client.select_once(
@@ -148,7 +166,12 @@ async def _inventory(endpoint: str):
     codes = {r["code"].removeprefix(NCIT_NS) for r in rows}
     if not codes or any(re.fullmatch(r"C[0-9]+", c) is None for c in codes):
         raise ValueError("invalid named class inventory")
-    return codes, set(descendant_codes("C3262", edges))
+    return Inventory(
+        codes=codes,
+        scope=set(
+            descendant_codes(branch_spec(DecompositionBranch.NEOPLASM).root_code, edges)
+        ),
+    )
 
 
 async def _history(releases: tuple[str, ...]):
@@ -191,7 +214,7 @@ async def _compare(
     before: str,
     after: str,
     settings: DeltaSettings,
-    manifests: tuple,
+    manifests: tuple[CertifiedRelease, CertifiedRelease],
     endpoint: str,
     releases: tuple[str, ...],
 ):
@@ -210,8 +233,8 @@ async def _compare(
     )
     axioms = await asyncio.to_thread(
         robot_diff,
-        Path(manifests[0][1].stated.file_path),
-        Path(manifests[1][1].stated.file_path),
+        Path(manifests[0].pair.stated.file_path),
+        Path(manifests[1].pair.stated.file_path),
         profile,
     )
     for index, release in enumerate((before, after)):
@@ -223,7 +246,14 @@ async def _compare(
         ):
             raise ValueError("source store changed during comparison")
     result = summarize_delta(
-        before, after, old[0], new[0], old[1], new[1], axioms, events
+        before_release=before,
+        after_release=after,
+        before_codes=old.codes,
+        after_codes=new.codes,
+        before_scope=old.scope,
+        after_scope=new.scope,
+        axioms=axioms,
+        events=events,
     )
     result["history_sources"] = provenance
     result["history_reconciliation"] = reconcile_history(axioms, events)
@@ -238,7 +268,7 @@ async def release_delta(before: str, after: str, settings: DeltaSettings) -> dic
         _certified(settings.sources[before], before),
         _certified(settings.sources[after], after),
     )
-    sibling = manifests[1][0]
+    sibling = manifests[1].manifest
 
     async def compare(endpoint):
         return await _compare(before, after, settings, manifests, endpoint, releases)

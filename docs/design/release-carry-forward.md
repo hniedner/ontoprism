@@ -54,9 +54,9 @@ Inputs:
 |26.09d|`tmp/issue-490-ncit-26.09d/Thesaurus-stated.owl`|753,577,794|
 
 The 26.09d pair was downloaded and certified using existing `data-build owl` with
-`NCIT_OWL_DIR=tmp/issue-490-ncit-26.09d`. It has not been loaded or activated.
-The active source remains 26.07d. A comparison-store preparation step is still
-needed for #491's two-certified-store interface.
+`NCIT_OWL_DIR=tmp/issue-490-ncit-26.09d`. At the #490 census it was not yet loaded.
+#523 subsequently compared it through an inactive certified sibling, without
+activation; the active source remains 26.07d. See [the command](release-delta-command.md).
 
 ## ROBOT evaluation: observed capabilities and limits
 

@@ -205,6 +205,9 @@ def score_pairs(oracle: list[ExpectedConcept], actual: list[StoredPair]) -> str:
             ]
         )
     lines.append("pair_score_scope=axes present in the accepted oracle cohort")
+    lines.append(
+        "partition_score_scope=all unflagged NCIt-bound emissions; no axis exclusion"
+    )
     lines.extend(
         f"unscored: no oracle axis; concept={code}; axis={axis}; count={count}"
         for (code, axis), count in sorted(unscored.items())
