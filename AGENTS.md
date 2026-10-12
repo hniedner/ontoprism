@@ -196,8 +196,10 @@ Use `pdm run agent-test`, not `python -m pytest` (D6). A failing `verify` is
 information: fix and rerun its failing lane, then run full `verify` once at the end.
 
 - TDD requires an observed RED. Zero collected tests is failure.
-- Apply the global `outside-in-tests` skill to every new test (its four-question gate and
-  determinism rules); prune only with `test-audit` (no deletion without evidence). Where
+- Apply the `outside-in-tests` skill to every new test (its four-question gate and
+  determinism rules); prune only with `test-audit` (no deletion without evidence). OpenCode
+  loads the in-repo copies `ontoprism-outside-in-tests` and `ontoprism-test-audit` from
+  `.opencode/skills/`. Where
   they conflict with this file, this file wins: report-only rollout does not apply to
   validation or publication guards; measure their hits on the configured store before
   merging instead.
