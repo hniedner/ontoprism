@@ -64,6 +64,12 @@ async def test_rerun_retains_decision_and_changed_support_requires_review() -> N
         reasons = [reason.model_dump() for reason in revised.needs_sme_reasons]
         assert reasons[:2] == changed["needs_sme_reasons"]
         assert reasons[2]["kind"] == "ambiguous"
+        read_back = LedgerAssessment.model_validate_json(
+            revised.model_dump_json(
+                exclude={"decisions", "applicability", "updated_at"}
+            )
+        )
+        assert await ledger.assess(read_back) == revised
         assert revised.decisions == approved.decisions
         assert revised.decisions[0].rationale == "examined both contexts"
         assert await ledger.for_concept("C3262") == [revised]

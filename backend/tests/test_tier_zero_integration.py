@@ -201,6 +201,9 @@ async def test_tier_zero_statuses_and_repeated_import():
         assert by_axis["op:StageSystem"].support.normalized_group.label == "Staging"
         assert by_axis["op:StageSystem"].evidence == ()
         assert report["mint_provisional"] == 1
+        assert report["assessment_basis"] == (
+            "stored assessment including human-decision applicability"
+        )
         await import_tier_zero(sessions, "tier-zero-fixture")
         assert await ledger.for_concept("C474001") == entries
         with pytest.raises(ValueError, match="completed stored run"):
