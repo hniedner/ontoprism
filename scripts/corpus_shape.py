@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
@@ -16,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 from backend.config import get_settings
 from ontolib.decomposition.endpoint_assessment import GENUS_AXES
 from ontolib.decomposition.enhancement_delta import DeltaOccurrence, delta_sql
+from ontolib.decomposition.evidence_models import LedgerEntry
 from ontolib.decomposition.normalized_group_policy import (
     load_packaged_normalized_group_policy,
 )
@@ -209,6 +211,7 @@ async def corpus_shape_counts(
             if status != "complete":
                 raise ValueError(f"run {run_id} does not exist or is not complete")
             counts = await _ordinary_counts(conn, run_id)
+            counts.update(await evidence_counts(conn, run_id))
             async for row in (
                 await conn.stream(text(_WHOLE_RUN_DELTA_SQL), {"run_id": run_id})
             ).mappings():
@@ -225,6 +228,78 @@ async def corpus_shape_counts(
         await engine.dispose()
 
 
+async def evidence_counts(conn: AsyncConnection, run_id: str) -> Counter[str]:
+    """Current ledger assessments for every natural key in a stored run cohort."""
+    counts = Counter(
+        dict.fromkeys(
+            [
+                "evidence.assertions.total",
+                "evidence.unassessed",
+                "evidence.mismatch.total",
+                "evidence.mismatch.release",
+                "evidence.mismatch.scope",
+                "evidence.status.provisional",
+                "evidence.status.evidence-supported",
+                "evidence.status.needs-SME",
+            ],
+            0,
+        )
+    )
+    for reason in ("no-evidence", "contradictory", "ambiguous"):
+        counts[f"evidence.needs-SME.reason.{reason}"] = 0
+    result = await conn.stream(
+        text("""
+        SELECT c.axis, r.ncit_version AS release, r.fingerprint->>'scope_root' AS scope,
+               to_jsonb(e) AS assessment
+        FROM decomp_constituent c JOIN decomp_run r ON r.id=c.run_id
+        LEFT JOIN assertion_evidence e USING (concept_code,axis,filler_code)
+        WHERE c.run_id=:run_id
+    """),
+        {"run_id": run_id},
+    )
+    async for row in result.mappings():
+        counts["evidence.assertions.total"] += 1
+        if row["assessment"] is None:
+            counts["evidence.unassessed"] += 1
+            continue
+        entry = LedgerEntry.model_validate_json(json.dumps(row["assessment"]))
+        if _evidence_mismatch(entry, row["release"], row["scope"], counts):
+            continue
+        counts[f"evidence.status.{entry.status}"] += 1
+        counts[f"evidence.status.{entry.status}.axis.{entry.axis}"] += 1
+        for reason in {reason.kind for reason in entry.needs_sme_reasons}:
+            counts[f"evidence.needs-SME.reason.{reason}"] += 1
+            counts[f"evidence.needs-SME.axis.{entry.axis}.reason.{reason}"] += 1
+        for choice in {
+            p.kind for p in entry.support.policy_choices if p.state == "open"
+        }:
+            counts[f"evidence.open-policy.{choice}"] += 1
+    return counts
+
+
+def _evidence_mismatch(
+    entry: LedgerEntry, release: str, scope: str, counts: Counter[str]
+) -> bool:
+    mismatches = {
+        "release": entry.source_release != release,
+        "scope": entry.scope_root != scope,
+    }
+    if not any(mismatches.values()):
+        return False
+    counts["evidence.mismatch.total"] += 1
+    for kind, differs in mismatches.items():
+        counts[f"evidence.mismatch.{kind}"] += int(differs)
+        counts[f"evidence.mismatch.{kind}.axis.{entry.axis}"] += int(differs)
+    return True
+
+
+def _supported_share(counts: Mapping[str, int], prefix: str = "evidence") -> str:
+    numerator = counts["evidence.status.evidence-supported"]
+    denominator = counts["evidence.assertions.total"]
+    percent = f"{100 * numerator / denominator:.6f}%" if denominator else "undefined"
+    return f"{prefix}.supported-share={numerator}/{denominator} ({percent})"
+
+
 def render_report(
     run_id: str,
     counts: Mapping[str, int],
@@ -232,9 +307,15 @@ def render_report(
     against: tuple[str, Mapping[str, int]] | None = None,
 ) -> str:
     lines = [f"run_id={run_id}", *(f"{key}={counts[key]}" for key in sorted(counts))]
+    if "evidence.assertions.total" in counts:
+        lines.append("evidence.denominator=all assertions in the selected run cohort")
+        lines.append(_supported_share(counts))
     if against is not None:
         against_id, baseline = against
         lines.append(f"against_run_id={against_id}")
+        if "evidence.assertions.total" in counts:
+            lines.append("evidence.comparison=not a historical tier-state comparison")
+            lines.append(_supported_share(baseline, "against.evidence"))
         for key in sorted(set(counts) | set(baseline)):
             difference = counts.get(key, 0) - baseline.get(key, 0)
             lines.append(f"difference.selected-minus-against.{key}={difference:+d}")

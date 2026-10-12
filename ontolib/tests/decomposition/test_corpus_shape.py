@@ -23,3 +23,12 @@ def test_against_renders_selected_minus_baseline_for_every_line() -> None:
         "difference.selected-minus-against.outcomes.decomposed=+2",
         "difference.selected-minus-against.review_flags.constituent.total=-2",
     ]
+
+
+def test_empty_evidence_cohort_has_undefined_share_not_full_support() -> None:
+    counts = Counter(
+        {"evidence.assertions.total": 0, "evidence.status.evidence-supported": 0}
+    )
+    report = render_report("empty", counts)
+    assert "evidence.supported-share=0/0 (undefined)" in report
+    assert "evidence.denominator=all assertions in the selected run cohort" in report
