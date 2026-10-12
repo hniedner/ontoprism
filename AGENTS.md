@@ -196,6 +196,11 @@ Use `pdm run agent-test`, not `python -m pytest` (D6). A failing `verify` is
 information: fix and rerun its failing lane, then run full `verify` once at the end.
 
 - TDD requires an observed RED. Zero collected tests is failure.
+- Apply the global `outside-in-tests` skill to every new test (its four-question gate and
+  determinism rules); prune only with `test-audit` (no deletion without evidence). Where
+  they conflict with this file, this file wins: report-only rollout does not apply to
+  validation or publication guards; measure their hits on the configured store before
+  merging instead.
 - Every test must detect a relevant behavioural regression. No execution-only tests,
   mock choreography, implementation-cloning fakes, fixture self-consistency or coverage
   padding.
