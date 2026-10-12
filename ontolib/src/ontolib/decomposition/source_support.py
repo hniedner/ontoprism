@@ -113,7 +113,8 @@ WITH selected AS MATERIALIZED (
 )
 SELECT c.run_id, c.concept_code, c.axis, c.filler_code, c.axis_source,
        COALESCE(s.sources, '[]'::jsonb) AS sources,
-       array_remove(ARRAY[
+        array_remove(ARRAY[
+            CASE WHEN c.axis_source = 'nlp' THEN 'nlp-derivation' END,
            CASE WHEN c.axis LIKE 'op:%' THEN 'axis-assignment' END,
            CASE WHEN c.most_specific OR EXISTS (
                SELECT 1 FROM decomp_occurrence_disposition d

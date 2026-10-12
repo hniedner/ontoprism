@@ -228,6 +228,10 @@ async def test_downgrade_refuses_history_and_empty_ledger_can_be_recreated() -> 
             await connection.execute(text("DELETE FROM assertion_evidence"))
             await connection.run_sync(migrate, migration.downgrade)
             await connection.run_sync(migrate, migration.upgrade)
+            await connection.run_sync(
+                migrate,
+                import_module("migrations.versions.0036_ledger_mint_fillers").upgrade,
+            )
         assert await ledger.for_concept("C400") == []
     finally:
         await dispose_engine(engine)
