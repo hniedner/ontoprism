@@ -9,7 +9,9 @@ from backend.config import get_settings
 from backend.decomposition_reader import DecompositionReader
 from backend.dependencies import (
     get_decomposition_reader,
+    get_evidence_ledger,
     get_ncit_store,
+    get_provenance_store,
     get_repository_metadata,
     get_xref_store,
 )
@@ -79,6 +81,8 @@ def test_corrupt_compact_graph_is_service_failure_not_invalid_code():
     app.dependency_overrides[get_decomposition_reader] = CorruptReader
     app.dependency_overrides[get_ncit_store] = _FakeStore
     app.dependency_overrides[get_xref_store] = _FakeXrefStore
+    app.dependency_overrides[get_evidence_ledger] = lambda: None
+    app.dependency_overrides[get_provenance_store] = lambda: None
     with TestClient(app) as client:
         response = client.get("/api/v1/ncit/concepts/C6135/decomposition")
     assert response.status_code == 503
@@ -139,6 +143,13 @@ def _client(
     app.dependency_overrides[get_ncit_store] = _FakeStore
     app.dependency_overrides[get_xref_store] = lambda: xrefs or _FakeXrefStore()
     app.dependency_overrides[get_repository_metadata] = _FakeMetadata
+
+    class EmptyLedger:
+        async def for_concept(self, code):
+            return []
+
+    app.dependency_overrides[get_evidence_ledger] = EmptyLedger
+    app.dependency_overrides[get_provenance_store] = lambda: None
     with TestClient(app) as client:
         yield client
 

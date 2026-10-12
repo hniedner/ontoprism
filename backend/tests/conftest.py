@@ -16,6 +16,7 @@ from backend.config import get_settings
 from backend.dependencies import (
     get_cadsr_repo,
     get_embedding_store,
+    get_evidence_ledger,
     get_icdo_repository,
     get_ncit_client,
     get_ncit_search_index,
@@ -38,6 +39,7 @@ from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
 
 _PERSISTENT_PROVIDERS = (
+    get_evidence_ledger,
     get_ncit_store,
     get_ncit_client,
     get_uberon_store,
