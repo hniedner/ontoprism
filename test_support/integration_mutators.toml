@@ -1,4 +1,8 @@
 [[mutator]]
+path = "backend/tests/test_tier_one_integration.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
 path = "backend/tests/test_evidence_corpus_integration.py"
 fixtures = ["isolated_postgres_settings"]
 
