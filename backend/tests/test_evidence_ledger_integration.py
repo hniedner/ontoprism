@@ -51,11 +51,19 @@ async def test_rerun_retains_decision_and_changed_support_requires_review() -> N
         changed["support"]["contexts"][0]["siblings"].append(
             {"role_code": "R108", "filler_code": "C456"}
         )
+        changed["status"] = "needs-SME"
+        changed["needs_sme_reasons"] = [
+            {"kind": "contradictory", "rationale": "Sources disagree on morphology"},
+            {"kind": "no-evidence", "rationale": "No corroboration for new context"},
+        ]
         revised = await ledger.assess(
             LedgerAssessment.model_validate_json(json.dumps(changed))
         )
         assert revised.applicability.state == "needs-review"
         assert revised.status == "needs-SME"
+        reasons = [reason.model_dump() for reason in revised.needs_sme_reasons]
+        assert reasons[:2] == changed["needs_sme_reasons"]
+        assert reasons[2]["kind"] == "ambiguous"
         assert revised.decisions == approved.decisions
         assert revised.decisions[0].rationale == "examined both contexts"
         assert await ledger.for_concept("C3262") == [revised]

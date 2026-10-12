@@ -46,7 +46,7 @@ def _applicability(
         return Applicability(
             decision_index=index,
             state="needs-review",
-            reason="Historical support, scope or release changed",
+            reason="Historical release, scope, support or evidence changed",
         )
     return Applicability(decision_index=index, state="applicable")
 
@@ -61,11 +61,13 @@ def _reassess(payload: dict, previous: LedgerEntry, absent_reason: str | None) -
         )
         applicability = _applicability(len(history) - 1, changed, absent_reason)
         if applicability.state == "needs-review":
+            reasons = list(payload["needs_sme_reasons"])
+            stale = {"kind": "ambiguous", "rationale": applicability.reason}
+            if stale not in reasons:
+                reasons.append(stale)
             payload.update(
                 status="needs-SME",
-                needs_sme_reasons=[
-                    {"kind": "ambiguous", "rationale": applicability.reason}
-                ],
+                needs_sme_reasons=reasons,
             )
     return {
         **payload,
