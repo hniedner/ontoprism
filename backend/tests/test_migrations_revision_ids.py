@@ -55,4 +55,4 @@ def test_migration_chain_has_expected_single_head() -> None:
     referenced = {module.down_revision for module in modules}
     heads = {module.revision for module in modules} - referenced
 
-    assert heads == {"0035_assertion_evidence"}
+    assert heads == {"0036_ledger_mint_fillers"}

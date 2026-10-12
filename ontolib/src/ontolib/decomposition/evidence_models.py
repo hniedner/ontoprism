@@ -6,7 +6,7 @@ from typing import Annotated, Literal, Self
 from pydantic import AwareDatetime, Field, model_validator
 
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel as Model
-from ontolib.decomposition.models import AxisSource
+from ontolib.decomposition.models import FILLER_CODE_PATTERN, AxisSource
 from ontolib.decomposition.source_support import P334Evidence, StatedFillerLocator
 from ontolib.decomposition.source_support import PolicyChoice as PolicyChoiceKind
 
@@ -27,7 +27,7 @@ class SupportContext(StatedFillerLocator):
 
 class AssertionPair(Model):
     axis: Text
-    filler_code: Code
+    filler_code: str = Field(pattern=FILLER_CODE_PATTERN)
 
 
 class NormalizedGroup(Model):
