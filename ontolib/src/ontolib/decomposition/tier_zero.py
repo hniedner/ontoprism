@@ -45,7 +45,7 @@ async def import_tier_zero(
         codes = list(result.scalars())
     ledger = EvidenceLedger(sessions)
     sources = Counter()
-    # Validate the entire input before the first write; dry-run follows the same path.
+    # Validate all inputs before writing. Dry-run does not assess existing history.
     assessments = []
     for code in codes:
         evidence = await provenance.constituent_evidence(run_id, code)
@@ -77,7 +77,12 @@ def _report(run_id, dry_run, total, sources, minted, counts, choices):
         "run_id": run_id,
         "assertions": total,
         "dry_run": dry_run,
-        "source_backed": dict(sources),
+        "assessment_basis": (
+            "input-only; existing human history not assessed"
+            if dry_run
+            else "stored assessment including human-decision applicability"
+        ),
+        "support_kinds": dict(sources),
         "mint_provisional": minted,
         "by_axis_status": [
             {"axis": a, "status": s, "count": n} for (a, s), n in sorted(counts.items())

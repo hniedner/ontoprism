@@ -148,6 +148,7 @@ async def test_decomposition_join_preserves_contract_and_fails_closed() -> None:
             constituent = unassessed.json()["constituents"][0]
             assert constituent["evidence_status"] == "provisional"
             assert constituent["decision_applicability"]["state"] == "no-decision"
+            assert constituent["decision_applicability"]["reason"] == "Unassessed"
             expected = decomposition_from_rows("C530001", rows).model_dump(mode="json")
             assert all(
                 unassessed.json()[key] == value
@@ -158,6 +159,13 @@ async def test_decomposition_join_preserves_contract_and_fails_closed() -> None:
                 constituent[key] == value
                 for key, value in expected["constituents"][0].items()
             )
+            await ledger.assess(assessment)
+            undecided = (await client.get(url)).json()["constituents"][0]
+            assert undecided["decision_applicability"] == {
+                "state": "no-decision",
+                "decision_index": None,
+                "reason": "No human decision recorded",
+            }
             await ledger.decide(
                 assessment,
                 actor="Alice",

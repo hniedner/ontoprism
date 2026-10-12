@@ -179,6 +179,8 @@ async def test_evidence_cohorts_separate_unassessed_mismatches_and_statuses():
                 selected[f"evidence.needs-SME.axis.op:Morphology.reason.{reason}"] == 1
             )
         assert selected["evidence.open-policy.nlp-derivation"] == 1
+        assert "evidence.open-policy.collapse" in selected
+        assert selected["evidence.open-policy.collapse"] == 0
         against = await corpus_shape_counts("evidence-against")
         report = render_report(
             "evidence-selected", selected, against=("evidence-against", against)

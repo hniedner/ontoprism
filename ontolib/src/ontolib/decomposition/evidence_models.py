@@ -1,12 +1,15 @@
 """Assertion support and human history, independent of re-derived engine runs."""
 
-from datetime import datetime
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, cast
 
 from pydantic import AwareDatetime, Field, model_validator
 
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel as Model
-from ontolib.decomposition.models import FILLER_CODE_PATTERN, AxisSource
+from ontolib.decomposition.models import (
+    AXIS_CODE_PATTERN,
+    FILLER_CODE_PATTERN,
+    AxisSource,
+)
 from ontolib.decomposition.source_support import P334Evidence, StatedFillerLocator
 from ontolib.decomposition.source_support import PolicyChoice as PolicyChoiceKind
 
@@ -26,7 +29,7 @@ class SupportContext(StatedFillerLocator):
 
 
 class AssertionPair(Model):
-    axis: Text
+    axis: str = Field(pattern=AXIS_CODE_PATTERN)
     filler_code: str = Field(pattern=FILLER_CODE_PATTERN)
 
 
@@ -147,7 +150,7 @@ class LedgerAssessment(SupportSnapshot, AssertionPair):
 class LedgerEntry(LedgerAssessment):
     decisions: tuple[HumanDecision, ...] = ()
     applicability: Applicability
-    updated_at: datetime
+    updated_at: AwareDatetime
 
     @model_validator(mode="after")
     def valid_history(self) -> Self:
@@ -161,7 +164,9 @@ class LedgerEntry(LedgerAssessment):
     @model_validator(mode="after")
     def matching_decision(self) -> Self:
         if self.applicability.state == "applicable":
-            decision = self.decisions[self.applicability.decision_index or 0]
+            # Applicability validates that applicable decisions have an index.
+            index = cast("int", self.applicability.decision_index)
+            decision = self.decisions[index]
             if any(
                 getattr(decision, key) != getattr(self, key)
                 for key in SupportSnapshot.model_fields

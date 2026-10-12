@@ -163,3 +163,18 @@ def test_persisted_approval_cannot_refer_to_different_snapshot() -> None:
     data["applicability"] = {"state": "no-decision", "reason": "none"}
     with pytest.raises(ValidationError, match="history requires"):
         LedgerEntry.model_validate_json(json.dumps(data))
+
+
+@pytest.mark.parametrize("axis", ["op:Morphology ", "Morphology", "R108\n"])
+def test_ledger_rejects_noncanonical_axis_keys(axis: str) -> None:
+    with pytest.raises(ValidationError):
+        LedgerAssessment.model_validate_json(json.dumps(payload() | {"axis": axis}))
+
+
+def test_ledger_timestamp_requires_timezone() -> None:
+    data = payload() | {
+        "updated_at": "2026-10-12T00:00:00",
+        "applicability": {"state": "no-decision", "reason": "Unreviewed"},
+    }
+    with pytest.raises(ValidationError):
+        LedgerEntry.model_validate_json(json.dumps(data))

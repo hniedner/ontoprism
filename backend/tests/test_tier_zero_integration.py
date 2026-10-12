@@ -176,7 +176,11 @@ async def test_tier_zero_statuses_and_repeated_import():
         ledger = EvidenceLedger(sessions)
         preview = await import_tier_zero(sessions, "tier-zero-fixture", dry_run=True)
         assert await ledger.for_concept("C474001") == []
-        assert preview["source_backed"] == {"genus-backed": 2, "not-source-backed": 1}
+        assert preview["support_kinds"] == {"genus-backed": 2, "not-source-backed": 1}
+        assert (
+            preview["assessment_basis"]
+            == "input-only; existing human history not assessed"
+        )
         report = await import_tier_zero(sessions, "tier-zero-fixture")
         entries = await ledger.for_concept("C474001")
         by_axis = {entry.axis: entry for entry in entries}

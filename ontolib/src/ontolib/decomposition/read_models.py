@@ -2,6 +2,7 @@
 
 Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept flagged
 ``legacy-precoordinated`` with a list of constituents (axis + filler + provenance).
+The API also joins assertion evidence and human history from the Postgres ledger.
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ import json
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, get_args
 
 import typer
 from sqlalchemy import text
@@ -27,6 +27,7 @@ from ontolib.decomposition.provenance import (
     missing_group_policy_pairs,
     primary_site_values,
 )
+from ontolib.decomposition.source_support import PolicyChoice
 
 _WHOLE_RUN_DELTA_SQL = delta_sql(whole_run=True)
 _FLAG_SPLIT = (
@@ -247,6 +248,8 @@ async def evidence_counts(conn: AsyncConnection, run_id: str) -> Counter[str]:
     )
     for reason in ("no-evidence", "contradictory", "ambiguous"):
         counts[f"evidence.needs-SME.reason.{reason}"] = 0
+    for kind in get_args(PolicyChoice):
+        counts[f"evidence.open-policy.{kind}"] = 0
     result = await conn.stream(
         text("""
         SELECT c.axis, r.ncit_version AS release, r.fingerprint->>'scope_root' AS scope,
