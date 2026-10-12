@@ -44,6 +44,9 @@ permission:
     "npm --prefix frontend run lint": allow
     "npm --prefix frontend run fallow": allow
     "npm --prefix frontend run build": allow
+    "npm --prefix frontend ci": allow
+    "npm --prefix frontend run test:e2e": allow
+    "npm --prefix frontend run test:e2e -- *": allow
     "ls": allow
     "ls -la": allow
     "git status*": allow
