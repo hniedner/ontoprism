@@ -7,11 +7,17 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 from __future__ import annotations
 
 import re
-from typing import Self, get_args
+from typing import Literal, Self, get_args
 
 from pydantic import Field, NonNegativeInt, field_validator, model_validator
 
 from ontolib.common.boundary_models import StrictBoundaryModel
+from ontolib.decomposition.evidence_models import (
+    Applicability,
+    EvidenceItem,
+    HumanDecision,
+    ReviewReason,
+)
 from ontolib.decomposition.models import AxisSource, ConceptOutcome, require_p334_axis
 from ontolib.decomposition.provenance_models import ConceptReviewFlag, ReviewFlagKind
 from ontolib.decomposition.vocab import PublicationNotice, PublicationStatus
@@ -83,6 +89,15 @@ class DecompositionConstituent(StrictBoundaryModel):
     normalized_group_label: str | None = None
     source_definition_ids: tuple[str, ...] = ()
     upstream: list[UpstreamMapping] = Field(default_factory=list)
+    evidence_status: Literal["provisional", "evidence-supported", "needs-SME"] = (
+        "provisional"
+    )
+    evidence: tuple[EvidenceItem, ...] = ()
+    needs_sme_reasons: tuple[ReviewReason, ...] = ()
+    decision_history: tuple[HumanDecision, ...] = ()
+    decision_applicability: Applicability = Field(
+        default_factory=lambda: Applicability(reason="Unassessed")
+    )
 
     @field_validator("source_roles")
     @classmethod

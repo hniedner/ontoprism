@@ -15,8 +15,10 @@ from backend.config import get_settings
 from backend.dependencies import (
     DecompositionReads,
     Embeddings,
+    EvidenceReads,
     NcitSearch,
     NcitStore,
+    ProvenanceReads,
     RepositoryMetadataReads,
     XrefReads,
 )
@@ -26,6 +28,9 @@ from backend.security import has_icdo_entitlement
 from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.common.grid import ColumnText
 from ontolib.core.logging_config import get_logger
+from ontolib.decomposition.evidence_models import LedgerEntry
+from ontolib.decomposition.provenance import RunIdentityMismatchError, RunStateError
+from ontolib.decomposition.provenance_models import CompletedRunForEvidence
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
@@ -404,12 +409,36 @@ async def concept_mappings(
     )
 
 
+class ConceptEvidence(StrictBoundaryModel):
+    concept_code: str
+    assertions: list[LedgerEntry]
+
+
+async def _ledger_rows(ledger: EvidenceReads, code: str) -> list[LedgerEntry]:
+    try:
+        return await ledger.for_concept(code)
+    except (SQLAlchemyError, ValueError) as exc:
+        raise HTTPException(
+            503, "Assertion evidence is unavailable or invalid"
+        ) from exc
+
+
+@router.get("/concepts/{code}/evidence", response_model=ConceptEvidence)
+async def concept_evidence(code: str, ledger: EvidenceReads) -> ConceptEvidence:
+    _validate_decomposition_code(code)
+    return ConceptEvidence(
+        concept_code=code, assertions=await _ledger_rows(ledger, code)
+    )
+
+
 @router.get("/concepts/{code}/decomposition", response_model=ConceptDecomposition)
 async def concept_decomposition(
     reader: DecompositionReads,
     store: NcitStore,
     xref_store: XrefReads,
     metadata: RepositoryMetadataReads,
+    ledger: EvidenceReads,
+    provenance: ProvenanceReads,
     code: str,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> ConceptDecomposition:
@@ -430,9 +459,7 @@ async def concept_decomposition(
     entitled_to_icdo = get_settings().enable_licensed_mappings and has_icdo_entitlement(
         x_icdo_entitlement
     )
-    _repository, expected = await _xref_expected(
-        metadata, include_icdo=entitled_to_icdo
-    )
+    repository, expected = await _xref_expected(metadata, include_icdo=entitled_to_icdo)
     filler_codes = [c.filler for c in decomposition.constituents]
     labels = await store.labels_for(filler_codes) if filler_codes else {}
     for constituent in decomposition.constituents:
@@ -446,7 +473,68 @@ async def concept_decomposition(
         )
     except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    await _attach_evidence(decomposition, ledger, provenance, repository)
     return decomposition
+
+
+async def _attach_evidence(
+    decomposition: ConceptDecomposition,
+    ledger: EvidenceReads,
+    provenance: ProvenanceReads,
+    repository: NcitRepositoryReady,
+) -> None:
+    entries = {
+        (row.axis, row.filler_code): row
+        for row in await _ledger_rows(ledger, decomposition.code)
+    }
+    matched = [
+        (c, entries[(c.axis, c.filler)])
+        for c in decomposition.constituents
+        if (c.axis, c.filler) in entries
+    ]
+    if not matched:
+        return
+    run = await _evidence_context(decomposition.run_id, provenance, repository)
+    for constituent, entry in matched:
+        if (entry.source_release, entry.scope_root) != (
+            run.ncit_version,
+            run.fingerprint.scope_root,
+        ):
+            raise HTTPException(
+                503,
+                "Ledger assessment release or scope does not match the published run",
+            )
+        constituent.evidence_status = entry.status
+        constituent.evidence = entry.evidence
+        constituent.needs_sme_reasons = entry.needs_sme_reasons
+        constituent.decision_history = entry.decisions
+        constituent.decision_applicability = entry.applicability
+
+
+async def _evidence_context(
+    run_id: str | None, provenance: ProvenanceReads, repository: NcitRepositoryReady
+) -> CompletedRunForEvidence:
+    if run_id is None:
+        raise HTTPException(
+            503, "Published run is required to assess ledger applicability"
+        )
+    try:
+        run = await provenance.completed_run_for_evidence(run_id)
+    except (
+        SQLAlchemyError,
+        ValueError,
+        RunStateError,
+        RunIdentityMismatchError,
+    ) as exc:
+        raise HTTPException(
+            503, "Published evidence context is unavailable or invalid"
+        ) from exc
+    if (
+        run.ncit_version != repository.release
+        or run.fingerprint.source_identity != repository.source_identity
+    ):
+        raise HTTPException(503, "Published run and served NCIt release disagree")
+    return run
 
 
 def _validate_decomposition_code(code: str) -> None:

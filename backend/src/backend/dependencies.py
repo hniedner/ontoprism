@@ -14,6 +14,7 @@ from backend.repository_metadata import (
     RepositoryUnhealthy,
     UberonRepositoryReady,
 )
+from ontolib.decomposition.evidence_ledger import EvidenceLedger
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
@@ -87,6 +88,10 @@ def get_provenance_store(
 ) -> ProvenanceStore:
     """Return the process-wide decomposition provenance store."""
     return request.app.state.provenance_store
+
+
+def get_evidence_ledger(request: Request) -> EvidenceLedger:
+    return request.app.state.evidence_ledger
 
 
 def get_ncit_search_index(
@@ -176,6 +181,7 @@ NcitSearch = Annotated[NcitSearchIndex, Depends(get_ncit_search_index)]
 UberonStore = Annotated[UberonGraphStore, Depends(get_uberon_store)]
 UberonSearch = Annotated[UberonSearchIndex, Depends(get_uberon_search_index)]
 ProvenanceReads = Annotated[ProvenanceStore, Depends(get_provenance_store)]
+EvidenceReads = Annotated[EvidenceLedger, Depends(get_evidence_ledger)]
 XrefReads = Annotated[XrefStore, Depends(get_xref_store)]
 IcdoReads = Annotated[IcdoReader, Depends(get_icdo_repository)]
 RepositoryMetadataReads = Annotated[

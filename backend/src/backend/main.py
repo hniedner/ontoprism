@@ -37,6 +37,7 @@ from backend.repository_metadata import RepositoryMetadataService, RepositoryUnh
 from backend.repository_registry import local_repository_ids
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
+from ontolib.decomposition.evidence_ledger import EvidenceLedger
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
@@ -112,6 +113,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ncit_search_index = NcitSearchIndex(make_sessionmaker(engine))
     app.state.uberon_search_index = UberonSearchIndex(make_sessionmaker(engine))
     app.state.provenance_store = ProvenanceStore(make_sessionmaker(engine))
+    app.state.evidence_ledger = EvidenceLedger(sessions)
     app.state.xref_store = XrefStore(make_sessionmaker(engine))
     app.state.clinicaltrials_client = ClinicalTrialsClient(
         settings.clinicaltrials_api_url
