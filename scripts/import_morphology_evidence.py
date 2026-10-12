@@ -11,6 +11,7 @@ from ontolib.decomposition.histology_anchor import HistologyAnchors, read_p334_v
 from ontolib.decomposition.morphology_evidence import (
     import_morphology_evidence,
     morphology_inputs,
+    read_site_carriers,
 )
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
@@ -28,10 +29,11 @@ async def run(run_id: str, apply: bool = False) -> dict:
                 client, metadata["source_identity"]
             )
             anchors = HistologyAnchors(source.snapshot, await read_p334_values(client))
+            site_carriers = await read_site_carriers(client)
             if await client.version() != metadata["ncit_version"]:
                 raise ValueError("NCIt version changed during source reads")
         return await import_morphology_evidence(
-            sessions, run_id, anchors, dry_run=not apply
+            sessions, run_id, anchors, site_carriers, dry_run=not apply
         )
     finally:
         await dispose_engine(engine)

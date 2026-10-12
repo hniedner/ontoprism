@@ -1,6 +1,7 @@
 """Post-run morphology corroboration from NCIt's P334 carrier hierarchy."""
 
 import json
+import re
 from collections import Counter
 
 from sqlalchemy import text
@@ -12,6 +13,34 @@ from ontolib.decomposition.evidence_models import (
     LedgerEntry,
 )
 from ontolib.decomposition.histology_anchor import HistologyAnchors
+from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
+
+
+async def read_site_carriers(client) -> frozenset[str]:
+    """Read positive site existentials, including nested intersection conjuncts."""
+    rows = await client.select_once(
+        f'''PREFIX owl: <http://www.w3.org/2002/07/owl#>
+        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        SELECT DISTINCT ?carrier WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{
+          VALUES ?role {{ <{NCIT_NS}R100> <{NCIT_NS}R101> <{NCIT_NS}R102> }}
+          ?carrier (rdfs:subClassOf|owl:equivalentClass) ?expression .
+          ?expression (owl:intersectionOf/rdf:rest*/rdf:first)* ?restriction .
+          ?restriction owl:onProperty ?role ; owl:someValuesFrom ?site .
+          FILTER(isIRI(?carrier) && STRSTARTS(STR(?carrier), "{NCIT_NS}"))
+        }} }}''',
+        required_variables={"carrier"},
+    )
+    return frozenset(_site_code(row["carrier"]) for row in rows)
+
+
+def _site_code(iri):
+    if not isinstance(iri, str) or not re.fullmatch(
+        re.escape(NCIT_NS) + r"C[0-9]+", iri
+    ):
+        raise ValueError("site restriction carrier is not a named NCIt code")
+    return iri.removeprefix(NCIT_NS)
 
 
 async def morphology_inputs(sessions, run_id):
@@ -94,12 +123,14 @@ def _attach(payload, entry, matching, anchors):
             payload["evidence"].append(item)
 
 
-def assess_morphology(entry, candidates, anchors):
+def assess_morphology(entry, candidates, anchors, site_carriers):
     """Apply the owner-approved disease-anchor rule using existing ledger values."""
     payload = entry.model_dump(mode="json", include=set(LedgerAssessment.model_fields))
-    matching = tuple(
-        c for c in candidates if c in anchors.source.ancestor_paths(entry.filler_code)
+    matching = sorted(
+        set(candidates).intersection(anchors.source.ancestor_paths(entry.filler_code))
     )
+    if _nonmatching_bucket(entry, candidates, anchors, site_carriers):
+        return LedgerAssessment.model_validate_json(json.dumps(payload))
     _attach(payload, entry, matching, anchors)
     if len(candidates) > 1:
         _policy(payload, "open")
@@ -127,22 +158,30 @@ def _supported_status(payload):
     payload["status"] = "provisional" if remaining else "evidence-supported"
 
 
-def _nonmatching(entry, candidates, anchors, counts):
-    if len(candidates) != 1:
-        return
-    carrier = candidates[0]
-    if carrier in anchors.source.ancestor_paths(entry.filler_code):
-        return
-    kind = (
-        "filler-ancestor-of-anchor"
-        if entry.filler_code in anchors.source.ancestor_paths(carrier)
-        else "incomparable"
-    )
-    counts[kind] += 1
+def _unique_bucket(entry, carrier, anchors, site_carriers):
+    paths = anchors.source.ancestor_paths(entry.filler_code)
+    site_bearing = bool(set(paths).intersection(site_carriers))
+    if entry.filler_code == carrier:
+        return "equal-site-bearing" if site_bearing else None
+    if carrier in paths:
+        return (
+            "strict-descendant-site-bearing"
+            if site_bearing
+            else "strict-descendant-site-free"
+        )
+    if entry.filler_code in anchors.source.ancestor_paths(carrier):
+        return "filler-ancestor-of-anchor"
+    return "incomparable"
+
+
+def _nonmatching_bucket(entry, candidates, anchors, site_carriers):
+    if len(candidates) == 1:
+        return _unique_bucket(entry, candidates[0], anchors, site_carriers)
+    return None
 
 
 async def import_morphology_evidence(
-    sessions, run_id, anchors: HistologyAnchors, *, dry_run=False
+    sessions, run_id, anchors: HistologyAnchors, site_carriers, *, dry_run=False
 ):
     """Preflight assessments; preview the human-applicability rules used by writes."""
     run, entries = await morphology_inputs(sessions, run_id)
@@ -152,15 +191,16 @@ async def import_morphology_evidence(
         code: anchors.for_concept(code) for code in {e.concept_code for e in entries}
     }
     prepared = [
-        assess_morphology(e, candidates[e.concept_code], anchors) for e in entries
+        assess_morphology(e, candidates[e.concept_code], anchors, site_carriers)
+        for e in entries
     ]
     return await _import_report(
-        sessions, run_id, anchors, entries, candidates, prepared, dry_run
+        sessions, run_id, anchors, entries, candidates, prepared, dry_run, site_carriers
     )
 
 
 async def _import_report(
-    sessions, run_id, anchors, entries, candidates, prepared, dry_run
+    sessions, run_id, anchors, entries, candidates, prepared, dry_run, site_carriers
 ):
     counts, reasons, nonmatching, transitions = (
         Counter(),
@@ -178,7 +218,10 @@ async def _import_report(
         counts[entry.status] += 1
         transitions[(previous.status, entry.status)] += 1
         reasons.update(r.kind for r in entry.needs_sme_reasons)
-        _nonmatching(previous, candidates[previous.concept_code], anchors, nonmatching)
+        choices = candidates[previous.concept_code]
+        bucket = _nonmatching_bucket(previous, choices, anchors, site_carriers)
+        if bucket:
+            nonmatching[bucket] += 1
     return {
         "run_id": run_id,
         "dry_run": dry_run,

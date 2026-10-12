@@ -29,8 +29,8 @@ pytestmark = [
         (
             [("C475001", "C475002")],
             {"C475002": ("8000/3",)},
-            "evidence-supported",
-            ["C475002"],
+            "provisional",
+            [],
             None,
             None,
         ),
@@ -44,6 +44,15 @@ pytestmark = [
         ),
         ([], {}, "needs-SME", [], "no-evidence", None),
         ([], {"C475001": ("8000/6",)}, "needs-SME", [], "no-evidence", None),
+        ([], {"C475001": ("8000/3",)}, "provisional", [], None, "equal-site-bearing"),
+        (
+            [("C475001", "C475002")],
+            {"C475001": ("8000/3",)},
+            "provisional",
+            [],
+            None,
+            "inherited-site",
+        ),
         (
             [("C475001", "C475002"), ("C475002", "C123")],
             {"C475002": ("8000/3",)},
@@ -79,7 +88,18 @@ async def test_disease_anchors_control_morphology_assessment(
     suffix = str(int(uuid4().hex[:12], 16))
     codes = {c: "C" + suffix + c[1:] for c in ("C475001", "C475002", "C475003", "C123")}
     disease = codes["C475001"]
-    filler = codes["C123"] if unmatched else disease
+    filler = (
+        codes["C123"]
+        if unmatched in {"mixed", "incomparable", "filler-ancestor-of-anchor"}
+        else disease
+    )
+    site_carriers = (
+        frozenset({disease})
+        if unmatched == "equal-site-bearing"
+        else frozenset({codes["C475002"]})
+        if unmatched == "inherited-site"
+        else frozenset()
+    )
     source = AxisHierarchyEvidence(
         source_identity="a" * 64,
         edges=tuple(HierarchyEdge(child=codes[a], parent=codes[b]) for a, b in edges),
@@ -120,10 +140,12 @@ async def test_disease_anchors_control_morphology_assessment(
         ledger = EvidenceLedger(sessions)
         before = await ledger.assess(assessment)
         preview = await import_morphology_evidence(
-            sessions, run_id, anchors, dry_run=True
+            sessions, run_id, anchors, site_carriers, dry_run=True
         )
         assert (await ledger.for_concept(disease))[0] == before
-        report = await import_morphology_evidence(sessions, run_id, anchors)
+        report = await import_morphology_evidence(
+            sessions, run_id, anchors, site_carriers
+        )
         entry = (await ledger.for_concept(disease))[0]
         assert entry.status == status
         assert len(entry.evidence) == len(matched)
@@ -141,11 +163,15 @@ async def test_disease_anchors_control_morphology_assessment(
         assert entry.support.policy_choices[0].state == (
             "corroborated" if status == "evidence-supported" else "open"
         )
-        if unmatched in {"incomparable", "filler-ancestor-of-anchor"}:
+        if unmatched in {
+            "incomparable",
+            "filler-ancestor-of-anchor",
+            "equal-site-bearing",
+        }:
             assert report["unique_nonmatching"][unmatched] == 1
             assert entry == before
         assert preview["by_status"] == report["by_status"]
-        await import_morphology_evidence(sessions, run_id, anchors)
+        await import_morphology_evidence(sessions, run_id, anchors, site_carriers)
         assert (await ledger.for_concept(disease))[0] == entry
     finally:
         await dispose_engine(engine)
@@ -192,7 +218,7 @@ async def test_morphology_import_rejects_unavailable_or_mismatched_inputs(invali
             match=r"completed|existing ledger|release/scope|hierarchy source",
         ):
             await import_morphology_evidence(
-                sessions, "absent" if invalid == "run" else run_id, anchors
+                sessions, "absent" if invalid == "run" else run_id, anchors, frozenset()
             )
         assert await ledger.for_concept(code) == before
     finally:
@@ -208,10 +234,10 @@ async def test_morphology_import_preserves_independent_choices_and_history(case)
     code = "C" + str(int(uuid4().hex[:12], 16))
     source = AxisHierarchyEvidence(
         source_identity="a" * 64,
-        edges=(HierarchyEdge(child="C123", parent=code),),
+        edges=(HierarchyEdge(child=code, parent="C123"),),
         disjoint_pairs=(),
     )
-    values = {} if case == "tier-zero-closed" else {code: ("8000/3",)}
+    values = {} if case == "tier-zero-closed" else {"C123": ("8000/3",)}
     anchors = HistologyAnchors(source, values)
     try:
         sessions = make_sessionmaker(engine)
@@ -281,10 +307,12 @@ async def test_morphology_import_preserves_independent_choices_and_history(case)
                 lifecycle="locally-approved",
             )
         preview = await import_morphology_evidence(
-            sessions, run_id, anchors, dry_run=True
+            sessions, run_id, anchors, frozenset(), dry_run=True
         )
         assert (await ledger.for_concept(code))[0] == before
-        report = await import_morphology_evidence(sessions, run_id, anchors)
+        report = await import_morphology_evidence(
+            sessions, run_id, anchors, frozenset()
+        )
         after = (await ledger.for_concept(code))[0]
         assert preview["by_status"] == report["by_status"]
         assert preview["by_reason"] == report["by_reason"]

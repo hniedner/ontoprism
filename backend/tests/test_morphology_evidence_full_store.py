@@ -13,10 +13,13 @@ async def test_reference_morphology_prediction_preserves_nonmatching_rows():
     assert report["unique_nonmatching"] == {
         "incomparable": 11550,
         "filler-ancestor-of-anchor": 6800,
+        "equal-site-bearing": 3205,
+        "strict-descendant-site-bearing": 11249,
+        "strict-descendant-site-free": 1274,
     }
     assert report["by_status"] == {
-        "evidence-supported": 17248,
-        "provisional": 18363,
+        "evidence-supported": 1533,
+        "provisional": 34078,
         "needs-SME": 5207,
     }
     assert report["by_reason"] == {"ambiguous": 3672, "no-evidence": 1535}
