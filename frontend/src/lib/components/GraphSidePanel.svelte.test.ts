@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
 import GraphSidePanel from './GraphSidePanel.svelte';
-import type { AnalyticsSummary } from '$lib/graph/neighborhood-graph';
+import type { AnalyticsSummary } from '#lib/graph/neighborhood-graph.ts';
 
 const stats: AnalyticsSummary = {
 	communityCount: 2,

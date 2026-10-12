@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import MappedCdes from './MappedCdes.svelte';
-import type { CdeSummary } from '$lib/types';
+import type { CdeSummary } from '#lib/types.ts';
 
-vi.mock('$lib/api', () => ({ cdesForConcept: vi.fn() }));
-import { cdesForConcept } from '$lib/api';
+vi.mock('#lib/api.ts', () => ({ cdesForConcept: vi.fn() }));
+import { cdesForConcept } from '#lib/api.ts';
 
 const mock = vi.mocked(cdesForConcept);
 

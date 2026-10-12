@@ -1,10 +1,10 @@
 import { error } from '@sveltejs/kit';
-import { getNcitSemanticTypes, listNcit, searchNcit } from '$lib/api';
-import { critical } from '$lib/server/critical-load';
-import { loadRepositoryPage, type OffsetGridSpec } from '$lib/server/repository-load';
-import type { NcitBrowseSort, NcitRepositoryPage, NcitRepositorySort, RepresentationStatus } from '$lib/types';
+import { getNcitSemanticTypes, listNcit, searchNcit } from '#lib/api.ts';
+import { critical } from '#lib/server/critical-load.ts';
+import { loadRepositoryPage, type OffsetGridSpec } from '#lib/server/repository-load.ts';
+import type { NcitBrowseSort, NcitRepositoryPage, NcitRepositorySort, RepresentationStatus } from '#lib/types.ts';
 import type { PageServerLoad } from './$types';
-import { gridCapabilities, gridControls } from '$lib/repository-registry';
+import { gridCapabilities, gridControls } from '#lib/repository-registry.ts';
 
 export const load: PageServerLoad = async ({ fetch, url }) => {
 	const searching = Boolean(url.searchParams.get('q')?.trim());

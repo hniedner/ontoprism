@@ -1,11 +1,11 @@
 import { error } from '@sveltejs/kit';
-import { getJson } from '$lib/api';
+import { getJson } from '#lib/api.ts';
 import {
 	icdoDetailPath,
 	parseIcdoDataset
-} from '$lib/icdo-routes';
-import { critical } from '$lib/server/critical-load';
-import type { IcdoDetail } from '$lib/types';
+} from '#lib/icdo-routes.ts';
+import { critical } from '#lib/server/critical-load.ts';
+import type { IcdoDetail } from '#lib/types.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ fetch, params }) => {

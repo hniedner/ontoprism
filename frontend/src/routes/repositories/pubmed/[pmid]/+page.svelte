@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import PubMedArticleHeader from '$lib/components/pubmed/PubMedArticleHeader.svelte';
-	import PubMedArticleBody from '$lib/components/pubmed/PubMedArticleBody.svelte';
-	import RelatedArticles from '$lib/components/pubmed/RelatedArticles.svelte';
+	import PubMedArticleHeader from '#lib/components/pubmed/PubMedArticleHeader.svelte';
+	import PubMedArticleBody from '#lib/components/pubmed/PubMedArticleBody.svelte';
+	import RelatedArticles from '#lib/components/pubmed/RelatedArticles.svelte';
 	import type { PageProps } from './$types';
-	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
-	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
+	import RepositoryKindBadge from '#lib/components/RepositoryKindBadge.svelte';
+	import RemoteServiceDisclosure from '#lib/components/RemoteServiceDisclosure.svelte';
 
 	let { data }: PageProps = $props();
 	const article = $derived(data.article);

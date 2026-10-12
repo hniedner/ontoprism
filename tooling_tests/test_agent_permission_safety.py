@@ -90,6 +90,9 @@ _NEVER_ALLOWED = (
     "git diff --stat --output=/Users/hannes/x",
     "git show HEAD --output=/Users/hannes/x",
     "git diff --no-ext-diff --output=tmp/x main...HEAD",
+    "npm --prefix frontend run test:e2e -- e2e/x.spec.ts --output=../x",
+    "npm --prefix frontend run test:e2e -- e2e/x.spec.ts --output=/Users/hannes/x",
+    "npm --prefix frontend run test:e2e -- e2e/x.spec.ts; rm -rf tmp",
     "git diff --no-ext-diff --no-index /dev/null /etc/passwd --src-prefix=...HEAD",
     "wc -l tmp/../../../../Users/hannes/.ssh/id_ed25519",
     "pdm run python tmp/scratch/../../evil.py",
@@ -266,6 +269,11 @@ def test_only_the_primary_agent_can_stage_commit_or_publish(
         "pdm run agent-replay ensure-podman-stack",
         "npm --prefix frontend run test:coverage",
         "npm --prefix frontend run check",
+        # installs exactly the reviewed lockfile, as CI does; `npm install` stays denied
+        "npm --prefix frontend ci",
+        "npm --prefix frontend run test:e2e",
+        "npm --prefix frontend run test:e2e -- e2e/ssr-bff.spec.ts:147 --workers=1 "
+        "--retries=0 --screenshot=on",
         "pdm run pre-commit run --all-files",
         "git status --porcelain",
         "git merge-base main HEAD",

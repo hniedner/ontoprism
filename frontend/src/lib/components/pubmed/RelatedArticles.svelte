@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { getRelatedArticles } from '$lib/api.pubmed';
-	import LoadingState from '$lib/components/LoadingState.svelte';
+	import { getRelatedArticles } from '#lib/api.pubmed.ts';
+	import LoadingState from '#lib/components/LoadingState.svelte';
 
 	let { pmid }: { pmid: string } = $props();
 	let relatedPmids = $state<string[]>([]);

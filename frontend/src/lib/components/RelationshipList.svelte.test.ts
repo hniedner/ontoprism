@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import RelationshipList from './RelationshipList.svelte';
-import type { Relationship } from '$lib/types';
+import type { Relationship } from '#lib/types.ts';
 
 const rels: Relationship[] = [
 	{ relation: 'R123', relation_label: 'has_finding', target: { code: 'C1', label: 'Fever' } },

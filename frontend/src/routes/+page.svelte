@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
-	import { repositories, type RepositoryId } from '$lib/repository-registry';
+	import RepositoryKindBadge from '#lib/components/RepositoryKindBadge.svelte';
+	import { repositories, type RepositoryId } from '#lib/repository-registry.ts';
 
 	const presentation: Record<RepositoryId, { title: string; blurb: string; accent: string }> = {
 		ncit: {

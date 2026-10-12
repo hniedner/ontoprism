@@ -72,11 +72,12 @@ test('caDSR: browse → URL search → open a server-loaded CDE detail', async (
 });
 
 test('caDSR: concept graph precedes detail cards without loading eagerly', async ({ page }) => {
-	const graphRequest = 'GET /api/v1/cadsr/cdes/6686721/neighborhood';
-	const countsBefore = (await (await page.request.get('/api/v1/__test__/counts')).json()) as Record<
-		string,
-		number
-	>;
+	let graphRequests = 0;
+	page.on('request', (request) => {
+		if (new URL(request.url()).pathname === '/api/v1/cadsr/cdes/6686721/neighborhood') {
+			graphRequests += 1;
+		}
+	});
 
 	await page.goto('/repositories/cadsr/6686721');
 	const graphHeading = page.getByRole('heading', { name: 'Concept graph' });
@@ -91,14 +92,13 @@ test('caDSR: concept graph precedes detail cards without loading eagerly', async
 		)
 	).toBe(true);
 
-	const countsAfter = (await (await page.request.get('/api/v1/__test__/counts')).json()) as Record<
-		string,
-		number
-	>;
-	expect(countsAfter[graphRequest] ?? 0).toBe(countsBefore[graphRequest] ?? 0);
 	await expect(page.getByText('Mapped concept 7')).toHaveCount(0);
 	await page.getByRole('button', { name: 'Show all 14 NCIt concepts' }).click();
 	await expect(page.getByText('Mapped concept 7')).toBeVisible();
+	expect(graphRequests).toBe(0);
+	await page.getByRole('button', { name: 'Explore in graph' }).click();
+	await expect(page.locator('.graph-canvas')).toBeVisible();
+	expect(graphRequests).toBe(1);
 });
 
 test('caDSR: delayed on-demand graph reserves its region while loading', async ({ page }) => {

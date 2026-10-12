@@ -1,6 +1,6 @@
 <script lang="ts">
-	import SimilarCdes from '$lib/components/SimilarCdes.svelte';
-	import type { CdeDetail } from '$lib/types';
+	import SimilarCdes from '#lib/components/SimilarCdes.svelte';
+	import type { CdeDetail } from '#lib/types.ts';
 	import CdeConceptsCard from './CdeConceptsCard.svelte';
 	import CdePermissibleValuesCard from './CdePermissibleValuesCard.svelte';
 

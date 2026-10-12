@@ -1,4 +1,4 @@
-import type { CTStudyDetail } from '$lib/types';
+import type { CTStudyDetail } from '#lib/types.ts';
 
 /** Build a CTStudyDetail with sensible empty defaults, overridable per test. */
 export function trialDetail(over: Partial<CTStudyDetail> = {}): CTStudyDetail {

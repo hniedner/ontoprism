@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { ConstituentEvidence } from '$lib/types';
+    import type { ConstituentEvidence } from '#lib/types.ts';
     import LoadingState from './LoadingState.svelte';
     let { evidence, failed, runId }: { evidence: ConstituentEvidence[] | null; failed: boolean; runId: string | null } = $props();
     const kinds = Object.keys({ 'restriction-backed': true, 'genus-backed': true,

@@ -14,6 +14,7 @@ export default defineConfig({
 	reporter: process.env.CI ? 'line' : 'list',
 	use: {
 		baseURL: `http://localhost:${PORT}`,
+		extraHTTPHeaders: { 'X-Forwarded-Proto': 'http' },
 		trace: 'on-first-retry'
 	},
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
@@ -33,13 +34,13 @@ export default defineConfig({
 			timeout: 120_000
 		},
 		{
-			command: `npm run build && env ONTOPRISM_FASTAPI_ORIGIN=http://127.0.0.1:${FASTAPI_PORT} ONTOPRISM_FASTAPI_TIMEOUT_MS=500 ICDO_ENTITLEMENT_KEY=licensed HOST=127.0.0.1 PORT=${PORT} ORIGIN=http://127.0.0.1:${PORT} node build`,
+			command: `npm run build && env ONTOPRISM_FASTAPI_ORIGIN=http://127.0.0.1:${FASTAPI_PORT} ONTOPRISM_FASTAPI_TIMEOUT_MS=500 ICDO_ENTITLEMENT_KEY=licensed HOST=127.0.0.1 PORT=${PORT} PROTOCOL_HEADER=x-forwarded-proto node build`,
 			port: PORT,
 			reuseExistingServer: !process.env.CI,
 			timeout: 120_000
 		},
 		{
-			command: `env ONTOPRISM_FASTAPI_ORIGIN=http://127.0.0.1:${FASTAPI_PORT} ONTOPRISM_FASTAPI_TIMEOUT_MS=500 HOST=127.0.0.1 PORT=${REFUSED_PORT} ORIGIN=http://127.0.0.1:${REFUSED_PORT} node build`,
+			command: `env ONTOPRISM_FASTAPI_ORIGIN=http://127.0.0.1:${FASTAPI_PORT} ONTOPRISM_FASTAPI_TIMEOUT_MS=500 HOST=127.0.0.1 PORT=${REFUSED_PORT} PROTOCOL_HEADER=x-forwarded-proto node build`,
 			port: REFUSED_PORT,
 			reuseExistingServer: false,
 			timeout: 120_000

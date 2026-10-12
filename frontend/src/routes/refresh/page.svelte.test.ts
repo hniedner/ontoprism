@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { refreshRepositories } from '$lib/api';
+import { refreshRepositories } from '#lib/api.ts';
 import Page from './+page.svelte';
 
-vi.mock('$lib/api', () => ({ refreshRepositories: vi.fn() }));
+vi.mock('#lib/api.ts', () => ({ refreshRepositories: vi.fn() }));
 
 const refreshMock = vi.mocked(refreshRepositories);
 

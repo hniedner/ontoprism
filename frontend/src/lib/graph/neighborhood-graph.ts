@@ -10,7 +10,7 @@
 import Graph from 'graphology';
 import louvain from 'graphology-communities-louvain';
 import betweenness from 'graphology-metrics/centrality/betweenness';
-import type { EdgeKind, Neighborhood, RepresentationStatus } from '$lib/types';
+import type { EdgeKind, Neighborhood, RepresentationStatus } from '#lib/types.ts';
 
 /** Edge color by ontological kind — reused by the legend. */
 export const KIND_COLOR: Record<EdgeKind, string> = {

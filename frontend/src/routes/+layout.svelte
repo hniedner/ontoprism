@@ -2,14 +2,14 @@
 	import '../app.css';
 	import { navigating, page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import favicon from '$lib/assets/favicon.svg';
-	import { theme } from '$lib/stores/theme.svelte';
-	import { buildBreadcrumbs } from '$lib/breadcrumbs';
-	import { cn } from '$lib/utils/cn';
-	import LoadingState from '$lib/components/LoadingState.svelte';
-	import IcdoAccessBadge from '$lib/components/IcdoAccessBadge.svelte';
-	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
-	import { repositories } from '$lib/repository-registry';
+	import favicon from '#lib/assets/favicon.svg';
+	import { theme } from '#lib/stores/theme.svelte.ts';
+	import { buildBreadcrumbs } from '#lib/breadcrumbs.ts';
+	import { cn } from '#lib/utils/cn.ts';
+	import LoadingState from '#lib/components/LoadingState.svelte';
+	import IcdoAccessBadge from '#lib/components/IcdoAccessBadge.svelte';
+	import RepositoryKindBadge from '#lib/components/RepositoryKindBadge.svelte';
+	import { repositories } from '#lib/repository-registry.ts';
 	import type { LayoutProps } from './$types';
 
 	let { children, data }: LayoutProps = $props();

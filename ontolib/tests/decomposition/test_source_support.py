@@ -13,7 +13,7 @@ def test_mixed_source_kinds_are_not_reported_as_one_support_kind():
             anchor_code="C1",
             group_id="group",
             depth=0,
-            role_code="R101",
+            role_code="R101" if kind == "restriction" else None,
             filler_code="C2",
             occurrence_id="occ",
             structural_path=[0],

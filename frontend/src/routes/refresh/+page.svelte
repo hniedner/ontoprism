@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { refreshRepositories } from '$lib/api';
-	import LoadingState from '$lib/components/LoadingState.svelte';
-	import RepositoryMetadataRow from '$lib/components/RepositoryMetadataRow.svelte';
-	import type { RefreshReport } from '$lib/types';
+	import { refreshRepositories } from '#lib/api.ts';
+	import LoadingState from '#lib/components/LoadingState.svelte';
+	import RepositoryMetadataRow from '#lib/components/RepositoryMetadataRow.svelte';
+	import type { RefreshReport } from '#lib/types.ts';
 
 	let report = $state<RefreshReport | null>(null);
 	let loading = $state(false);

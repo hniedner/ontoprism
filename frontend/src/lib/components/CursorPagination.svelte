@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { PAGE_SIZES, type PageSize } from '$lib/grid-state';
+	import { PAGE_SIZES, type PageSize } from '#lib/grid-state.ts';
 	let { count, total, hasPrevious, hasNext, size, onPrevious, onNext, onSize }: { count: number; total: number; hasPrevious: boolean; hasNext: boolean; size: PageSize; onPrevious: () => void; onNext: () => void; onSize: (size: PageSize) => void } = $props();
 </script>
 <nav aria-label="Pagination" class="flex flex-wrap items-center justify-between gap-3 border-t border-default px-4 py-3 text-sm">

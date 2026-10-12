@@ -2,8 +2,8 @@ import { render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RelatedArticles from './RelatedArticles.svelte';
 
-vi.mock('$lib/api.pubmed', () => ({ getRelatedArticles: vi.fn() }));
-import { getRelatedArticles } from '$lib/api.pubmed';
+vi.mock('#lib/api.pubmed.ts', () => ({ getRelatedArticles: vi.fn() }));
+import { getRelatedArticles } from '#lib/api.pubmed.ts';
 
 const mock = vi.mocked(getRelatedArticles);
 

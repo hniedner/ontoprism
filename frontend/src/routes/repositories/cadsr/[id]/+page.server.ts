@@ -1,5 +1,5 @@
-import { getCde } from '$lib/api';
-import { critical } from '$lib/server/critical-load';
+import { getCde } from '#lib/api.ts';
+import { critical } from '#lib/server/critical-load.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ fetch, params }) => ({

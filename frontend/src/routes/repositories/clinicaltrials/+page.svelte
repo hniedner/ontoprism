@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import CtResultsTable from '$lib/components/CtResultsTable.svelte';
-	import RepoBrowsePage from '$lib/components/RepoBrowsePage.svelte';
-	import type { DataTableOperations } from '$lib/components/data-table/types';
-	import { gridControls } from '$lib/repository-registry';
-	import type { CTStudySummary } from '$lib/types';
+	import CtResultsTable from '#lib/components/CtResultsTable.svelte';
+	import RepoBrowsePage from '#lib/components/RepoBrowsePage.svelte';
+	import type { DataTableOperations } from '#lib/components/data-table/types.ts';
+	import { gridControls } from '#lib/repository-registry.ts';
+	import type { CTStudySummary } from '#lib/types.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();

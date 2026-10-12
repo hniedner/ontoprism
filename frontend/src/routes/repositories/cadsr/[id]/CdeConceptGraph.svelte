@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { getCdeNeighborhood } from '$lib/api';
-	import BrowserGraph from '$lib/components/BrowserGraph.svelte';
-	import LoadingState from '$lib/components/LoadingState.svelte';
-	import type { CdeDetail, Neighborhood } from '$lib/types';
+	import { getCdeNeighborhood } from '#lib/api.ts';
+	import BrowserGraph from '#lib/components/BrowserGraph.svelte';
+	import LoadingState from '#lib/components/LoadingState.svelte';
+	import type { CdeDetail, Neighborhood } from '#lib/types.ts';
 
 	let { cde }: { cde: CdeDetail } = $props();
 	let graph = $state<Neighborhood | null>(null);

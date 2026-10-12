@@ -6,7 +6,7 @@ vi.mock('$app/state', () => ({
 	navigating: { to: null },
 	page: { url: new URL('http://localhost/') }
 }));
-vi.mock('$lib/stores/theme.svelte', () => ({
+vi.mock('#lib/stores/theme.svelte.ts', () => ({
 	theme: { current: 'dark', toggle: vi.fn() }
 }));
 

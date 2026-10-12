@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
-	import type { RepositoryKind } from '$lib/repository-registry';
+	import RepositoryKindBadge from '#lib/components/RepositoryKindBadge.svelte';
+	import type { RepositoryKind } from '#lib/repository-registry.ts';
 
 	interface Props {
 		title: string;

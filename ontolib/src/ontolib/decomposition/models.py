@@ -51,9 +51,11 @@ _ROLE_CODE = re.compile(r"R[0-9]+")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 # A constituent axis is either a normalized op: relation or an unknown NCIt role
 # carried through verbatim for downstream review.
-_AXIS_OR_ROLE = re.compile(r"op:[A-Za-z][A-Za-z0-9]*|R[0-9]+")
+AXIS_CODE_PATTERN = r"^(op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$"
+_AXIS_OR_ROLE = re.compile(AXIS_CODE_PATTERN)
 # A filler is an NCIt code or a minted proposal id (see decomposition.minting).
-_FILLER_CODE = re.compile(r"C[0-9]+|MINT-[0-9a-f]{12}")
+FILLER_CODE_PATTERN = r"^(C[0-9]+|MINT-[0-9a-f]{12})$"
+_FILLER_CODE = re.compile(FILLER_CODE_PATTERN)
 _MIN_MIXED_PATH_EDGES = 2
 
 

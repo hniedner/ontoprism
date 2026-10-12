@@ -5,7 +5,7 @@ const { getCadsrFilterDomains, listCadsr, searchCadsr } = vi.hoisted(() => ({
 	listCadsr: vi.fn(),
 	searchCadsr: vi.fn()
 }));
-vi.mock('$lib/api', () => ({ getCadsrFilterDomains, listCadsr, searchCadsr }));
+vi.mock('#lib/api.ts', () => ({ getCadsrFilterDomains, listCadsr, searchCadsr }));
 
 import { load } from './+page.server';
 

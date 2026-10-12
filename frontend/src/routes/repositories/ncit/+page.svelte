@@ -1,12 +1,12 @@
 <script lang="ts">
-	import type { SearchHit } from '$lib/types';
-	import RepoBrowsePage from '$lib/components/RepoBrowsePage.svelte';
-	import DataTable from '$lib/components/data-table/DataTable.svelte';
-	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
-	import { gridControls, columnFilter } from '$lib/repository-registry';
+	import type { SearchHit } from '#lib/types.ts';
+	import RepoBrowsePage from '#lib/components/RepoBrowsePage.svelte';
+	import DataTable from '#lib/components/data-table/DataTable.svelte';
+	import RepresentationStatusBadge from '#lib/components/RepresentationStatusBadge.svelte';
+	import { gridControls, columnFilter } from '#lib/repository-registry.ts';
 	import type { PageProps } from './$types';
 	import { resolve } from '$app/paths';
-	import type { DataTableOperations, DataTableColumn } from '$lib/components/data-table/types';
+	import type { DataTableOperations, DataTableColumn } from '#lib/components/data-table/types.ts';
 
 	const SUGGESTIONS = ['melanoma', 'thyroid carcinoma', 'BRCA1 gene', 'tumor stage', 'lung neoplasm'];
 	let { data }: PageProps = $props();

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { DecompositionConstituent, ConstituentEvidence } from '$lib/types';
+	import type { DecompositionConstituent, ConstituentEvidence } from '#lib/types.ts';
     import ConstituentSource from './ConstituentSource.svelte';
     import ConstituentStatus from './ConstituentStatus.svelte';
 	import { SvelteMap } from 'svelte/reactivity';

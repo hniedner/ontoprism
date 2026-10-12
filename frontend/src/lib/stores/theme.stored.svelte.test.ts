@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 // Browser path with a previously-persisted choice: initialTheme must read it back.
-vi.mock('$app/environment', () => ({ browser: true }));
+vi.mock('$app/env', () => ({ browser: true }));
 vi.hoisted(() => {
 	const store = new Map<string, string>([['ontoprism-theme', 'light']]);
 	Object.defineProperty(globalThis, 'localStorage', {

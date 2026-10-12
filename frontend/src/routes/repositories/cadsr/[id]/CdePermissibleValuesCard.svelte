@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PermissibleValue } from '$lib/types';
+	import type { PermissibleValue } from '#lib/types.ts';
 
 	let { values }: { values: PermissibleValue[] } = $props();
 	const LIST_PREVIEW = 6;

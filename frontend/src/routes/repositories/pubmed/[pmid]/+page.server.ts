@@ -1,5 +1,5 @@
-import { getArticle } from '$lib/api.pubmed';
-import { critical } from '$lib/server/critical-load';
+import { getArticle } from '#lib/api.pubmed.ts';
+import { critical } from '#lib/server/critical-load.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ fetch, params }) => ({

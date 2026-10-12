@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import PubMedResultsTable from '$lib/components/PubMedResultsTable.svelte';
-	import RepoBrowsePage from '$lib/components/RepoBrowsePage.svelte';
-	import type { DataTableOperations } from '$lib/components/data-table/types';
-	import { gridCapabilities, gridControls } from '$lib/repository-registry';
-	import type { PubMedArticleSummary } from '$lib/types';
+	import PubMedResultsTable from '#lib/components/PubMedResultsTable.svelte';
+	import RepoBrowsePage from '#lib/components/RepoBrowsePage.svelte';
+	import type { DataTableOperations } from '#lib/components/data-table/types.ts';
+	import { gridCapabilities, gridControls } from '#lib/repository-registry.ts';
+	import type { PubMedArticleSummary } from '#lib/types.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();

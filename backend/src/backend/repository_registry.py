@@ -13,6 +13,8 @@ from pydantic import (
     model_validator,
 )
 
+from backend.config import get_settings
+
 
 class CapabilityModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -156,7 +158,11 @@ RepositoryDescriptor = Annotated[
     Field(discriminator="kind"),
 ]
 _REGISTRY = TypeAdapter(list[RepositoryDescriptor])
-REPOSITORY_MANIFEST_PATH = Path(__file__).parents[3] / "repository-manifest.json"
+
+
+def repository_manifest_path() -> Path:
+    """Resolve relative configured paths from the process working directory."""
+    return Path.cwd() / get_settings().repository_manifest_path
 
 
 def load_repository_registry(path: Path) -> list[RepositoryDescriptor]:
@@ -165,9 +171,9 @@ def load_repository_registry(path: Path) -> list[RepositoryDescriptor]:
 
 
 def local_repository_ids() -> tuple[Literal["ncit", "cadsr", "uberon", "icdo"], ...]:
-    """Return the local-certified repository order declared by the tracked manifest."""
+    """Return local-certified repository order from the configured manifest."""
     return tuple(
         entry.id
-        for entry in load_repository_registry(REPOSITORY_MANIFEST_PATH)
+        for entry in load_repository_registry(repository_manifest_path())
         if isinstance(entry, LocalRepositoryDescriptor)
     )

@@ -10,7 +10,7 @@ from pydantic import Field
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 from ontolib.decomposition.axis_diagnostics import AxisDiagnosticSource
 from ontolib.decomposition.histology_anchor import HistologyAnchors
-from ontolib.decomposition.models import AxisSource
+from ontolib.decomposition.models import FILLER_CODE_PATTERN, AxisSource
 
 Category = Literal[
     "retained-context",
@@ -29,7 +29,7 @@ DISEASE_AXES = frozenset(
 class Endpoint(StrictFrozenBoundaryModel):
     concept_code: str = Field(pattern=r"^C[0-9]+$")
     axis: str = Field(pattern=r"^(op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
-    filler_code: str = Field(pattern=r"^(C[0-9]+|MINT-[0-9a-f]{12})$")
+    filler_code: str = Field(pattern=FILLER_CODE_PATTERN)
     axis_source: AxisSource
     classification: Literal["atomic", "precoordinated", "unknown"] | None
     needs_review: bool = False

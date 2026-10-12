@@ -23,6 +23,7 @@ COPY ontolib ./ontolib
 COPY backend ./backend
 RUN PDM_BUILD_SCM_VERSION="$ONTOPRISM_VERSION" pip install --no-deps ./ontolib ./backend && \
     python -c "from importlib.metadata import version; import sys; assert all(version(name) == sys.argv[1] for name in ('ontolib', 'ontoprism-backend'))" "$ONTOPRISM_VERSION"
+COPY repository-manifest.json /app/repository-manifest.json
 # Non-root runtime user; /app/refresh is the writable target for refresh downloads.
 RUN mkdir -p /app/refresh && useradd --create-home --uid 10001 app && chown -R app /app
 USER app

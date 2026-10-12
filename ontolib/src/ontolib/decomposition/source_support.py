@@ -10,25 +10,38 @@ from ontolib.decomposition.models import AxisSource
 SupportKind = Literal[
     "restriction-backed", "genus-backed", "p334-backed", "not-source-backed"
 ]
-PolicyChoice = Literal["axis-assignment", "collapse", "grouping"]
+PolicyChoice = Literal["axis-assignment", "collapse", "grouping", "nlp-derivation"]
 
 
-class StatedFillerSource(StrictFrozenBoundaryModel):
-    """A stored stated fact locator; not a claim of normalized-axis equivalence."""
+class StatedFillerLocator(StrictFrozenBoundaryModel):
+    """Source coordinates independent of run-local fact/group/occurrence IDs."""
+
+    kind: Literal["restriction", "genus"]
+    anchor_code: str = Field(pattern=r"^C[0-9]+$")
+    depth: int = Field(ge=0)
+    role_code: Annotated[str, Field(pattern=r"^R[0-9]+$")] | None
+    filler_code: str = Field(pattern=r"^C[0-9]+$")
+    structural_path: list[int]
+
+    @model_validator(mode="after")
+    def valid_locator(self) -> Self:
+        if (self.kind == "restriction") != (self.role_code is not None):
+            raise ValueError("restriction requires role; genus must not have one")
+        if any(position < 0 for position in self.structural_path):
+            raise ValueError("source positions must be nonnegative")
+        return self
+
+
+class StatedFillerSource(StatedFillerLocator):
+    """Run-specific stated fact locator; not normalized-axis equivalence."""
 
     fact_id: str
-    kind: Literal["restriction", "genus"]
-    anchor_code: str
     group_id: str
-    depth: int = Field(ge=0)
-    role_code: str | None
-    filler_code: str
     occurrence_id: str | None
-    structural_path: list[int]
 
 
 class P334Evidence(StrictFrozenBoundaryModel):
-    """Recomputed annotation values and named hierarchy path, never persisted."""
+    """Annotation values/path, recomputed for runs and snapshotted for decisions."""
 
     eligible_values: tuple[Annotated[str, Field(pattern=r"^[0-9]{4}/[0-3]$")], ...] = (
         Field(min_length=1)
@@ -100,7 +113,8 @@ WITH selected AS MATERIALIZED (
 )
 SELECT c.run_id, c.concept_code, c.axis, c.filler_code, c.axis_source,
        COALESCE(s.sources, '[]'::jsonb) AS sources,
-       array_remove(ARRAY[
+        array_remove(ARRAY[
+            CASE WHEN c.axis_source = 'nlp' THEN 'nlp-derivation' END,
            CASE WHEN c.axis LIKE 'op:%' THEN 'axis-assignment' END,
            CASE WHEN c.most_specific OR EXISTS (
                SELECT 1 FROM decomp_occurrence_disposition d

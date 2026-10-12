@@ -1,6 +1,6 @@
 <script lang="ts">
     import { resolve } from '$app/paths';
-    import type { ConstituentEvidence } from '$lib/types';
+    import type { ConstituentEvidence } from '#lib/types.ts';
     let { evidence }: { evidence: ConstituentEvidence } = $props();
 </script>
 

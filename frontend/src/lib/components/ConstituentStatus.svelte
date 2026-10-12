@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { DecompositionConstituent } from '$lib/types';
+    import type { DecompositionConstituent } from '#lib/types.ts';
     import ReviewBadge from './ReviewBadge.svelte';
     let { constituent: c, publicationStatus }: { constituent: DecompositionConstituent; publicationStatus: 'provisional' | null } = $props();
 </script>

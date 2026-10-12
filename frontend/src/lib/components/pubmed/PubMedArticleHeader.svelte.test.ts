@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import PubMedArticleHeader from './PubMedArticleHeader.svelte';
-import type { PubMedArticleDetail } from '$lib/types';
+import type { PubMedArticleDetail } from '#lib/types.ts';
 
 const article: PubMedArticleDetail = {
 	pmid: '111',

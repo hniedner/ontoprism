@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/svelte';
 import CdeResultsTable from './CdeResultsTable.svelte';
-import type { CdeSummary } from '$lib/types';
+import type { CdeSummary } from '#lib/types.ts';
 
 const hits: CdeSummary[] = [
 	{

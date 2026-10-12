@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { similarCdes } from '$lib/api';
-	import SimilarityPanel, { type SimilarityLink } from '$lib/components/SimilarityPanel.svelte';
+	import { similarCdes } from '#lib/api.ts';
+	import SimilarityPanel, { type SimilarityLink } from '#lib/components/SimilarityPanel.svelte';
 
 	let { publicId }: { publicId: string } = $props();
 

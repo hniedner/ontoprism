@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('$env/dynamic/private', () => ({
-	env: {
-		ONTOPRISM_FASTAPI_ORIGIN: 'http://fastapi.test:8011',
-		ONTOPRISM_FASTAPI_TIMEOUT_MS: '200',
-		ICDO_ENTITLEMENT_KEY: 'server-only-entitlement'
-	}
+vi.mock('$app/env/private', () => ({
+	ONTOPRISM_FASTAPI_ORIGIN: 'http://fastapi.test:8011',
+	ONTOPRISM_FASTAPI_TIMEOUT_MS: '200',
+	ICDO_ENTITLEMENT_KEY: 'server-only-entitlement'
 }));
 
 import { forwardFastApi } from './fastapi';

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { CdeDetail } from '$lib/types';
+	import type { CdeDetail } from '#lib/types.ts';
 
 	let { cde }: { cde: CdeDetail } = $props();
 </script>

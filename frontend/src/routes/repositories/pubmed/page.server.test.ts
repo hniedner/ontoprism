@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { searchPubmed } = vi.hoisted(() => ({ searchPubmed: vi.fn() }));
-vi.mock('$lib/api.pubmed', () => ({ searchPubmed }));
+vi.mock('#lib/api.pubmed.ts', () => ({ searchPubmed }));
 
 import { load } from './+page.server';
 

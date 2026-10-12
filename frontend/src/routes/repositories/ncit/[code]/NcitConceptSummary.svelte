@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { ConceptDetail } from '$lib/types';
-	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
+	import type { ConceptDetail } from '#lib/types.ts';
+	import RepresentationStatusBadge from '#lib/components/RepresentationStatusBadge.svelte';
 
 	let { detail }: { detail: ConceptDetail } = $props();
 </script>

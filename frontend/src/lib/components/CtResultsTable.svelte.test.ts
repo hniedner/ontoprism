@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import CtResultsTable from './CtResultsTable.svelte';
-import type { CTStudySummary } from '$lib/types';
-import { gridControls } from '$lib/repository-registry';
+import type { CTStudySummary } from '#lib/types.ts';
+import { gridControls } from '#lib/repository-registry.ts';
 import type { DataTableOperations } from './data-table/types';
 
 const studies: CTStudySummary[] = [

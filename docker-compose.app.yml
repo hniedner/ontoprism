@@ -37,8 +37,8 @@ services:
       ICDO_ENTITLEMENT_KEY: ${ICDO_ENTITLEMENT_KEY:-}
       ENABLE_LICENSED_MAPPINGS: ${ENABLE_LICENSED_MAPPINGS:-false}
     volumes:
-      # The caDSR SQLite DB is read-only reference data.
-      - ./data/cadsr:/app/data/cadsr:ro
+      # Stores and certification manifests are read-only; downloads stay separate.
+      - ./data:/app/data:ro
       - ontoprism_refresh:/app/refresh
     depends_on:
       qlever-ncit:
@@ -57,7 +57,8 @@ services:
     environment:
       # adapter-node listens on 3000; the proxy fronts it.
       PORT: "3000"
-      ORIGIN: http://localhost:8080
+      # Only Caddy reaches web; it supplies the original request protocol.
+      PROTOCOL_HEADER: x-forwarded-proto
       ONTOPRISM_FASTAPI_ORIGIN: http://api:8011
       ONTOPRISM_FASTAPI_TIMEOUT_MS: ${ONTOPRISM_FASTAPI_TIMEOUT_MS:-5000}
       ICDO_ENTITLEMENT_KEY: ${ICDO_ENTITLEMENT_KEY:-}

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # caDSR CDE repository SQLite DB (ontoprism-owned CoW clone; read-only).
     cadsr_db_path: str = "data/cadsr/cde_repository.db"
 
+    # Repository manifest; relative paths resolve from the process working directory.
+    repository_manifest_path: str = "repository-manifest.json"
+
     # PostgreSQL (ontoprism-owned): refresh provenance and future concept cache.
     database_url: str = (
         "postgresql+asyncpg://ontoprism:ontoprism@localhost:5433/ontoprism"

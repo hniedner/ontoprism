@@ -3,7 +3,7 @@ import { flushSync } from 'svelte';
 
 // Server path: `browser` is false at import, so the store defaults to dark without
 // touching localStorage and skips registering its persistence effect.
-vi.mock('$app/environment', () => ({ browser: false }));
+vi.mock('$app/env', () => ({ browser: false }));
 
 import { theme } from './theme.svelte';
 

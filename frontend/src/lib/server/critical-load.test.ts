@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiRequestError } from '$lib/api';
+import { ApiRequestError } from '#lib/api.ts';
 import { critical } from './critical-load';
 
 describe('critical route loads', () => {

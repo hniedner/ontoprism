@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { PAGE_SIZES, type PageSize } from '$lib/grid-state';
+	import { PAGE_SIZES, type PageSize } from '#lib/grid-state.ts';
 	interface Props {
 		offset: number;
 		limit: number;

@@ -3,15 +3,15 @@
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { navigating, page } from '$app/state';
-	import CursorPagination from '$lib/components/CursorPagination.svelte';
-	import RepoPageHeader from '$lib/components/RepoPageHeader.svelte';
-	import RepoSearchBar from '$lib/components/RepoSearchBar.svelte';
-	import RepoResultsCard from '$lib/components/RepoResultsCard.svelte';
-	import Pagination from '$lib/components/Pagination.svelte';
-	import RemoteSearchSurface from '$lib/components/RemoteSearchSurface.svelte';
-	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
-	import type { DataTableFilterKeyMap, DataTableFilterState, DataTableIntent, DataTableOperations, DataTableSortState } from '$lib/components/data-table/types';
-	import type { PageSize } from '$lib/grid-state';
+	import CursorPagination from '#lib/components/CursorPagination.svelte';
+	import RepoPageHeader from '#lib/components/RepoPageHeader.svelte';
+	import RepoSearchBar from '#lib/components/RepoSearchBar.svelte';
+	import RepoResultsCard from '#lib/components/RepoResultsCard.svelte';
+	import Pagination from '#lib/components/Pagination.svelte';
+	import RemoteSearchSurface from '#lib/components/RemoteSearchSurface.svelte';
+	import RemoteServiceDisclosure from '#lib/components/RemoteServiceDisclosure.svelte';
+	import type { DataTableFilterKeyMap, DataTableFilterState, DataTableIntent, DataTableOperations, DataTableSortState } from '#lib/components/data-table/types.ts';
+	import type { PageSize } from '#lib/grid-state.ts';
 
 	// Full browse/search page for a paginated local or remote repository. Each
 	// concrete repository supplies its copy and a `results` snippet for its table.
@@ -99,7 +99,6 @@
 		update(params);
 		const search: '' | `?${string}` = params.size ? `?${params}` : '';
 		const target = `${route}${search}`;
-		// eslint-disable-next-line svelte/no-navigation-without-resolve -- callers pass a typed, resolved repository route; only URL state is appended here
 		await goto(target);
 	}
 	async function load(nextOffset: number, term: string): Promise<void> { await navigate((params) => {

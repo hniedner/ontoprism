@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
-import type { UberonConceptDetail } from '$lib/types';
+import type { UberonConceptDetail } from '#lib/types.ts';
 import UberonConceptSummary from './UberonConceptSummary.svelte';
 
 const detail: UberonConceptDetail = {

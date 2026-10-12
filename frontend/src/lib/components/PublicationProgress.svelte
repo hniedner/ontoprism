@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { PublicationProgress as Progress, DecompositionOutcome, DecompositionReviewFlagKind } from '$lib/types';
+    import type { PublicationProgress as Progress, DecompositionOutcome, DecompositionReviewFlagKind } from '#lib/types.ts';
 
 	let { progress }: { progress: Progress } = $props();
     const outcomes: Record<DecompositionOutcome, string> = {
