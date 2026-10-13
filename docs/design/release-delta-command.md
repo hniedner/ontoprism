@@ -10,7 +10,8 @@ Required environment settings (also read from `.env`):
 - `RELEASE_DELTA_ACTIVE_ENDPOINT`: active source URL (normally loopback port 7888).
 - `RELEASE_DELTA_HISTORY_RELEASES`: ordered JSON list, e.g. `["26.08e","26.09d"]`.
 - `RELEASE_DELTA_ROBOT_HEAP_GIB`: positive integer; measured full-NCIt profile **24**.
-- `RELEASE_DELTA_ROBOT_MAX_ELEMENT_DEPTH`: nonnegative integer; full profile **0**.
+- `RELEASE_DELTA_ROBOT_MAX_ELEMENT_DEPTH`: positive, bounded integer; use **512**
+  for NCIt 26.07d (measured XML depth 259). Zero/unbounded is refused.
 - `RELEASE_DELTA_ROBOT_TIMEOUT_SECONDS`: positive integer; allow for full-file work.
 The default ROBOT launcher and application dependencies remain unchanged.
 
