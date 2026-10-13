@@ -13,8 +13,9 @@ from typer.testing import CliRunner
 pytestmark = pytest.mark.unit
 
 
-def test_failed_preview_prints_reasoner_findings_and_exits_nonzero(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("preview_succeeds", [False, True])
+def test_preview_outcome_preserves_reasoner_findings_and_sets_exit_status(
+    tmp_path, monkeypatch, preview_succeeds
 ):
     settings = SimpleNamespace(
         database_url="unused", ncit_sparql_url="unused", ncit_owl_dir=tmp_path
@@ -53,15 +54,21 @@ def test_failed_preview_prints_reasoner_findings_and_exits_nonzero(
     monkeypatch.setattr(
         command,
         "preview_reasoner_evidence",
-        AsyncMock(side_effect=ValueError("ledger unavailable")),
+        AsyncMock(return_value={"dry_run": True, "affected_assertions": 1})
+        if preview_succeeds
+        else AsyncMock(side_effect=ValueError("ledger unavailable")),
     )
     app = typer.Typer()
     app.command()(command.main)
     result = CliRunner().invoke(
         app, ["--run", "test", "--workspace", str(tmp_path / "run")]
     )
-    assert result.exit_code == 1
+    assert result.exit_code == (0 if preview_succeeds else 1)
     report = json.loads(result.stdout)
     assert report["new_unsatisfiable"] == ["C1"]
-    assert report["ledger_preview_error"] == "ValueError: ledger unavailable"
-    assert "ledger_preview" not in report
+    if preview_succeeds:
+        assert report["ledger_preview"] == {"dry_run": True, "affected_assertions": 1}
+        assert "ledger_preview_error" not in report
+    else:
+        assert report["ledger_preview_error"] == "ValueError: ledger unavailable"
+        assert "ledger_preview" not in report

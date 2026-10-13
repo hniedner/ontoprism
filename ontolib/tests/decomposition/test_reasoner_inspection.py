@@ -13,12 +13,13 @@ from ontolib.decomposition.reasoner_check import _subsumptions, disjoint_fillers
 pytestmark = pytest.mark.unit
 
 
-def test_disjoint_inspection_respects_concept_axis_and_inherited_pairs():
+@pytest.mark.parametrize("pair", [("C10", "C20"), ("C20", "C10")])
+def test_disjoint_inspection_respects_concept_axis_and_inherited_pairs(pair):
     hierarchy = AxisHierarchyEvidence(
         source_identity="a" * 64,
         edges=(
-            HierarchyEdge(child="C1", parent="C10"),
-            HierarchyEdge(child="C2", parent="C20"),
+            HierarchyEdge(child="C1", parent=pair[0]),
+            HierarchyEdge(child="C2", parent=pair[1]),
         ),
         disjoint_pairs=(DisjointPair(left="C10", right="C20"),),
     )

@@ -476,7 +476,11 @@ def disjoint_ancestor_paths(
     ]
 
 
-def _negative_evidence(filler_paths, range_paths, pairs):
+def _negative_evidence(
+    filler_paths: Mapping[str, tuple[str, ...]],
+    range_paths: Mapping[str, tuple[str, ...]],
+    pairs: tuple[DisjointPair, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...], DisjointPair] | None:
     return min(
         disjoint_ancestor_paths(filler_paths, range_paths, pairs),
         key=lambda item: (len(item[0]) + len(item[1]), item),

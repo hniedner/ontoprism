@@ -123,24 +123,13 @@ def _attach(payload, entry, matching, anchors):
             payload["evidence"].append(item)
 
 
-def _skip_unique_filler(entry, candidates, anchors, site_carriers):
-    return len(candidates) == 1 and (
-        entry.filler_code != candidates[0]
-        or bool(
-            set(anchors.source.ancestor_paths(entry.filler_code)).intersection(
-                site_carriers
-            )
-        )
-    )
-
-
 def assess_morphology(entry, candidates, anchors, site_carriers):
     """Apply the owner-approved disease-anchor rule using existing ledger values."""
     payload = entry.model_dump(mode="json", include=set(LedgerAssessment.model_fields))
     matching = sorted(
         set(candidates).intersection(anchors.source.ancestor_paths(entry.filler_code))
     )
-    if _skip_unique_filler(entry, candidates, anchors, site_carriers):
+    if _nonmatching_bucket(entry, candidates, anchors, site_carriers) is not None:
         return LedgerAssessment.model_validate_json(json.dumps(payload))
     _attach(payload, entry, matching, anchors)
     if len(candidates) > 1:

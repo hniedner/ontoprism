@@ -20,3 +20,7 @@ environment names. For the inspected full NCIt profile use
 ELK is not a full-OWL consistency proof when the input is outside OWL 2 EL.
 The report includes profile diagnostics and labels such results
 `not-proved-outside-EL`. A zero finding does not create positive evidence.
+When either classification reports unsatisfiable classes, this comparison has no
+entailment set for that input: `new_subsumptions` and `lost_subsumptions` are
+`null`, not empty lists. The timeout above bounds each ROBOT invocation, not the
+whole comparison; individual assertion trials can extend total runtime.

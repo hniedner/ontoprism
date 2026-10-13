@@ -7,7 +7,7 @@ from time import perf_counter
 from typing import Annotated
 
 import typer
-from scripts.oracle_metrics import _GOLDEN, read_oracle
+from scripts.oracle_metrics import GOLDEN, read_oracle
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -84,7 +84,7 @@ async def run(run_id, workspace, oracle=False):
         if oracle:
             codes = {
                 c.code
-                for c in read_oracle(_GOLDEN / "neoplasm-adjudicated.json")
+                for c in read_oracle(GOLDEN / "neoplasm-adjudicated.json")
                 if c.adjudication.status == "accepted"
             }
             assertions = [r for r in assertions if r["concept_code"] in codes]

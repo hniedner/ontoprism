@@ -4,7 +4,7 @@ import argparse
 import asyncio
 import json
 
-from scripts.oracle_metrics import _GOLDEN, read_oracle
+from scripts.oracle_metrics import GOLDEN, read_oracle
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -16,7 +16,7 @@ async def run(run_id: str, dry_run: bool) -> None:
     settings = get_settings()
     engine = make_engine(settings.database_url)
     try:
-        oracle = read_oracle(_GOLDEN / "neoplasm-adjudicated.json")
+        oracle = read_oracle(GOLDEN / "neoplasm-adjudicated.json")
         async with SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as client:
             report = await import_tier_one(
                 make_sessionmaker(engine),
