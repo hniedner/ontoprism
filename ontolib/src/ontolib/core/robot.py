@@ -5,6 +5,7 @@ import subprocess
 from typing import Annotated
 
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 from ontolib.core.data_build_tools import configured_robot_installation
@@ -14,6 +15,20 @@ class RobotConfig(StrictFrozenBoundaryModel):
     heap_gib: Annotated[int, Field(gt=0)]
     max_element_depth: Annotated[int, Field(gt=0)]
     timeout_seconds: Annotated[int, Field(gt=0)]
+
+
+class RobotSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="RELEASE_DELTA_", env_file=".env", extra="ignore", strict=True
+    )
+    robot_heap_gib: Annotated[int, Field(gt=0)]
+    robot_max_element_depth: Annotated[int, Field(gt=0)]
+    robot_timeout_seconds: Annotated[int, Field(gt=0)]
+
+    def robot_config(self):
+        return RobotConfig(
+            **{k: getattr(self, "robot_" + k) for k in RobotConfig.model_fields}
+        )
 
 
 def run_robot(

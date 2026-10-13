@@ -1,4 +1,20 @@
 [[mutator]]
+path = "ontolib/tests/decomposition/test_reasoner_profile_contract.py"
+fixtures = ["tmp_path"]
+
+[[mutator]]
+path = "backend/tests/test_reasoner_evidence_integration.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_reasoner_corpus_full_store.py"
+fixtures = ["tmp_path"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_reasoner_check.py"
+fixtures = ["tmp_path"]
+
+[[mutator]]
 path = "backend/tests/test_morphology_evidence_integration.py"
 fixtures = ["isolated_postgres_settings"]
 
