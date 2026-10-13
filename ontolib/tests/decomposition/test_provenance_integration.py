@@ -198,7 +198,7 @@ async def test_stored_oracle_scores_database_pairs_read_only(tmp_path, monkeypat
             }
         )
     )
-    monkeypatch.setattr(oracle_metrics, "_GOLDEN", tmp_path)
+    monkeypatch.setattr(oracle_metrics, "GOLDEN", tmp_path)
     engine = make_engine(get_settings().database_url)
     store = ProvenanceStore(make_sessionmaker(engine))
     try:

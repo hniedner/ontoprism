@@ -1,23 +1,19 @@
 """Read-only release deltas from publisher history and ROBOT axiom reports."""
 
 import re
-import shutil
-import subprocess
 from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
-from typing import Annotated, Literal, Self, cast
+from typing import Literal, Self, cast
 
 from pydantic import Field, model_validator
 
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel
-from ontolib.core.data_build_tools import configured_robot_installation
+from ontolib.core.robot import RobotConfig, run_robot
 from ontolib.terminologies.namespaces import NCIT_NS
 
 _HISTORY_COLUMNS = 6
 _TOKEN = re.compile(r'<[^<>\s]+>|"(?:\\.|[^"\\])*"|[()]|[^\s()"<>]+')
-PositiveInteger = Annotated[int, Field(gt=0)]
-NonnegativeInteger = Annotated[int, Field(ge=0)]
 ReportSide = Literal["left", "right"]
 
 
@@ -92,12 +88,6 @@ def _logical_subjects(source: str) -> list[str]:
     return named_classes(args[:1] if kind == "SubClassOf" else args)
 
 
-class RobotDiffConfig(StrictFrozenBoundaryModel):
-    heap_gib: PositiveInteger
-    max_element_depth: NonnegativeInteger
-    timeout_seconds: PositiveInteger
-
-
 class AxiomDelta(StrictFrozenBoundaryModel):
     removed: tuple[str, ...]
     added: tuple[str, ...]
@@ -138,18 +128,9 @@ def parse_robot_report(report: str) -> AxiomDelta:
     return AxiomDelta(removed=tuple(rows["left"]), added=tuple(rows["right"]))
 
 
-def robot_diff(left: Path, right: Path, config: RobotDiffConfig) -> AxiomDelta:
-    install, _ = configured_robot_installation()
-    java = shutil.which("java")
-    if java is None:
-        raise RuntimeError("Java is required for ROBOT diff")
-    result = subprocess.run(  # noqa: S603 -- fixed tool command, validated numeric JVM configuration
+def robot_diff(left: Path, right: Path, config: RobotConfig) -> AxiomDelta:
+    result = run_robot(
         [
-            java,
-            f"-Xmx{config.heap_gib}g",
-            f"-Djdk.xml.maxElementDepth={config.max_element_depth}",
-            "-jar",
-            str(install / "robot.jar"),
             "diff",
             "--left",
             str(left),
@@ -158,10 +139,7 @@ def robot_diff(left: Path, right: Path, config: RobotDiffConfig) -> AxiomDelta:
             "--format",
             "plain",
         ],
-        capture_output=True,
-        text=True,
-        timeout=config.timeout_seconds,
-        check=False,
+        config,
     )
     if result.returncode:
         raise RuntimeError(f"ROBOT diff exited {result.returncode}: {result.stderr}")

@@ -51,7 +51,10 @@ def _applicability(
     return Applicability(decision_index=index, state="applicable")
 
 
-def _reassess(payload: dict, previous: LedgerEntry, absent_reason: str | None) -> dict:
+def reassess_entry(
+    payload: dict, previous: LedgerEntry, absent_reason: str | None
+) -> dict:
+    """Apply retained human history consistently to writes and read-only previews."""
     history = previous.decisions
     applicability = Applicability(reason=absent_reason or "No human decision recorded")
     if history:
@@ -145,7 +148,7 @@ class EvidenceLedger:
             ]
             result = await session.execute(select(_TABLE).where(*key).with_for_update())
             previous = _entry(result.mappings().one())
-            updated = _reassess(payload, previous, absent_reason)
+            updated = reassess_entry(payload, previous, absent_reason)
             if decision:
                 if previous.model_dump(exclude=_HISTORY) != incoming.model_dump():
                     raise ValueError(

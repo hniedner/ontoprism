@@ -462,19 +462,27 @@ def _ancestor_paths(
     return paths
 
 
-def _negative_evidence(
+def disjoint_ancestor_paths(
     filler_paths: Mapping[str, tuple[str, ...]],
     range_paths: Mapping[str, tuple[str, ...]],
     pairs: tuple[DisjointPair, ...],
-) -> tuple[tuple[str, ...], tuple[str, ...], DisjointPair] | None:
-    candidates = [
+) -> list[tuple[tuple[str, ...], tuple[str, ...], DisjointPair]]:
+    """Return told path witnesses for explicit disjointness in either orientation."""
+    return [
         (filler_paths[left], range_paths[right], pair)
         for pair in pairs
         for left, right in ((pair.left, pair.right), (pair.right, pair.left))
         if left in filler_paths and right in range_paths
     ]
+
+
+def _negative_evidence(
+    filler_paths: Mapping[str, tuple[str, ...]],
+    range_paths: Mapping[str, tuple[str, ...]],
+    pairs: tuple[DisjointPair, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...], DisjointPair] | None:
     return min(
-        candidates,
+        disjoint_ancestor_paths(filler_paths, range_paths, pairs),
         key=lambda item: (len(item[0]) + len(item[1]), item),
         default=None,
     )

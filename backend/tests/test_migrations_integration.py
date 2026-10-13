@@ -16,6 +16,7 @@ import asyncpg
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from backend.config import get_settings
 
@@ -699,7 +700,9 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0036_ledger_mint_fillers"
+    heads = set(ScriptDirectory.from_config(cfg).get_heads())
+    assert len(heads) == 1, heads
+    assert {revision} == heads
     assert legacy_rows == 1
     assert publication_tables == 2
 

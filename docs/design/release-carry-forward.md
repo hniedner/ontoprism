@@ -71,21 +71,19 @@ No application dependency, launcher, parser setting or container flag was change
 |Full pair, launcher plus `JDK_JAVA_OPTIONS=-Djdk.xml.maxElementDepth=0`|`OutOfMemoryError: Java heap space`, still parsing left input|44.1 s|4.79 GB (owner-reported units)|
 |Full pair, same jar, `-Xmx24g -Djdk.xml.maxElementDepth=0`|Exit 0|55.72 s|17,120,133,120 bytes (15.94 GiB)|
 
-Successful full-pair command, from the repository root:
+Historical successful full-pair command from #490 (not the current execution profile):
 
 ```bash
 /usr/bin/time -l pdm run java -Xmx24g -Djdk.xml.maxElementDepth=0 -jar .tools/robot-1.9.10/robot.jar diff --left data/ncit-owl/Thesaurus-stated.owl --right tmp/issue-490-ncit-26.09d/Thesaurus-stated.owl --format plain --output tmp/plans/issue-490-robot-full-26.07d-26.09d.txt
 ```
 
-**Tooling finding, not a launcher change:** the current 4 GiB launcher cannot run
-this full comparison. The owner's operating requirement for repository use of
-ROBOT on full NCIt is both a heap of **at least 20 GiB** and
-`-Djdk.xml.maxElementDepth=0`; the successful tested configuration is **24 GiB**.
-The exact minimum sufficient heap was not measured. Disabling the XML depth cap
-removes a parser resource limit: restrict this execution profile to the inspected,
-certified publisher inputs, not arbitrary uploaded XML. This is a scoped future
-tool-execution requirement, not permission to weaken runtime/CI defaults globally.
-Keep the launcher unchanged during #490 as the owner directed.
+**Historical tooling finding:** the then-current 4 GiB launcher could not run
+this full comparison. The successful tested heap was **24 GiB**; the exact minimum
+was not measured. #535/#351 subsequently introduced a shared bounded launcher:
+zero/unbounded XML depth is now refused. Use the current
+[release-delta profile](release-delta-command.md), with depth **512** for these
+inspected publisher inputs (measured 26.07d depth: 259), not the historical `=0`
+command above. The table preserves what was measured, not permission to disable limits.
 
 The 5–20 minute / 3–6 GiB estimate was wrong: faster, but more memory. Heap is not
 RSS; one success establishes feasibility, not repeatability or an upper bound.

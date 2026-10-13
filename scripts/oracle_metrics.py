@@ -26,7 +26,7 @@ from ontolib.decomposition.normalized_group_policy import (
 from ontolib.decomposition.r101_run_conservation import R101ConservationCounts
 
 _ROOT = Path(__file__).resolve().parents[1]
-_GOLDEN = _ROOT / "ontolib/tests/decomposition/golden"
+GOLDEN = _ROOT / "ontolib/tests/decomposition/golden"
 
 
 class ExpectedPair(BaseModel):
@@ -217,7 +217,7 @@ def score_pairs(oracle: list[ExpectedConcept], actual: list[StoredPair]) -> str:
 
 
 async def _stored_report(run_id: str) -> str:
-    oracle = read_oracle(_GOLDEN / "neoplasm-adjudicated.json")
+    oracle = read_oracle(GOLDEN / "neoplasm-adjudicated.json")
     codes = {c.code for c in oracle if c.adjudication.status == "accepted"}
     engine = create_async_engine(
         get_settings().database_url,
@@ -272,7 +272,7 @@ async def _stored_report(run_id: str) -> str:
                 )
             }
         conservation = _conservation_counts(counts)
-        historical = json.loads((_GOLDEN / "neoplasm-row-decisions.json").read_text())[
+        historical = json.loads((GOLDEN / "neoplasm-row-decisions.json").read_text())[
             "rows"
         ]
         suggestions = [r for r in historical if r["row_type"] == "ENGINE SUGGESTION"]
