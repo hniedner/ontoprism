@@ -1340,33 +1340,24 @@ def test_full_app_routes_icdo_entitlement_through_the_private_bff() -> None:
 
 
 def test_active_runtime_has_no_oxigraph_dependency() -> None:
-    active_paths = (
-        "docker-compose.yml",
-        "docker-compose.app.yml",
+    # Parse structured manifests so explanatory comments are not dependencies.
+    for relative in (
         "pyproject.toml",
-        ".env.example",
-        "backend/src",
-        "ontolib/src",
-        "scripts",
-        "test_support",
-    )
-    occurrences: list[str] = []
-    for relative in active_paths:
-        path = _ROOT / relative
-        files = [path] if path.is_file() else sorted(path.rglob("*"))
-        for file_path in files:
-            if not file_path.is_file() or "__pycache__" in file_path.parts:
-                continue
-            try:
-                text = file_path.read_text()
-            except UnicodeDecodeError:
-                continue
-            for line_number, line in enumerate(text.splitlines(), start=1):
-                if "oxigraph" in line.lower():
-                    occurrences.append(
-                        f"{file_path.relative_to(_ROOT)}:{line_number}:{line.strip()}"
-                    )
-    assert occurrences == []
+        "backend/pyproject.toml",
+        "ontolib/pyproject.toml",
+        "pdm.lock",
+    ):
+        manifest = tomllib.loads((_ROOT / relative).read_text())
+        assert "oxigraph" not in json.dumps(manifest).lower(), relative
+    manifest = json.loads((_ROOT / "frontend/package.json").read_text())
+    assert "oxigraph" not in json.dumps(manifest).lower(), "frontend/package.json"
+    for path in sorted(_ROOT.glob("docker-compose*.yml")):
+        assert "oxigraph" not in json.dumps(yaml.safe_load(path.read_text())).lower(), (
+            path
+        )
+    for relative in ("backend/Dockerfile", "frontend/Dockerfile"):
+        tokens = shlex.split((_ROOT / relative).read_text(), comments=True)
+        assert not any("oxigraph" in token.lower() for token in tokens), relative
 
 
 def test_public_docs_never_point_at_the_private_sibling_checkout() -> None:

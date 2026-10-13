@@ -642,28 +642,11 @@ def test_list_minted_concepts_with_limit_and_offset() -> None:
 
 
 @pytest.mark.api
-def test_list_runs_503_on_db_error() -> None:
+@pytest.mark.parametrize(
+    "path",
+    ["runs", "runs/run-1", "runs/run-1/outcomes", "minted-concepts"],
+)
+def test_provenance_routes_return_503_on_db_error(path: str) -> None:
     client = next(_client(_ErrorFakeStore()))
-    resp = client.get("/api/v1/decomposition/runs")
-    assert resp.status_code == 503
-
-
-@pytest.mark.api
-def test_get_run_503_on_db_error() -> None:
-    client = next(_client(_ErrorFakeStore()))
-    resp = client.get("/api/v1/decomposition/runs/run-1")
-    assert resp.status_code == 503
-
-
-@pytest.mark.api
-def test_list_run_outcomes_503_on_db_error() -> None:
-    client = next(_client(_ErrorFakeStore()))
-    resp = client.get("/api/v1/decomposition/runs/run-1/outcomes")
-    assert resp.status_code == 503
-
-
-@pytest.mark.api
-def test_list_minted_concepts_503_on_db_error() -> None:
-    client = next(_client(_ErrorFakeStore()))
-    resp = client.get("/api/v1/decomposition/minted-concepts")
+    resp = client.get(f"/api/v1/decomposition/{path}")
     assert resp.status_code == 503

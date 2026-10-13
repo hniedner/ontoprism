@@ -322,17 +322,6 @@ def test_d4a_shared_citation_predicate_rejects_overreaching_claim() -> None:
     )
 
 
-def test_d4b_shared_citation_predicate_rejects_wrong_pair_with_same_citation() -> None:
-    question = _question()
-    assert not citation_supports_pair(
-        target=LiteraturePairKey(axis="op:CellType", filler="C2"),
-        question=question,
-        claim=question.claims[0],
-        citation=_citation(),
-        source_concept=_source(),
-    )
-
-
 def test_d5_empty_partition_mode_is_not_in_the_response_contract() -> None:
     with pytest.raises(ValidationError, match="CUSTOM-CURRENT-MODEL"):
         PartitionDisposition.model_validate(

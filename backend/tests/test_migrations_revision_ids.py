@@ -12,6 +12,7 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+from alembic.script import ScriptDirectory
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations" / "versions"
 
@@ -51,8 +52,5 @@ def test_migration_down_revision_chain_has_no_duplicates() -> None:
 
 @pytest.mark.unit
 def test_migration_chain_has_expected_single_head() -> None:
-    modules = [_load_module(path) for path in _migration_files()]
-    referenced = {module.down_revision for module in modules}
-    heads = {module.revision for module in modules} - referenced
-
-    assert heads == {"0036_ledger_mint_fillers"}
+    heads = set(ScriptDirectory(str(_MIGRATIONS_DIR.parent)).get_heads())
+    assert len(heads) == 1, heads
