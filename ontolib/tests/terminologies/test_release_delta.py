@@ -5,10 +5,11 @@ from subprocess import CompletedProcess, TimeoutExpired
 
 import pytest
 
+from ontolib.core import robot as launcher
+from ontolib.core.robot import RobotConfig
 from ontolib.terminologies.ncit import release_delta as module
 from ontolib.terminologies.ncit.release_delta import (
     AxiomDelta,
-    RobotDiffConfig,
     parse_history,
     parse_robot_report,
     robot_diff,
@@ -75,7 +76,7 @@ SubClassOf(:C1 ObjectSomeValuesFrom(:R1 :FILLER))
     result = robot_diff(
         left,
         right,
-        RobotDiffConfig(heap_gib=1, max_element_depth=100, timeout_seconds=60),
+        RobotConfig(heap_gib=1, max_element_depth=100, timeout_seconds=60),
     )
     assert result.removed == (
         "SubClassOf(<urn:test:C1> ObjectSomeValuesFrom(<urn:test:R1> <urn:test:C2>))",
@@ -86,7 +87,7 @@ SubClassOf(:C1 ObjectSomeValuesFrom(:R1 :FILLER))
     unchanged = robot_diff(
         left,
         left,
-        RobotDiffConfig(heap_gib=1, max_element_depth=100, timeout_seconds=60),
+        RobotConfig(heap_gib=1, max_element_depth=100, timeout_seconds=60),
     )
     assert unchanged.removed == unchanged.added == ()
     right.write_text(
@@ -97,14 +98,14 @@ SubClassOf(:C1 ObjectSomeValuesFrom(:R1 :FILLER))
     added = robot_diff(
         left,
         right,
-        RobotDiffConfig(heap_gib=1, max_element_depth=100, timeout_seconds=60),
+        RobotConfig(heap_gib=1, max_element_depth=100, timeout_seconds=60),
     )
     assert added.removed == ()
     assert added.added == ("Declaration(Class(<urn:test:C4>))",)
     removed = robot_diff(
         right,
         left,
-        RobotDiffConfig(heap_gib=1, max_element_depth=100, timeout_seconds=60),
+        RobotConfig(heap_gib=1, max_element_depth=100, timeout_seconds=60),
     )
     assert removed.added == ()
     assert removed.removed == added.added
@@ -154,7 +155,7 @@ def test_annotated_equivalence_identifies_top_level_classes_not_literal_or_fille
 
 def test_robot_timeout_never_becomes_identical_success(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        module, "configured_robot_installation", lambda: (tmp_path, None)
+        launcher, "configured_robot_installation", lambda: (tmp_path, None)
     )
 
     def timeout(*args, **kwargs):
@@ -162,12 +163,12 @@ def test_robot_timeout_never_becomes_identical_success(tmp_path, monkeypatch):
             args[0], kwargs["timeout"], output="Ontologies are identical"
         )
 
-    monkeypatch.setattr(module.subprocess, "run", timeout)
+    monkeypatch.setattr(launcher.subprocess, "run", timeout)
     with pytest.raises(TimeoutExpired):
         robot_diff(
             tmp_path / "left",
             tmp_path / "right",
-            RobotDiffConfig(heap_gib=1, max_element_depth=100, timeout_seconds=1),
+            RobotConfig(heap_gib=1, max_element_depth=100, timeout_seconds=1),
         )
 
 
@@ -197,7 +198,7 @@ def test_robot_configuration_drives_jvm_and_process_failure_is_not_empty_success
     left.write_text("fixture")
     right.write_text("fixture")
     monkeypatch.setattr(
-        module, "configured_robot_installation", lambda: (tmp_path, None)
+        launcher, "configured_robot_installation", lambda: (tmp_path, None)
     )
     seen = []
 
@@ -211,16 +212,14 @@ def test_robot_configuration_drives_jvm_and_process_failure_is_not_empty_success
             "",
         )
 
-    monkeypatch.setattr(module.subprocess, "run", execute)
-    config = module.RobotDiffConfig(
-        heap_gib=2, max_element_depth=128, timeout_seconds=9
-    )
+    monkeypatch.setattr(launcher.subprocess, "run", execute)
+    config = RobotConfig(heap_gib=2, max_element_depth=128, timeout_seconds=9)
     delta = module.robot_diff(left, right, config)
     assert delta.added == delta.removed == ()
     assert "-Xmx2g" in seen[0]
     assert "-Djdk.xml.maxElementDepth=128" in seen[0]
     monkeypatch.setattr(
-        module.subprocess,
+        launcher.subprocess,
         "run",
         lambda args, **kw: CompletedProcess(args, 1, "", "parser error"),
     )
@@ -297,23 +296,24 @@ def test_balanced_but_malformed_expression_is_refused(expression):
         {"heap_gib": 0},
         {"heap_gib": "24"},
         {"max_element_depth": -1},
+        {"max_element_depth": 0},
         {"timeout_seconds": 0},
     ],
 )
 def test_invalid_jvm_configuration_is_rejected(profile):
     values = {"heap_gib": 1, "max_element_depth": 100, "timeout_seconds": 60}
     with pytest.raises(ValueError, match="validation error"):
-        RobotDiffConfig.model_validate(values | profile)
+        RobotConfig.model_validate(values | profile)
 
 
 def test_missing_java_cannot_produce_an_empty_delta(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        module, "configured_robot_installation", lambda: (tmp_path, None)
+        launcher, "configured_robot_installation", lambda: (tmp_path, None)
     )
-    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(launcher.shutil, "which", lambda name: None)
     with pytest.raises(RuntimeError, match="Java is required"):
         robot_diff(
             tmp_path / "left",
             tmp_path / "right",
-            RobotDiffConfig(heap_gib=1, max_element_depth=100, timeout_seconds=1),
+            RobotConfig(heap_gib=1, max_element_depth=100, timeout_seconds=1),
         )
