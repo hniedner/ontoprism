@@ -22,7 +22,7 @@ def configure(monkeypatch, before, after):
     monkeypatch.setenv("RELEASE_DELTA_ACTIVE_ENDPOINT", "http://127.0.0.1:7888")
     monkeypatch.setenv("RELEASE_DELTA_HISTORY_RELEASES", '["26.08e", "26.09d"]')
     monkeypatch.setenv("RELEASE_DELTA_ROBOT_HEAP_GIB", "24")
-    monkeypatch.setenv("RELEASE_DELTA_ROBOT_MAX_ELEMENT_DEPTH", "0")
+    monkeypatch.setenv("RELEASE_DELTA_ROBOT_MAX_ELEMENT_DEPTH", "512")
     monkeypatch.setenv("RELEASE_DELTA_ROBOT_TIMEOUT_SECONDS", "1200")
 
 
@@ -30,7 +30,7 @@ def test_environment_profile_loads_paths_and_jvm_settings(monkeypatch, tmp_path)
     configure(monkeypatch, tmp_path / "before.json", tmp_path / "after.json")
     settings = DeltaSettings(_env_file=None)
     assert settings.robot_heap_gib == 24
-    assert settings.robot_max_element_depth == 0
+    assert settings.robot_max_element_depth == 512
     assert settings.sources["26.09d"].manifest == tmp_path / "after.json"
 
 
