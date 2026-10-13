@@ -16,7 +16,7 @@ def test_reasoner_failure_never_returns_a_clean_report(tmp_path, monkeypatch, fa
     def run(args, config):
         if failure == "timeout":
             raise TimeoutExpired(args, 1)
-        if args[0] == "merge":
+        if args[0] in {"merge", "validate-profile"}:
             return CompletedProcess(args, 0, "", "")
         errors = {
             "killed": (-9, "unsatisfiable"),
@@ -31,7 +31,13 @@ def test_reasoner_failure_never_returns_a_clean_report(tmp_path, monkeypatch, fa
         return CompletedProcess(args, code, "", message)
 
     monkeypatch.setattr(subject, "run_robot", run)
-    with pytest.raises((TimeoutExpired, ReasonerUnavailableError)):
+    message = {
+        "timeout": "timed out",
+        "killed": "killed",
+        "parser": "parse error",
+        "truncated": "There are 2 unsatisfiable classes",
+    }[failure]
+    with pytest.raises((TimeoutExpired, ReasonerUnavailableError), match=message):
         subject.check_projection(
             tmp_path / "source",
             [],

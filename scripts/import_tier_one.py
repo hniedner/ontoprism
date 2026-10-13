@@ -3,9 +3,8 @@
 import argparse
 import asyncio
 import json
-from pathlib import Path
 
-from scripts.oracle_metrics import read_oracle
+from scripts.oracle_metrics import _GOLDEN, read_oracle
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -16,10 +15,8 @@ from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 async def run(run_id: str, dry_run: bool) -> None:
     settings = get_settings()
     engine = make_engine(settings.database_url)
-    oracle = read_oracle(
-        Path("ontolib/tests/decomposition/golden/neoplasm-adjudicated.json")
-    )
     try:
+        oracle = read_oracle(_GOLDEN / "neoplasm-adjudicated.json")
         async with SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as client:
             report = await import_tier_one(
                 make_sessionmaker(engine),

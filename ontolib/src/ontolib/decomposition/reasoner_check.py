@@ -10,6 +10,7 @@ from rdflib import BNode, Graph, URIRef
 from rdflib.namespace import OWL, RDF, RDFS
 
 from ontolib.core.robot import RobotConfig, run_robot
+from ontolib.decomposition.axis_diagnostics import disjoint_ancestor_paths
 from ontolib.repositories.xref.validation import (
     ReasonerUnavailableError,
     _refuse_if_killed,
@@ -152,6 +153,18 @@ def _attribute(stated, assertions, new_unsat, workspace, robot):
     return affected
 
 
+def _attribution_summary(assertions, new_unsat, affected):
+    return {
+        "unattributed_unsatisfiable": sorted(
+            set(new_unsat) - {row["concept_code"] for row in affected}
+        ),
+        "projected_properties": {
+            "source_role": sum(len(row["source_roles"]) for row in assertions),
+            "op_axis_fallback": sum(not row["source_roles"] for row in assertions),
+        },
+    }
+
+
 def check_projection(stated, assertions, workspace, config: RobotConfig):
     started = perf_counter()
     robot = partial(run_robot, config=config)
@@ -183,6 +196,7 @@ def check_projection(stated, assertions, workspace, config: RobotConfig):
         if new is not None and old is not None
         else None,
         "new_unsatisfiable": new_unsat,
+        **_attribution_summary(assertions, new_unsat, affected),
         "contradictory_assertions": affected,
         "el_profile": profiles,
         "phase_seconds": {
@@ -207,14 +221,6 @@ def _profile(path, robot):
     return {"in_profile": result.returncode == 0, "diagnostic": diagnostic}
 
 
-def _disjoint_pairs(pairs, left, right):
-    return [
-        (a, b)
-        for a, b in pairs
-        if (a in left and b in right) or (b in left and a in right)
-    ]
-
-
 def disjoint_fillers(assertions, hierarchy):
     """Inspection only: disjoint existential fillers need not share a witness."""
     groups = {}
@@ -223,11 +229,15 @@ def disjoint_fillers(assertions, hierarchy):
             row["filler_code"]
         )
     findings = []
-    pairs = {(p.left, p.right) for p in hierarchy.disjoint_pairs}
     for (code, axis), fillers in sorted(groups.items()):
         for left, right in combinations(sorted(fillers), 2):
             ancestors = hierarchy.ancestor_paths(left), hierarchy.ancestor_paths(right)
-            evidence = _disjoint_pairs(pairs, *ancestors)
+            evidence = {
+                (pair.left, pair.right)
+                for _, _, pair in disjoint_ancestor_paths(
+                    *ancestors, hierarchy.disjoint_pairs
+                )
+            }
             if evidence:
                 findings.append(
                     {

@@ -3,17 +3,23 @@
 import json
 from collections import Counter
 
-from ontolib.decomposition.evidence_ledger import EvidenceLedger, _reassess
+from ontolib.decomposition.evidence_ledger import EvidenceLedger, reassess_entry
 from ontolib.decomposition.evidence_models import LedgerEntry
 
 
 def _matching_entry(entries, row):
-    (entry,) = [
+    matches = [
         e
         for e in entries
         if (e.axis, e.filler_code) == (row["axis"], row["filler_code"])
     ]
-    return entry
+    if len(matches) != 1:
+        raise ValueError(
+            "reasoner preview requires an existing ledger assessment: "
+            f"{row['concept_code']}/{row['axis']}/{row['filler_code']} "
+            f"(found {len(matches)})"
+        )
+    return matches[0]
 
 
 async def preview_reasoner_evidence(sessions, report, release):
@@ -33,7 +39,8 @@ async def preview_reasoner_evidence(sessions, report, release):
             "source": "ROBOT/ELK",
             "source_release": release,
             "locator": f"{entry.concept_code}/{entry.axis}/{entry.filler_code}",
-            "statement": "Adding this SubClassOf existential alone to stated NCIt "
+            "statement": "Adding this assertion's SubClassOf restrictions alone "
+            "to the checked stated baseline "
             "makes the subject unsatisfiable; baseline subject was satisfiable",
         }
         if item not in payload["evidence"]:
@@ -43,7 +50,7 @@ async def preview_reasoner_evidence(sessions, report, release):
             payload["needs_sme_reasons"].append(reason)
         payload["status"] = "needs-SME"
         predicted = LedgerEntry.model_validate_json(
-            json.dumps(_reassess(payload, entry, None), default=str)
+            json.dumps(reassess_entry(payload, entry, None), default=str)
         )
         counts[(entry.axis, entry.status, predicted.status)] += 1
     return {

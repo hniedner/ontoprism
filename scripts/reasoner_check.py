@@ -7,8 +7,9 @@ from time import perf_counter
 from typing import Annotated
 
 import typer
-from scripts.oracle_metrics import read_oracle
+from scripts.oracle_metrics import _GOLDEN, read_oracle
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -30,8 +31,8 @@ async def _inputs(sessions, run_id):
             ),
             {"run": run_id},
         )
-        metadata = result.mappings().one()
-        if metadata["status"] != "complete":
+        metadata = result.mappings().one_or_none()
+        if metadata is None or metadata["status"] != "complete":
             raise ValueError("reasoner check requires a completed stored run")
         result = await session.execute(
             text(
@@ -83,9 +84,7 @@ async def run(run_id, workspace, oracle=False):
         if oracle:
             codes = {
                 c.code
-                for c in read_oracle(
-                    Path("ontolib/tests/decomposition/golden/neoplasm-adjudicated.json")
-                )
+                for c in read_oracle(_GOLDEN / "neoplasm-adjudicated.json")
                 if c.adjudication.status == "accepted"
             }
             assertions = [r for r in assertions if r["concept_code"] in codes]
@@ -107,9 +106,12 @@ async def run(run_id, workspace, oracle=False):
             assertions=len(assertions),
             disjoint_fillers_inspection_only=disjoint_fillers(assertions, hierarchy),
         )
-        report["ledger_preview"] = await preview_reasoner_evidence(
-            sessions, report, metadata["ncit_version"]
-        )
+        try:
+            report["ledger_preview"] = await preview_reasoner_evidence(
+                sessions, report, metadata["ncit_version"]
+            )
+        except (ValueError, SQLAlchemyError) as exc:
+            report["ledger_preview_error"] = f"{type(exc).__name__}: {exc}"
         report["phase_seconds"]["input_reads_and_module"] = ready - start
         report["total_seconds"] = perf_counter() - start
         return report
@@ -122,7 +124,10 @@ def main(
     workspace: Annotated[Path, typer.Option()],
     oracle: bool = False,
 ):
-    typer.echo(json.dumps(asyncio.run(run(run_id, workspace, oracle)), indent=2))
+    report = asyncio.run(run(run_id, workspace, oracle))
+    typer.echo(json.dumps(report, indent=2))
+    if "ledger_preview_error" in report:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

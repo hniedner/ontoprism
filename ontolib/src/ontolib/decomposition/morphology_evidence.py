@@ -6,7 +6,7 @@ from collections import Counter
 
 from sqlalchemy import text
 
-from ontolib.decomposition.evidence_ledger import EvidenceLedger, _reassess
+from ontolib.decomposition.evidence_ledger import EvidenceLedger, reassess_entry
 from ontolib.decomposition.evidence_models import (
     EvidenceItem,
     LedgerAssessment,
@@ -123,13 +123,24 @@ def _attach(payload, entry, matching, anchors):
             payload["evidence"].append(item)
 
 
+def _skip_unique_filler(entry, candidates, anchors, site_carriers):
+    return len(candidates) == 1 and (
+        entry.filler_code != candidates[0]
+        or bool(
+            set(anchors.source.ancestor_paths(entry.filler_code)).intersection(
+                site_carriers
+            )
+        )
+    )
+
+
 def assess_morphology(entry, candidates, anchors, site_carriers):
     """Apply the owner-approved disease-anchor rule using existing ledger values."""
     payload = entry.model_dump(mode="json", include=set(LedgerAssessment.model_fields))
     matching = sorted(
         set(candidates).intersection(anchors.source.ancestor_paths(entry.filler_code))
     )
-    if _nonmatching_bucket(entry, candidates, anchors, site_carriers):
+    if _skip_unique_filler(entry, candidates, anchors, site_carriers):
         return LedgerAssessment.model_validate_json(json.dumps(payload))
     _attach(payload, entry, matching, anchors)
     if len(candidates) > 1:
@@ -183,7 +194,7 @@ def _nonmatching_bucket(entry, candidates, anchors, site_carriers):
 async def import_morphology_evidence(
     sessions, run_id, anchors: HistologyAnchors, site_carriers, *, dry_run=False
 ):
-    """Preflight assessments; preview the human-applicability rules used by writes."""
+    """Preflight then write assessments, or preview the same rules when dry_run."""
     run, entries = await morphology_inputs(sessions, run_id)
     if anchors.source.source_identity != run["source_identity"]:
         raise ValueError("P334 hierarchy source differs from stored run")
@@ -211,7 +222,7 @@ async def _import_report(
     ledger = EvidenceLedger(sessions)
     for previous, assessment in zip(entries, prepared, strict=True):
         if dry_run:
-            payload = _reassess(assessment.model_dump(mode="json"), previous, None)
+            payload = reassess_entry(assessment.model_dump(mode="json"), previous, None)
             entry = LedgerEntry.model_validate_json(json.dumps(payload, default=str))
         else:
             entry = await ledger.assess(assessment)

@@ -2,12 +2,13 @@
 
 import json
 from collections import Counter, defaultdict
+from typing import get_args
 
 from sqlalchemy import text
 
 from ontolib.decomposition.evidence_ledger import EvidenceLedger
 from ontolib.decomposition.evidence_models import LedgerAssessment, ReviewReason
-from ontolib.terminologies.uberon.corroboration import UberonCorroboration
+from ontolib.terminologies.uberon.corroboration import UberonCorroboration, Verdict
 
 ANATOMY_AXES = (
     "op:PrimarySite",
@@ -17,7 +18,7 @@ ANATOMY_AXES = (
     "op:MetastaticSite",
     "op:NormalTissueOrigin",
 )
-VERDICTS = ("supported", "contradicted", "no mapping", "mapped but unresolved")
+VERDICTS = get_args(Verdict)
 
 
 async def _inputs(sessions, run_id):

@@ -10,6 +10,28 @@ from ontolib.terminologies.uberon.corroboration import UberonCorroboration
 pytestmark = pytest.mark.unit
 
 
+@pytest.mark.parametrize("both", [False, True])
+async def test_region_contradiction_requires_excluding_both_permitted_categories(both):
+    extra = "obo:UBERON_9999999 owl:disjointWith obo:UBERON_0000479 ." if both else ""
+    source = await UberonCorroboration.read(
+        GraphClient(
+            """
+        obo:UBERON_9999999 oio:hasDbXref "NCIT:C999" ;
+            owl:disjointWith obo:UBERON_0000475 .
+    """
+            + extra
+        ),
+        {"C999"},
+    )
+    verdict, evidence = source.evidence("C999", "op:AssociatedRegion")
+    assert verdict == ("contradicted" if both else "mapped but unresolved")
+    if both:
+        assert "UBERON_0000475" in evidence[0].statement
+        assert "UBERON_0000479" in evidence[0].statement
+    else:
+        assert evidence == ()
+
+
 @pytest.mark.parametrize("multiple", [False, True])
 async def test_missing_relation_or_multiple_targets_never_support(multiple):
     client = GraphClient(

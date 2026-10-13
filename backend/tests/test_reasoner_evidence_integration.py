@@ -68,3 +68,19 @@ async def test_nonempty_preview_keeps_history_and_does_not_write():
         assert (await ledger.for_concept(code))[0] == before
     finally:
         await dispose_engine(engine)
+
+
+async def test_preview_explains_missing_ledger_assessment():
+    engine = make_engine(get_settings().database_url)
+    try:
+        row = {
+            "concept_code": "C" + str(int(uuid4().hex[:12], 16)),
+            "axis": "op:PrimarySite",
+            "filler_code": "C123",
+        }
+        with pytest.raises(ValueError, match="requires an existing ledger assessment"):
+            await preview_reasoner_evidence(
+                make_sessionmaker(engine), {"contradictory_assertions": [row]}, "26.07d"
+            )
+    finally:
+        await dispose_engine(engine)

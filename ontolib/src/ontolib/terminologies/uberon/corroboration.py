@@ -3,6 +3,7 @@
 import re
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from typing import Literal
 
 from ontolib.core.exceptions import StorageError
 from ontolib.decomposition.evidence_models import EvidenceItem
@@ -22,6 +23,7 @@ REGION = OBO + "UBERON_0000475"
 TISSUE = OBO + "UBERON_0000479"
 PART = OBO + "UBERON_0000064"
 SYSTEM = OBO + "UBERON_0000467"
+Verdict = Literal["supported", "contradicted", "no mapping", "mapped but unresolved"]
 
 
 def _bindings(row, *keys):
@@ -98,7 +100,9 @@ class UberonCorroboration:
                     queue.append(parent)
         return paths
 
-    def evidence(self, code, axis, peers=()) -> tuple[str, tuple[EvidenceItem, ...]]:
+    def evidence(
+        self, code, axis, peers=()
+    ) -> tuple[Verdict, tuple[EvidenceItem, ...]]:
         targets = self.mappings.get(code, set())
         if len(targets) != 1:
             return ("no mapping" if not targets else "mapped but unresolved"), ()

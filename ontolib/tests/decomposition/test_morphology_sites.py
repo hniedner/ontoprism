@@ -1,4 +1,4 @@
-"""Stated site screening excludes nested positive sites, not disjunctions."""
+"""Nested positive site existentials count as site-bearing; disjunctions do not."""
 
 import pytest
 from rdflib import Dataset, URIRef

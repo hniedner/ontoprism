@@ -58,3 +58,16 @@ def test_named_entailment_reader_expands_equivalence_and_excludes_restriction_no
         ("urn:A", "urn:C"),
         ("urn:B", "urn:C"),
     }
+
+
+def test_disjoint_inspection_never_combines_axes():
+    hierarchy = AxisHierarchyEvidence(
+        source_identity="a" * 64,
+        edges=(),
+        disjoint_pairs=(DisjointPair(left="C1", right="C2"),),
+    )
+    rows = [
+        {"concept_code": "C9", "axis": axis, "filler_code": filler}
+        for axis, filler in (("op:PrimarySite", "C1"), ("op:AssociatedSite", "C2"))
+    ]
+    assert disjoint_fillers(rows, hierarchy) == []

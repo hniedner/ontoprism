@@ -1339,8 +1339,8 @@ def test_full_app_routes_icdo_entitlement_through_the_private_bff() -> None:
     assert "ENABLE_LICENSED_MAPPINGS=false" in env_example
 
 
-def test_active_runtime_has_no_oxigraph_dependency() -> None:
-    # Parse structured manifests so explanatory comments are not dependencies.
+def test_runtime_manifests_declare_no_oxigraph_dependency() -> None:
+    # Declared dependencies/images only, not source code; ignore manifest comments.
     for relative in (
         "pyproject.toml",
         "backend/pyproject.toml",

@@ -4,7 +4,7 @@ import re
 from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
-from typing import Annotated, Literal, Self, cast
+from typing import Literal, Self, cast
 
 from pydantic import Field, model_validator
 
@@ -14,8 +14,6 @@ from ontolib.terminologies.namespaces import NCIT_NS
 
 _HISTORY_COLUMNS = 6
 _TOKEN = re.compile(r'<[^<>\s]+>|"(?:\\.|[^"\\])*"|[()]|[^\s()"<>]+')
-PositiveInteger = Annotated[int, Field(gt=0)]
-NonnegativeInteger = Annotated[int, Field(ge=0)]
 ReportSide = Literal["left", "right"]
 
 
