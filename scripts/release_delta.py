@@ -13,7 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from scripts.decompose import _source_snapshot
 
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel
-from ontolib.core.robot import RobotConfig
+from ontolib.core.robot import RobotSettings
 from ontolib.decomposition.branches import DecompositionBranch, branch_spec
 from ontolib.decomposition.scope import descendant_codes, read_scope_hierarchy_edges
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -24,7 +24,6 @@ from ontolib.terminologies.ncit.owl_download import (
 )
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.release_delta import (
-    PositiveInteger,
     named_classes,
     parse_expression,
     parse_history,
@@ -114,16 +113,13 @@ class ReleaseSource(StrictFrozenBoundaryModel):
     manifest: Path = Field(strict=False)
 
 
-class DeltaSettings(BaseSettings):
+class DeltaSettings(RobotSettings, BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="RELEASE_DELTA_", env_file=".env", extra="ignore", strict=True
     )
     sources: dict[str, ReleaseSource]
     active_endpoint: str
     history_releases: list[str] = Field(min_length=1)
-    robot_heap_gib: PositiveInteger
-    robot_max_element_depth: PositiveInteger
-    robot_timeout_seconds: PositiveInteger
 
 
 class CertifiedRelease(NamedTuple):
@@ -225,11 +221,7 @@ async def _compare(
     ]
     old, new = await _inventory(endpoints[0]), await _inventory(endpoints[1])
     events, provenance = await _history(releases)
-    profile = RobotConfig(
-        heap_gib=settings.robot_heap_gib,
-        max_element_depth=settings.robot_max_element_depth,
-        timeout_seconds=settings.robot_timeout_seconds,
-    )
+    profile = settings.robot_config()
     axioms = await asyncio.to_thread(
         robot_diff,
         Path(manifests[0].pair.stated.file_path),
