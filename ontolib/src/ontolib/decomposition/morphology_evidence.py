@@ -43,7 +43,9 @@ def _site_code(iri):
     return iri.removeprefix(NCIT_NS)
 
 
-async def morphology_inputs(sessions, run_id):
+async def morphology_inputs(
+    sessions, run_id, *, axes=("op:Morphology",), axis_source=None
+):
     """Require a completed run and matching existing ledger assessments."""
     async with sessions() as session:
         result = await session.execute(
@@ -61,10 +63,11 @@ async def morphology_inputs(sessions, run_id):
             text(
                 "SELECT to_jsonb(e) AS entry FROM decomp_constituent c "
                 "LEFT JOIN assertion_evidence e USING(concept_code,axis,filler_code) "
-                "WHERE c.run_id=:run AND c.axis='op:Morphology' "
+                "WHERE c.run_id=:run AND c.axis=ANY(:axes) "
+                "AND (CAST(:source AS text) IS NULL OR c.axis_source=:source) "
                 "ORDER BY c.concept_code,c.filler_code"
             ),
-            {"run": run_id},
+            {"run": run_id, "axes": list(axes), "source": axis_source},
         )
         entries = [_entry(row[0], run) for row in result]
     return run, entries

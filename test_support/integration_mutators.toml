@@ -1,4 +1,8 @@
 [[mutator]]
+path = "backend/tests/test_mondo_evidence_integration.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_reasoner_profile_contract.py"
 fixtures = ["tmp_path"]
 
