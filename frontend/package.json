@@ -46,7 +46,7 @@
 	},
 	"dependencies": {
 		"@sigma/edge-curve": "^3.1.0",
-		"@sigma/export-image": "^3.0.0",
+		"@sigma/export-image": "^4.0.0",
 		"clsx": "^2.1.1",
 		"graphology": "^0.26.0",
 		"graphology-communities-louvain": "^2.0.2",
